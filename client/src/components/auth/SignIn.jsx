@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate, Link as RouterLink } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useLocation, useNavigate, Link as RouterLink } from "react-router-dom";
 import { useAuth } from "@/components/contexts/AuthContext";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -19,7 +19,9 @@ import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import ForgotPassword from "../pages/SignIn/Components/ForgotPassword";
 import AppTheme from "../shared/AppTheme";
-import ColorModeSelect from "../shared/custom/ColorModeSelect";
+import ThemeToggle from "../shared/ThemeToggle";
+import { useMaintenance } from "@/components/contexts/MaintenanceContext";
+import { getAccountAccessState, getDashboardPathByRole } from "@/lib/accountAccess";
 import {
   GoogleIcon,
   FacebookIcon,
@@ -46,16 +48,20 @@ const Card = styled(MuiCard)(({ theme }) => ({
 }));
 
 const SignInContainer = styled(Stack)(({ theme }) => ({
-  height: "calc((1 - var(--template-frame-height, 0)) * 100dvh)",
-  minHeight: "100%",
+  minHeight: "100dvh", // Use dynamic viewport height
   padding: theme.spacing(2),
+  paddingBottom: theme.spacing(4), // Add bottom padding for scroll
   [theme.breakpoints.up("sm")]: {
     padding: theme.spacing(4),
+    paddingBottom: theme.spacing(6),
   },
+  position: "relative",
+  width: "100%",
+  /* Remove overflowY: auto - let body handle scrolling */
   "&::before": {
     content: '""',
     display: "block",
-    position: "absolute",
+    position: "fixed", // Changed from absolute to fixed
     zIndex: -1,
     inset: 0,
     backgroundImage:
@@ -70,7 +76,13 @@ const SignInContainer = styled(Stack)(({ theme }) => ({
 
 export default function SignIn(props) {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const location = useLocation();
+  const { login, user } = useAuth();
+  const { maintenanceMode, platformName } = useMaintenance();
+  const redirectTo = location.state?.redirectTo || location.state?.from || "";
+  const searchQuery = location.state?.searchQuery || "";
+  const redirectedMessage = location.state?.message || "";
+  const preferredRole = location.state?.preferredRole || "CLIENT";
 
   const [emailError, setEmailError] = useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = useState("");
@@ -79,6 +91,45 @@ export default function SignIn(props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [selectedRole, setSelectedRole] = useState(preferredRole);
+
+  useEffect(() => {
+    setSelectedRole(preferredRole);
+  }, [preferredRole]);
+
+  useEffect(() => {
+    if (maintenanceMode && selectedRole !== "ADMIN") {
+      setSelectedRole("ADMIN");
+    }
+  }, [maintenanceMode, selectedRole]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const normalizedRole = String(user.role || "").toUpperCase();
+    const accountAccess = getAccountAccessState(user);
+    const finalTarget = searchQuery 
+      ? `/providers?search=${encodeURIComponent(searchQuery)}` 
+      : redirectTo;
+
+    if (accountAccess.restricted) {
+      navigate(getDashboardPathByRole(normalizedRole), { replace: true });
+      return;
+    }
+
+    if (finalTarget) {
+      navigate(finalTarget, { replace: true });
+      return;
+    }
+
+    if (normalizedRole === "ADMIN") {
+      navigate("/admin-dashboard", { replace: true });
+    } else if (normalizedRole === "PROVIDER") {
+      navigate("/provider-dashboard", { replace: true });
+    } else {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [user, navigate, redirectTo, searchQuery]);
 
   const handleClickOpen = () => {
     setOpen(true);
@@ -91,13 +142,14 @@ export default function SignIn(props) {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
+    if (!validateInputs()) return;
 
     const data = new FormData(event.currentTarget);
 
     const payload = {
       email: data.get("email"),
       password: data.get("password"),
-      role: data.get("role"),
+      role: selectedRole,
     };
 
     setLoading(true);
@@ -105,13 +157,29 @@ export default function SignIn(props) {
     setLoading(false);
 
     if (result.success) {
-      // Redirect based on role
-      if (payload.role === "ADMIN") {
-        navigate("/admin-dashboard");
-      } else if (payload.role === "PROVIDER") {
-        navigate("/provider-dashboard");
+      const loggedInRole = String(result.user?.role || "").toUpperCase();
+      const accountAccess = getAccountAccessState(result.user);
+
+      const finalTarget = searchQuery 
+        ? `/providers?search=${encodeURIComponent(searchQuery)}` 
+        : redirectTo;
+
+      if (accountAccess.restricted) {
+        navigate(getDashboardPathByRole(loggedInRole), { replace: true });
+        return;
+      }
+
+      if (finalTarget) {
+        navigate(finalTarget, { replace: true });
+        return;
+      }
+
+      if (loggedInRole === "ADMIN") {
+        navigate("/admin-dashboard", { replace: true });
+      } else if (loggedInRole === "PROVIDER") {
+        navigate("/provider-dashboard", { replace: true });
       } else {
-        navigate("/");
+        navigate("/dashboard", { replace: true });
       }
     } else {
       setError(
@@ -150,10 +218,8 @@ export default function SignIn(props) {
   return (
     <AppTheme {...props}>
       <CssBaseline enableColorScheme />
-      <SignInContainer direction="column" justifyContent="space-between">
-        <ColorModeSelect
-          sx={{ position: "fixed", top: "1rem", right: "1rem" }}
-        />
+      <ThemeToggle />
+      <SignInContainer direction="column" justifyContent="flex-start">
         <Card variant="outlined">
           <SitemarkIcon />
           <Typography
@@ -180,20 +246,33 @@ export default function SignIn(props) {
               </Alert>
             )}
 
+            {!error && redirectedMessage ? (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                {redirectedMessage}
+              </Alert>
+            ) : null}
+
+            {maintenanceMode ? (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                {platformName} is currently in maintenance mode. Only admin sign-in is available right now.
+              </Alert>
+            ) : null}
+
             <FormControl fullWidth>
               <FormLabel>Sign in as</FormLabel>
               <TextField
                 select
                 name="role"
-                defaultValue="CLIENT"
+                value={selectedRole}
+                onChange={(event) => setSelectedRole(event.target.value)}
                 slotProps={{
                   select: {
                     native: true,
                   },
                 }}
               >
-                <option value="CLIENT">Client</option>
-                <option value="PROVIDER">Service Provider</option>
+                <option value="CLIENT" disabled={maintenanceMode}>Client</option>
+                <option value="PROVIDER" disabled={maintenanceMode}>Service Provider</option>
                 <option value="ADMIN">Admin</option>
               </TextField>
             </FormControl>
@@ -241,7 +320,6 @@ export default function SignIn(props) {
               type="submit"
               fullWidth
               variant="contained"
-              onClick={validateInputs}
               disabled={loading}
             >
               {loading ? <CircularProgress size={24} /> : "Sign in"}

@@ -26,7 +26,10 @@ const steps = [
 
 export default function HowItWorks() {
   return (
-    <section id="how-it-works" className="py-20 scroll-mt-24">
+    <section
+      id="how-it-works"
+      className="py-20 scroll-mt-24 bg-background dark:bg-background"
+    >
       <Motion.div
         className="container mx-auto px-4 text-center"
         variants={staggerContainer}
@@ -41,34 +44,40 @@ export default function HowItWorks() {
           How It Works
         </Motion.h2>
 
-        <Motion.div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-12">
-          {steps.map((step, index) => {
-            const Icon = step.icon;
+        <Motion.div className="mt-16 relative">
+          {/* Horizontal Timeline Line - Desktop */}
+          <div className="hidden md:block absolute top-16 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-primary/20 via-primary to-primary/20" />
 
-            return (
-              <Motion.div key={index} variants={fadeUp}>
-                <GlassCard className="p-8 text-center">
-                  <div className="relative inline-block">
-                    <div className="w-16 h-16 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-4 mx-auto">
-                      <Icon className="w-8 h-8" />
+          {/* Horizontal Timeline Line - Mobile (dotted) */}
+          <div className="md:hidden absolute top-16 left-8 right-8 h-0.5 border-t-2 border-dotted border-border" />
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-8">
+            {steps.map((step, index) => {
+              const Icon = step.icon;
+
+              return (
+                <Motion.div key={index} variants={fadeUp} className="relative">
+                  <GlassCard className="p-8 text-center">
+                    <div className="relative inline-block">
+                      <div className="w-16 h-16 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-4 mx-auto">
+                        <Icon className="w-8 h-8" />
+                      </div>
+
+                      <div className="absolute -top-2 -right-2 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-bold">
+                        {index + 1}
+                      </div>
                     </div>
 
-                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-bold">
-                      {index + 1}
-                    </div>
-                  </div>
+                    <h3 className="font-semibold text-xl mb-3 text-foreground">
+                      {step.title}
+                    </h3>
 
-                  <h3 className="font-semibold text-xl mb-3 text-foreground">
-                    {step.title}
-                  </h3>
-
-                  <p className="text-muted-foreground">
-                    {step.description}
-                  </p>
-                </GlassCard>
-              </Motion.div>
-            );
-          })}
+                    <p className="text-muted-foreground">{step.description}</p>
+                  </GlassCard>
+                </Motion.div>
+              );
+            })}
+          </div>
         </Motion.div>
       </Motion.div>
     </section>

@@ -17,8 +17,9 @@ import MuiCard from "@mui/material/Card";
 import { styled } from "@mui/material/styles";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
+import { Camera, Plus } from "lucide-react";
 import AppTheme from "../shared/AppTheme";
-import ColorModeSelect from "../shared/custom/ColorModeSelect";
+import ThemeToggle from "../shared/ThemeToggle";
 import {
   GoogleIcon,
   FacebookIcon,
@@ -45,16 +46,20 @@ const Card = styled(MuiCard)(({ theme }) => ({
 }));
 
 const SignUpContainer = styled(Stack)(({ theme }) => ({
-  height: "calc((1 - var(--template-frame-height, 0)) * 100dvh)",
-  minHeight: "100%",
+  minHeight: "100dvh", // Use dynamic viewport height
   padding: theme.spacing(2),
+  paddingBottom: theme.spacing(4), // Add bottom padding for scroll
   [theme.breakpoints.up("sm")]: {
     padding: theme.spacing(4),
+    paddingBottom: theme.spacing(6),
   },
+  position: "relative",
+  width: "100%",
+  /* Remove overflowY: auto - let body handle scrolling */
   "&::before": {
     content: '""',
     display: "block",
-    position: "absolute",
+    position: "fixed", // Changed from absolute to fixed
     zIndex: -1,
     inset: 0,
     backgroundImage:
@@ -75,16 +80,35 @@ export default function SignUp(props) {
   const [emailErrorMessage, setEmailErrorMessage] = useState("");
   const [passwordError, setPasswordError] = useState(false);
   const [passwordErrorMessage, setPasswordErrorMessage] = useState("");
+  const [phoneError, setPhoneError] = useState(false);
+  const [phoneErrorMessage, setPhoneErrorMessage] = useState("");
   const [nameError, setNameError] = useState(false);
   const [nameErrorMessage, setNameErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [profilePhoto, setProfilePhoto] = useState("");
+  const [role, setRole] = useState("CLIENT");
+  const [serviceType, setServiceType] = useState("Other");
+
+  const handleProfilePhotoChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setProfilePhoto(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const validateInputs = () => {
     const email = document.getElementById("email");
     const password = document.getElementById("password");
     const name = document.getElementById("name");
+    const phone = document.getElementById("phone");
 
     let isValid = true;
 
@@ -97,9 +121,15 @@ export default function SignUp(props) {
       setEmailErrorMessage("");
     }
 
-    if (!password.value || password.value.length < 6) {
+    if (
+      !password.value ||
+      password.value.length < 8 ||
+      !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password.value)
+    ) {
       setPasswordError(true);
-      setPasswordErrorMessage("Password must be at least 6 characters long.");
+      setPasswordErrorMessage(
+        "Password must be 8+ chars and include uppercase, lowercase, and a number.",
+      );
       isValid = false;
     } else {
       setPasswordError(false);
@@ -115,6 +145,15 @@ export default function SignUp(props) {
       setNameErrorMessage("");
     }
 
+    if (!phone.value || !/^\d{10}$/.test(phone.value)) {
+      setPhoneError(true);
+      setPhoneErrorMessage("Phone number must be exactly 10 digits.");
+      isValid = false;
+    } else {
+      setPhoneError(false);
+      setPhoneErrorMessage("");
+    }
+
     return isValid;
   };
 
@@ -123,27 +162,38 @@ export default function SignUp(props) {
     setError("");
     setSuccess(false);
 
-    if (nameError || emailError || passwordError) {
+    if (nameError || emailError || phoneError || passwordError) {
       return;
     }
 
     const data = new FormData(event.currentTarget);
     const name = data.get("name");
     const email = data.get("email");
+    const phone = data.get("phone");
     const password = data.get("password");
-    const role = data.get("role") || "CLIENT";
 
     setLoading(true);
-    const result = await register(name, email, password, role);
+    const result = await register(
+      name,
+      email,
+      phone,
+      password,
+      role,
+      profilePhoto,
+      serviceType
+    );
     setLoading(false);
 
     if (result.success) {
       setSuccess(true);
-      // Redirect based on role
-      if (role === "PROVIDER") {
-        navigate("/provider-dashboard");
+      const registeredRole = result.user?.role;
+
+      if (registeredRole === "ADMIN") {
+        navigate("/admin-dashboard", { replace: true });
+      } else if (registeredRole === "PROVIDER") {
+        navigate("/provider-dashboard", { replace: true });
       } else {
-        navigate("/");
+        navigate("/dashboard", { replace: true });
       }
     } else {
       setError(result.message || "Registration failed. Please try again.");
@@ -153,8 +203,8 @@ export default function SignUp(props) {
   return (
     <AppTheme {...props}>
       <CssBaseline enableColorScheme />
-      <ColorModeSelect sx={{ position: "fixed", top: "1rem", right: "1rem" }} />
-      <SignUpContainer direction="column" justifyContent="space-between">
+      <ThemeToggle />
+      <SignUpContainer direction="column" justifyContent="flex-start">
         <Card variant="outlined">
           <SitemarkIcon />
           <Typography
@@ -182,6 +232,63 @@ export default function SignUp(props) {
             )}
 
             <FormControl>
+              <FormLabel>Profile Photo</FormLabel>
+              <Box sx={{ display: "flex", justifyContent: "center", py: 1 }}>
+                <Box sx={{ position: "relative", width: 96, height: 96 }}>
+                  <Box
+                    sx={{
+                      width: 96,
+                      height: 96,
+                      borderRadius: "50%",
+                      overflow: "hidden",
+                      border: "2px solid #cbd5e1",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: "#f8fafc",
+                    }}
+                  >
+                    {profilePhoto ? (
+                      <img
+                        src={profilePhoto}
+                        alt="profile preview"
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
+                      />
+                    ) : (
+                      <Camera size={28} color="#64748b" />
+                    )}
+                  </Box>
+                  <Button
+                    component="label"
+                    variant="contained"
+                    sx={{
+                      minWidth: 0,
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      position: "absolute",
+                      right: -4,
+                      bottom: -4,
+                      p: 0,
+                    }}
+                  >
+                    <Plus size={16} />
+                    <input
+                      hidden
+                      accept="image/*"
+                      type="file"
+                      onChange={handleProfilePhotoChange}
+                    />
+                  </Button>
+                </Box>
+              </Box>
+            </FormControl>
+
+            <FormControl>
               <FormLabel htmlFor="name">Full name</FormLabel>
               <TextField
                 autoComplete="name"
@@ -201,7 +308,8 @@ export default function SignUp(props) {
               <TextField
                 select
                 name="role"
-                defaultValue="CLIENT"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
                 slotProps={{
                   select: {
                     native: true,
@@ -212,6 +320,33 @@ export default function SignUp(props) {
                 <option value="PROVIDER">Service Provider</option>
               </TextField>
             </FormControl>
+
+            {role === "PROVIDER" && (
+              <FormControl>
+                <FormLabel htmlFor="serviceType">Profession / Service Type</FormLabel>
+                <TextField
+                  select
+                  name="serviceType"
+                  value={serviceType}
+                  onChange={(e) => setServiceType(e.target.value)}
+                  slotProps={{
+                    select: {
+                      native: true,
+                    },
+                  }}
+                >
+                  <option value="Plumbing">Plumbing</option>
+                  <option value="Electrical">Electrical</option>
+                  <option value="Cleaning">Cleaning</option>
+                  <option value="Painting">Painting</option>
+                  <option value="Carpentry">Carpentry</option>
+                  <option value="AC Repair">AC Repair</option>
+                  <option value="Appliance Repair">Appliance Repair</option>
+                  <option value="Moving">Moving</option>
+                  <option value="Other">Other</option>
+                </TextField>
+              </FormControl>
+            )}
 
             <FormControl>
               <FormLabel htmlFor="email">Email</FormLabel>
@@ -226,6 +361,21 @@ export default function SignUp(props) {
                 error={emailError}
                 helperText={emailErrorMessage}
                 color={emailError ? "error" : "primary"}
+              />
+            </FormControl>
+            <FormControl>
+              <FormLabel htmlFor="phone">Phone Number</FormLabel>
+              <TextField
+                required
+                fullWidth
+                id="phone"
+                placeholder="9876543210"
+                name="phone"
+                autoComplete="tel"
+                variant="outlined"
+                error={phoneError}
+                helperText={phoneErrorMessage}
+                color={phoneError ? "error" : "primary"}
               />
             </FormControl>
             <FormControl>

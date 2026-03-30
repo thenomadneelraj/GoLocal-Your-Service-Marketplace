@@ -1,35 +1,42 @@
 const express = require("express");
 const router = express.Router();
 
-const { authenticate, authorize } = require("../middleware/auth");
+const { authenticate, authorize, optionalAuth } = require("../middleware/auth");
+const { enforceMaintenanceMode } = require("../middleware/maintenance");
+const { enforceAccountAccess } = require("../middleware/accountAccess");
 const {
   createProvider,
   getProviders,
   getProviderById,
   updateProvider,
-  deleteProvider
+  deleteProvider,
+  updateProviderMe,
+  getProviderMe
 } = require("../controllers/providerController");
+const {
+  getProviderDashboard,
+  getEarnings,
+  getBookingsTrend,
+  getServicePerformance,
+} = require("../controllers/providerStatsController");
 
-/*
+// Protected "Me" endpoints
+router.get("/me/profile", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, getProviderMe);
+router.put("/me/profile", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, updateProviderMe);
 
-// DEBUG — check if functions are defined
-console.log("Provider Controller Functions:", {
-  createProvider,
-  getProviders,
-  getProviderById,
-  updateProvider,
-  deleteProvider
-});
-
-*/
+// Provider Dashboard Stats
+router.get("/stats/dashboard", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, getProviderDashboard);
+router.get("/stats/earnings", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, getEarnings);
+router.get("/stats/bookings", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, getBookingsTrend);
+router.get("/stats/services", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, getServicePerformance);
 
 // Public
-router.get("/", getProviders);
-router.get("/:id", getProviderById);
+router.get("/", optionalAuth, enforceMaintenanceMode, enforceAccountAccess, getProviders);
+router.get("/:id", optionalAuth, enforceMaintenanceMode, enforceAccountAccess, getProviderById);
 
 // Protected
-router.post("/", authenticate, authorize("PROVIDER"), createProvider);
-router.put("/:id", authenticate, authorize("PROVIDER"), updateProvider);
-router.delete("/:id", authenticate, authorize("PROVIDER"), deleteProvider);
+router.post("/", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, createProvider);
+router.put("/:id", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, updateProvider);
+router.delete("/:id", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, deleteProvider);
 
 module.exports = router;

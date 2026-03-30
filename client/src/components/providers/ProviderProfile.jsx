@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import axios from "axios";
+import api from "@/lib/api";
+import { useAuth } from "@/components/contexts/AuthContext";
 import Box from "@mui/material/Box";
 import Container from "@mui/material/Container";
 import Grid from "@mui/material/Grid";
@@ -14,7 +15,6 @@ import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
 import Divider from "@mui/material/Divider";
-import TextField from "@mui/material/TextField";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import PhoneIcon from "@mui/icons-material/Phone";
 import EmailIcon from "@mui/icons-material/Email";
@@ -22,11 +22,35 @@ import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import VerifiedIcon from "@mui/icons-material/Verified";
 import WorkIcon from "@mui/icons-material/Work";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import PersonIcon from "@mui/icons-material/Person";
+import { resolveMediaUrl } from "@/lib/media";
+
+const STATUS_CONFIG = {
+  available: { label: "Available", color: "success" },
+  busy: { label: "Busy", color: "warning" },
+  unavailable: { label: "Unavailable", color: "default" },
+};
+
+const formatReviewDate = (value) => {
+  if (!value) return "Recently";
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const getInitials = (value = "") =>
+  String(value || "")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "C";
 
 const ProviderProfile = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [provider, setProvider] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -39,71 +63,53 @@ const ProviderProfile = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get(`/api/providers/${id}`);
-      setProvider(response.data);
+      const response = await api.get(`/api/providers/${id}`);
+      const raw = response.data?.data || response.data;
+      const normalized = {
+        ...raw,
+        id: raw?._id || raw?.id,
+        name: raw?.name || "Unknown",
+        email: raw?.email || raw?.user?.email,
+        profileImage: raw?.profileImage || raw?.profilePhoto || "",
+        rating: Number(raw?.rating || 0),
+        available: raw?.available ?? raw?.availability ?? false,
+        userAccountId: raw?.userId?._id || raw?.userId || "",
+        verified: raw?.verified ?? raw?.isApproved ?? false,
+        reviewCount: raw?.reviewCount ?? raw?.totalReviews ?? 0,
+        yearsExperience: raw?.yearsExperience ?? raw?.experience ?? 0,
+        responseTime: raw?.responseTime || "Within 24 hours",
+        completedJobs: raw?.completedJobs || 0,
+        services: Array.isArray(raw?.services) ? raw.services : [],
+        reviews: Array.isArray(raw?.reviews)
+          ? raw.reviews.map((review) => ({
+              id: review?.id || review?._id,
+              rating: Number(review?.rating || 0),
+              comment: review?.comment || "",
+              createdAt: review?.createdAt || review?.date || "",
+              serviceTitle: review?.serviceTitle || "",
+              clientName:
+                review?.clientName ||
+                review?.userName ||
+                review?.clientId?.name ||
+                "Client",
+              clientProfileImage:
+                review?.clientProfileImage ||
+                review?.clientId?.profileImage ||
+                "",
+            }))
+          : [],
+        availabilitySummary: raw?.availabilitySummary || {
+          status: raw?.available ?? raw?.availability ? "available" : "unavailable",
+          reason: raw?.available ?? raw?.availability ? "Provider is available for booking." : "Provider is currently unavailable.",
+          canBook: Boolean(raw?.available ?? raw?.availability),
+        },
+      };
+      setProvider(normalized);
     } catch (err) {
-      console.log("Using mock data for provider");
-      setProvider(getMockProvider());
+      setError(err.response?.data?.message || "Failed to load provider details.");
     } finally {
       setLoading(false);
     }
-  };
-
-  const getMockProvider = () => {
-    return {
-      id: "1",
-      name: "John Smith",
-      serviceType: "Plumbing",
-      rating: 4.8,
-      reviewCount: 124,
-      location: "New York, NY",
-      hourlyRate: 75,
-      bio: "Professional plumber with over 10 years of experience in residential and commercial plumbing services. I specialize in pipe repair, water heater installation, drain cleaning, and emergency plumbing services. My commitment to quality workmanship and customer satisfaction has earned me a reputation as one of the most reliable plumbers in the area.",
-      available: true,
-      verified: true,
-      phone: "(555) 123-4567",
-      email: "john.smith@email.com",
-      yearsExperience: 10,
-      completedJobs: 500,
-      responseTime: "Within 1 hour",
-      reviews: [
-        {
-          id: 1,
-          userName: "Alice M.",
-          rating: 5,
-          date: "2024-01-15",
-          comment:
-            "Excellent work! Fixed our leak quickly and professionally. Highly recommend!",
-        },
-        {
-          id: 2,
-          userName: "Bob K.",
-          rating: 5,
-          date: "2024-01-10",
-          comment: "Very knowledgeable and efficient. Fair pricing too.",
-        },
-        {
-          id: 3,
-          userName: "Carol D.",
-          rating: 4,
-          date: "2024-01-05",
-          comment: "Good work, arrived on time. Would hire again.",
-        },
-      ],
-      services: [
-        "Pipe Repair & Installation",
-        "Water Heater Services",
-        "Drain Cleaning",
-        "Emergency Plumbing",
-        "Leak Detection",
-        "Bathroom & Kitchen Plumbing",
-      ],
-      certifications: [
-        "Licensed Plumber",
-        "Certified Backflow Tester",
-        "OSHA Safety Certified",
-      ],
-    };
   };
 
   if (loading) {
@@ -143,6 +149,61 @@ const ProviderProfile = () => {
     );
   }
 
+  const profileImage = resolveMediaUrl(provider.profileImage);
+  const fallbackServiceLabel =
+    provider.serviceType && provider.serviceType !== "Other"
+      ? `${provider.serviceType} Service`
+      : "General Service";
+  const displayedServices = provider.services?.length
+    ? provider.services
+    : [{ _id: "default-service", title: fallbackServiceLabel }];
+  const statusConfig =
+    STATUS_CONFIG[provider.availabilitySummary?.status] || STATUS_CONFIG.available;
+  const bookingButtonLabel =
+    provider.availabilitySummary?.status === "busy"
+      ? "Choose Date & Time"
+      : provider.availabilitySummary?.status === "unavailable"
+        ? "Unavailable for Booking"
+        : "Book Now";
+  const currentUserRole = String(user?.role || "").toLowerCase();
+  const isOwnProviderProfile =
+    currentUserRole === "provider" &&
+    String(user?.id || "") === String(provider.userAccountId || "");
+  const canMessageProvider =
+    Boolean(provider.userAccountId) &&
+    (!user || currentUserRole === "client" || isOwnProviderProfile);
+  const messageButtonLabel = !user
+    ? "Sign In to Message"
+    : currentUserRole === "client"
+      ? "Send Message"
+      : isOwnProviderProfile
+        ? "Open Inbox"
+        : "Client Messaging Only";
+
+  const handleMessageClick = () => {
+    if (!provider.userAccountId) return;
+
+    if (!user) {
+      navigate("/signin", {
+        state: {
+          message: "Sign in as a client to message this provider.",
+          redirectTo: `/messages?contact=${provider.userAccountId}`,
+          preferredRole: "CLIENT",
+        },
+      });
+      return;
+    }
+
+    if (currentUserRole === "client") {
+      navigate(`/messages?contact=${provider.userAccountId}`);
+      return;
+    }
+
+    if (isOwnProviderProfile) {
+      navigate("/provider/messages");
+    }
+  };
+
   return (
     <Box sx={{ bgcolor: "grey.50", minHeight: "100vh", py: 4 }}>
       <Container maxWidth="lg">
@@ -158,7 +219,7 @@ const ProviderProfile = () => {
 
         <Grid container spacing={4}>
           {/* Left Column - Provider Info */}
-          <Grid item xs={12} md={8}>
+          <Grid size={{ xs: 12, md: 8 }}>
             {/* Profile Header Card */}
             <Card sx={{ mb: 3 }}>
               <CardContent sx={{ p: 4 }}>
@@ -171,6 +232,7 @@ const ProviderProfile = () => {
                   }}
                 >
                   <Avatar
+                    src={profileImage || undefined}
                     sx={{
                       width: 120,
                       height: 120,
@@ -205,9 +267,11 @@ const ProviderProfile = () => {
                           size="small"
                         />
                       )}
-                      {provider.available && (
-                        <Chip label="Available" color="success" size="small" />
-                      )}
+                      <Chip
+                        label={statusConfig.label}
+                        color={statusConfig.color}
+                        size="small"
+                      />
                     </Box>
 
                     <Chip
@@ -227,12 +291,12 @@ const ProviderProfile = () => {
                     >
                       <Box sx={{ display: "flex", alignItems: "center" }}>
                         <Rating
-                          value={provider.rating}
+                          value={Number(provider.rating || 0)}
                           precision={0.5}
                           readOnly
                         />
                         <Typography variant="body1" sx={{ ml: 1 }}>
-                          {provider.rating} ({provider.reviewCount} reviews)
+                          {Number(provider.rating || 0).toFixed(1)} ({provider.reviewCount} reviews)
                         </Typography>
                       </Box>
                     </Box>
@@ -285,8 +349,12 @@ const ProviderProfile = () => {
                   Services Offered
                 </Typography>
                 <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-                  {provider.services?.map((service, index) => (
-                    <Chip key={index} label={service} variant="outlined" />
+                  {displayedServices.map((service, index) => (
+                    <Chip
+                      key={service?._id || index}
+                      label={typeof service === "string" ? service : service.title}
+                      variant="outlined"
+                    />
                   ))}
                 </Box>
               </CardContent>
@@ -324,47 +392,76 @@ const ProviderProfile = () => {
                 <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>
                   Reviews
                 </Typography>
-                {provider.reviews?.map((review, index) => (
-                  <Box key={review.id}>
-                    <Box sx={{ mb: 2 }}>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          mb: 1,
-                        }}
-                      >
-                        <Typography
-                          variant="subtitle1"
-                          sx={{ fontWeight: 600 }}
+                {provider.reviews?.length ? (
+                  provider.reviews.map((review, index) => (
+                    <Box key={review.id || index}>
+                      <Box sx={{ mb: 2 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            gap: 2,
+                            alignItems: "flex-start",
+                          }}
                         >
-                          {review.userName}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {review.date}
-                        </Typography>
+                          <Avatar
+                            src={resolveMediaUrl(review.clientProfileImage) || undefined}
+                            sx={{ width: 52, height: 52, bgcolor: "primary.main" }}
+                          >
+                            {getInitials(review.clientName)}
+                          </Avatar>
+                          <Box sx={{ flex: 1 }}>
+                            <Box
+                              sx={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "flex-start",
+                                gap: 2,
+                                mb: 1,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <Box>
+                                <Typography
+                                  variant="subtitle1"
+                                  sx={{ fontWeight: 600 }}
+                                >
+                                  {review.clientName}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  {review.serviceTitle || provider.serviceType}
+                                </Typography>
+                              </Box>
+                              <Typography variant="body2" color="text.secondary">
+                                {formatReviewDate(review.createdAt)}
+                              </Typography>
+                            </Box>
+                            <Rating value={Number(review.rating || 0)} readOnly size="small" />
+                            <Typography
+                              variant="body2"
+                              color="text.secondary"
+                              sx={{ mt: 1.25, lineHeight: 1.7 }}
+                            >
+                              {review.comment || "This client left a star rating without a written comment."}
+                            </Typography>
+                          </Box>
+                        </Box>
                       </Box>
-                      <Rating value={review.rating} readOnly size="small" />
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ mt: 1 }}
-                      >
-                        {review.comment}
-                      </Typography>
+                      {index < provider.reviews.length - 1 && (
+                        <Divider sx={{ my: 2 }} />
+                      )}
                     </Box>
-                    {index < provider.reviews.length - 1 && (
-                      <Divider sx={{ my: 2 }} />
-                    )}
-                  </Box>
-                ))}
+                  ))
+                ) : (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    No client feedback yet. Completed booking reviews will appear here with the client&apos;s name and profile photo.
+                  </Alert>
+                )}
               </CardContent>
             </Card>
           </Grid>
 
           {/* Right Column - Booking Card */}
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <Card sx={{ position: "sticky", top: 100 }}>
               <CardContent sx={{ p: 4 }}>
                 <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>
@@ -421,6 +518,23 @@ const ProviderProfile = () => {
 
                 <Divider sx={{ my: 2 }} />
 
+                <Alert
+                  severity={
+                    provider.availabilitySummary?.status === "available"
+                      ? "success"
+                      : provider.availabilitySummary?.status === "busy"
+                        ? "warning"
+                        : "info"
+                  }
+                  sx={{ mb: 3 }}
+                >
+                  {provider.availabilitySummary?.reason || "Provider availability will be checked when you book."}
+                </Alert>
+
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Choose your preferred calendar date and time after continuing to the booking step.
+                </Typography>
+
                 <Box sx={{ mb: 3 }}>
                   <Typography
                     variant="body2"
@@ -441,12 +555,19 @@ const ProviderProfile = () => {
                   component={Link}
                   to={`/booking/${provider.id}`}
                   sx={{ mb: 2 }}
+                  disabled={provider.availabilitySummary?.status === "unavailable"}
                 >
-                  Book Now
+                  {bookingButtonLabel}
                 </Button>
 
-                <Button variant="outlined" fullWidth size="large">
-                  Send Message
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  size="large"
+                  onClick={handleMessageClick}
+                  disabled={!canMessageProvider}
+                >
+                  {messageButtonLabel}
                 </Button>
               </CardContent>
             </Card>

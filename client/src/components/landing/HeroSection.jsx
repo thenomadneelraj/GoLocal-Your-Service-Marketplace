@@ -2,8 +2,7 @@ import { motion as Motion } from "framer-motion";
 import { Search, ArrowRight, Shield, Star, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import heroImage from "@/assets/hero-professionals.jpg";
-
+import heroImage from "@/assets/hero-professionals-Clyn7C6C.png";
 export default function HeroSection() {
   return (
     <section className="relative pt-32 pb-24 overflow-hidden">
@@ -45,9 +44,11 @@ export default function HeroSection() {
                 className="w-full pl-12 pr-4 py-3 rounded-xl border border-input bg-background"
               />
             </div>
-            <Button size="lg" className="rounded-xl">
-              Get Started
-              <ArrowRight className="w-4 h-4 ml-2" />
+            <Button size="lg" className="rounded-xl" asChild>
+              <Link to="/signup">
+                Get Started
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Link>
             </Button>
           </div>
 

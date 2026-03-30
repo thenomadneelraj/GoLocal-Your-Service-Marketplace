@@ -1,11 +1,5 @@
 import { motion as Motion } from "framer-motion";
-import {
-  Shield,
-  DollarSign,
-  Star,
-  Lock,
-  HeartHandshake,
-} from "lucide-react";
+import { Shield, DollarSign, Star, Lock, HeartHandshake } from "lucide-react";
 
 const features = [
   {
@@ -59,9 +53,8 @@ const itemVariants = {
 
 export default function WhyChooseUs() {
   return (
-    <section className="py-12 bg-zinc-950">
+    <section className="py-12 bg-background dark:bg-background">
       <div className="max-w-7xl mx-auto px-6">
-
         {/* HEADER */}
         <Motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -70,10 +63,10 @@ export default function WhyChooseUs() {
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <h2 className="text-blue-500 text-3xl md:text-4xl font-bold mb-4">
+          <h2 className="text-3xl md:text-4xl font-bold mb-4 text-primary">
             Why Choose GoLocal?
           </h2>
-          <p className="text-zinc-400 max-w-3xl mx-auto">
+          <p className="text-muted-foreground max-w-3xl mx-auto">
             Connecting you with trusted professionals through secure,
             transparent, and reliable services.
           </p>
@@ -94,16 +87,16 @@ export default function WhyChooseUs() {
               <Motion.div
                 key={feature.title}
                 variants={itemVariants}
-                className="flex items-start gap-4 p-6 bg-zinc-900 border border-zinc-800 rounded-xl"
+                className="flex items-start gap-4 p-6 bg-card border border-border rounded-xl"
               >
-                <div className="w-12 h-12 rounded-lg bg-blue-600/20 flex items-center justify-center shrink-0">
-                  <Icon className="w-6 h-6 text-blue-500" />
+                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <Icon className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white text-lg mb-1">
+                  <h3 className="font-semibold text-lg mb-1 text-foreground">
                     {feature.title}
                   </h3>
-                  <p className="text-zinc-400 text-sm">
+                  <p className="text-sm text-muted-foreground">
                     {feature.description}
                   </p>
                 </div>
@@ -128,20 +121,16 @@ export default function WhyChooseUs() {
           ].map((stat) => (
             <div
               key={stat.label}
-              className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center"
+              className="bg-card border border-border rounded-xl p-6 text-center"
             >
-              <p className="text-3xl font-bold text-blue-500 mb-1">
+              <p className="text-3xl font-bold text-primary mb-1">
                 {stat.value}
               </p>
-              <p className="text-zinc-400 text-sm">
-                {stat.label}
-              </p>
+              <p className="text-sm text-muted-foreground">{stat.label}</p>
             </div>
           ))}
         </Motion.div>
-
       </div>
     </section>
   );
 }
-

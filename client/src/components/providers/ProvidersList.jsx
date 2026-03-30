@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import axios from "axios";
+import api from "@/lib/api";
 
 import Grid from "@mui/material/Grid";
 import {
@@ -17,12 +17,35 @@ import {
   Container,
   Button,
   Skeleton,
+  Paper,
+  Chip,
+  Stack,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 
 import SearchIcon from "@mui/icons-material/Search";
+import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
+import PlaceOutlinedIcon from "@mui/icons-material/PlaceOutlined";
+import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
+import SortRoundedIcon from "@mui/icons-material/SortRounded";
 import ProviderCard from "./ProviderCard";
 
 const LIMIT = 12;
+
+const normalizeProvider = (item) => ({
+  id: item._id || item.id,
+  name: item.name || "Unknown",
+  serviceType: item.serviceType || "Other",
+  rating: Number(item.rating || 0),
+  reviewCount: Number(item.reviewCount ?? item.totalReviews ?? 0),
+  location: item.location || "",
+  hourlyRate: Number(item.hourlyRate || 0),
+  bio: item.bio || "",
+  available: item.available ?? item.availability ?? false,
+  image: item.profileImage || item.profilePhoto || item.image || "",
+  experience: Number(item.experience || item.yearsExperience || 0),
+  serviceCount: Array.isArray(item.services) ? item.services.length : 0,
+});
 
 const ProvidersList = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -30,19 +53,13 @@ const ProvidersList = () => {
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [totalResults, setTotalResults] = useState(0);
 
-  const [searchTerm, setSearchTerm] = useState(
-    searchParams.get("search") || ""
-  );
-  const [serviceType, setServiceType] = useState(
-    searchParams.get("type") || "All"
-  );
-  const [location, setLocation] = useState(
-    searchParams.get("location") || ""
-  );
-  const [page, setPage] = useState(
-    parseInt(searchParams.get("page")) || 1
-  );
+  const [searchTerm, setSearchTerm] = useState(searchParams.get("search") || "");
+  const [serviceType, setServiceType] = useState(searchParams.get("type") || "All");
+  const [location, setLocation] = useState(searchParams.get("location") || "");
+  const [sortBy, setSortBy] = useState(searchParams.get("sort") || "recommended");
+  const [page, setPage] = useState(parseInt(searchParams.get("page"), 10) || 1);
   const [totalPages, setTotalPages] = useState(1);
 
   const serviceTypes = useMemo(
@@ -61,23 +78,23 @@ const ProvidersList = () => {
     []
   );
 
-  /* ------------------------------
-     Sync URL Params
-  ------------------------------ */
   useEffect(() => {
     const params = {};
 
     if (searchTerm) params.search = searchTerm;
     if (serviceType !== "All") params.type = serviceType;
     if (location) params.location = location;
+    if (sortBy !== "recommended") params.sort = sortBy;
     if (page > 1) params.page = page;
 
-    setSearchParams(params);
-  }, [searchTerm, serviceType, location, page, setSearchParams]);
+    const next = new URLSearchParams(params).toString();
+    const current = searchParams.toString();
 
-  /* ------------------------------
-     Mock Data
-  ------------------------------ */
+    if (next !== current) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchTerm, serviceType, location, sortBy, page, searchParams, setSearchParams]);
+
   const getMockProviders = () => [
     {
       id: "1",
@@ -89,6 +106,8 @@ const ProvidersList = () => {
       hourlyRate: 75,
       bio: "Professional plumber with 10+ years experience.",
       available: true,
+      experience: 10,
+      serviceCount: 6,
     },
     {
       id: "2",
@@ -100,81 +119,238 @@ const ProvidersList = () => {
       hourlyRate: 85,
       bio: "Licensed electrician for homes and offices.",
       available: true,
+      experience: 8,
+      serviceCount: 4,
     },
   ];
 
-  /* ------------------------------
-     Fetch Providers
-  ------------------------------ */
   const fetchProviders = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await axios.get("/api/providers", {
+      const response = await api.get("/api/providers", {
         params: {
-          search: searchTerm,
-          serviceType:
-            serviceType !== "All" ? serviceType : undefined,
-          location,
+          search: searchTerm || undefined,
+          serviceType: serviceType !== "All" ? serviceType : undefined,
+          location: location || undefined,
           page,
           limit: LIMIT,
         },
       });
 
-      setProviders(response.data.providers || []);
-      setTotalPages(response.data.totalPages || 1);
+      const raw =
+        response.data?.providers ||
+        response.data?.data?.providers ||
+        response.data?.data ||
+        [];
+
+      const normalized = Array.isArray(raw) ? raw.map(normalizeProvider) : [];
+
+      setProviders(normalized);
+      setTotalPages(response.data?.totalPages || Math.max(1, Math.ceil(normalized.length / LIMIT)) || 1);
+      setTotalResults(response.data?.total || normalized.length);
     } catch (err) {
       console.error("API failed. Using mock data.");
-      setProviders(getMockProviders());
+      const mockProviders = getMockProviders();
+      setProviders(mockProviders);
       setTotalPages(1);
+      setTotalResults(mockProviders.length);
       setError("Server unavailable. Showing demo data.");
     } finally {
       setLoading(false);
     }
   }, [searchTerm, serviceType, location, page]);
 
-  /* ------------------------------
-     Debounce Search
-  ------------------------------ */
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
       fetchProviders();
-    }, 400);
+    }, 250);
 
-    return () => clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [fetchProviders]);
+
+  const displayedProviders = useMemo(() => {
+    const items = [...providers];
+
+    switch (sortBy) {
+      case "rating":
+        return items.sort((a, b) => b.rating - a.rating || b.reviewCount - a.reviewCount);
+      case "price-low":
+        return items.sort((a, b) => a.hourlyRate - b.hourlyRate);
+      case "price-high":
+        return items.sort((a, b) => b.hourlyRate - a.hourlyRate);
+      case "experience":
+        return items.sort((a, b) => b.experience - a.experience);
+      default:
+        return items.sort(
+          (a, b) =>
+            Number(b.available) - Number(a.available) ||
+            b.rating - a.rating ||
+            b.reviewCount - a.reviewCount
+        );
+    }
+  }, [providers, sortBy]);
+
+  const availableCount = useMemo(
+    () => displayedProviders.filter((provider) => provider.available).length,
+    [displayedProviders]
+  );
+
+  const averageRate = useMemo(() => {
+    if (!displayedProviders.length) {
+      return 0;
+    }
+
+    const totalRate = displayedProviders.reduce(
+      (sum, provider) => sum + Number(provider.hourlyRate || 0),
+      0
+    );
+
+    return Math.round(totalRate / displayedProviders.length);
+  }, [displayedProviders]);
+
+  const activeFiltersCount = useMemo(
+    () => [Boolean(searchTerm), serviceType !== "All", Boolean(location)].filter(Boolean).length,
+    [searchTerm, serviceType, location]
+  );
 
   const handlePageChange = (_, value) => {
     setPage(value);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  return (
-    <Box sx={{ bgcolor: "grey.100", minHeight: "100vh", py: 6 }}>
-      <Container maxWidth="lg">
-        {/* Header */}
-        <Box sx={{ mb: 6, textAlign: "center" }}>
-<Typography
-  variant="h3"
-  fontWeight={700}
-  gutterBottom
-sx={{ color: "#9e9e9e" }}
->            Find Service Providers
-          </Typography>
-          <Typography variant="h6" color="text.secondary">
-            Connect with trusted professionals near you
-          </Typography>
-        </Box>
+  const handleManualSearch = () => {
+    if (page !== 1) {
+      setPage(1);
+      return;
+    }
 
-        {/* Search Section */}
-        <Box
+    fetchProviders();
+  };
+
+  const handleResetFilters = () => {
+    setSearchTerm("");
+    setServiceType("All");
+    setLocation("");
+    setSortBy("recommended");
+    setPage(1);
+  };
+
+  const summaryCards = [
+    {
+      label: "Results",
+      value: totalResults || displayedProviders.length,
+      helper: "providers matching your filters",
+    },
+    {
+      label: "Available Today",
+      value: availableCount,
+      helper: "ready for new bookings",
+    },
+    {
+      label: "Average Rate",
+      value: `INR ${averageRate.toLocaleString("en-IN")}`,
+      helper: "hourly pricing on this page",
+    },
+  ];
+
+  return (
+    <Box
+      sx={{
+        minHeight: "100vh",
+        py: { xs: 5, md: 7 },
+        background:
+          "radial-gradient(circle at top left, rgba(96,165,250,0.16), transparent 36%), linear-gradient(180deg, #eff6ff 0%, #f8fafc 42%, #ffffff 100%)",
+      }}
+    >
+      <Container maxWidth="xl">
+        <Paper
+          elevation={0}
           sx={{
-            mb: 5,
-            p: 3,
-            bgcolor: "white",
-            borderRadius: 3,
-            boxShadow: 3,
+            position: "relative",
+            overflow: "hidden",
+            mb: 4,
+            p: { xs: 3, md: 5 },
+            borderRadius: 6,
+            color: "white",
+            background:
+              "linear-gradient(135deg, #0f172a 0%, #1d4ed8 48%, #38bdf8 100%)",
+            boxShadow: "0 32px 90px -48px rgba(30,64,175,0.9)",
+          }}
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              inset: "auto -8% -28% auto",
+              width: 280,
+              height: 280,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.12)",
+              filter: "blur(8px)",
+            }}
+          />
+
+          <Chip
+            icon={<AutoAwesomeRoundedIcon sx={{ color: "inherit !important" }} />}
+            label="Trusted local marketplace"
+            sx={{
+              mb: 2.5,
+              bgcolor: alpha("#ffffff", 0.14),
+              color: "white",
+              fontWeight: 700,
+            }}
+          />
+
+          <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: "-0.04em" }}>
+            Find Service Providers
+          </Typography>
+          <Typography sx={{ mt: 1.5, maxWidth: 780, fontSize: { xs: "1rem", md: "1.08rem" }, color: alpha("#ffffff", 0.88) }}>
+            Explore real providers, compare ratings and pricing, and jump straight into booking with a more responsive search experience.
+          </Typography>
+
+          <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mt: 4 }}>
+            {summaryCards.map((card) => (
+              <Box
+                key={card.label}
+                sx={{
+                  minWidth: { xs: "100%", md: 190 },
+                  px: 2.25,
+                  py: 2,
+                  borderRadius: 4,
+                  bgcolor: alpha("#ffffff", 0.12),
+                  backdropFilter: "blur(10px)",
+                  border: "1px solid",
+                  borderColor: alpha("#ffffff", 0.12),
+                }}
+              >
+                <Typography variant="overline" sx={{ display: "block", color: alpha("#ffffff", 0.74), letterSpacing: "0.12em" }}>
+                  {card.label}
+                </Typography>
+                <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                  {card.value}
+                </Typography>
+                <Typography variant="body2" sx={{ color: alpha("#ffffff", 0.76), mt: 0.5 }}>
+                  {card.helper}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Paper>
+
+        <Paper
+          elevation={0}
+          sx={{
+            mb: 4,
+            p: { xs: 2.2, md: 3 },
+            borderRadius: 5,
+            border: "1px solid",
+            borderColor: alpha("#0f172a", 0.08),
+            boxShadow: "0 24px 60px -48px rgba(15,23,42,0.35)",
+            bgcolor: "rgba(255,255,255,0.88)",
+            backdropFilter: "blur(10px)",
           }}
         >
           <Grid container spacing={2}>
@@ -183,9 +359,17 @@ sx={{ color: "#9e9e9e" }}
                 fullWidth
                 label="Search providers"
                 value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setPage(1);
+                onChange={(event) => {
+                  setSearchTerm(event.target.value);
+                  if (page !== 1) {
+                    setPage(1);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleManualSearch();
+                  }
                 }}
                 InputProps={{
                   startAdornment: (
@@ -203,9 +387,11 @@ sx={{ color: "#9e9e9e" }}
                 <Select
                   value={serviceType}
                   label="Service Type"
-                  onChange={(e) => {
-                    setServiceType(e.target.value);
-                    setPage(1);
+                  onChange={(event) => {
+                    setServiceType(event.target.value);
+                    if (page !== 1) {
+                      setPage(1);
+                    }
                   }}
                 >
                   {serviceTypes.map((type) => (
@@ -222,9 +408,24 @@ sx={{ color: "#9e9e9e" }}
                 fullWidth
                 label="Location"
                 value={location}
-                onChange={(e) => {
-                  setLocation(e.target.value);
-                  setPage(1);
+                onChange={(event) => {
+                  setLocation(event.target.value);
+                  if (page !== 1) {
+                    setPage(1);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleManualSearch();
+                  }
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PlaceOutlinedIcon />
+                    </InputAdornment>
+                  ),
                 }}
               />
             </Grid>
@@ -233,68 +434,139 @@ sx={{ color: "#9e9e9e" }}
               <Button
                 fullWidth
                 variant="contained"
-                sx={{ height: "56px" }}
-                onClick={fetchProviders}
+                sx={{ height: 56, borderRadius: 3, fontWeight: 700 }}
+                onClick={handleManualSearch}
               >
                 Search
               </Button>
             </Grid>
           </Grid>
-        </Box>
 
-        {error && (
-          <Alert severity="warning" sx={{ mb: 3 }}>
+          <Stack
+            direction={{ xs: "column", lg: "row" }}
+            spacing={2}
+            sx={{ mt: 2.25, alignItems: { xs: "stretch", lg: "center" }, justifyContent: "space-between" }}
+          >
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {serviceTypes.slice(1, 8).map((type) => {
+                const selected = serviceType === type;
+
+                return (
+                  <Chip
+                    key={type}
+                    label={type}
+                    clickable
+                    color={selected ? "primary" : "default"}
+                    onClick={() => {
+                      setServiceType(selected ? "All" : type);
+                      setPage(1);
+                    }}
+                    sx={{ borderRadius: 999, fontWeight: 600 }}
+                  />
+                );
+              })}
+            </Stack>
+
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <FormControl size="small" sx={{ minWidth: 190 }}>
+                <InputLabel id="provider-sort-label">Sort by</InputLabel>
+                <Select
+                  labelId="provider-sort-label"
+                  value={sortBy}
+                  label="Sort by"
+                  onChange={(event) => setSortBy(event.target.value)}
+                  startAdornment={<SortRoundedIcon sx={{ mr: 1, color: "text.secondary" }} />}
+                >
+                  <MenuItem value="recommended">Recommended</MenuItem>
+                  <MenuItem value="rating">Top rated</MenuItem>
+                  <MenuItem value="experience">Most experienced</MenuItem>
+                  <MenuItem value="price-low">Lowest price</MenuItem>
+                  <MenuItem value="price-high">Highest price</MenuItem>
+                </Select>
+              </FormControl>
+
+              <Button
+                variant="outlined"
+                startIcon={<RestartAltRoundedIcon />}
+                sx={{ borderRadius: 999, fontWeight: 700 }}
+                onClick={handleResetFilters}
+              >
+                Clear Filters
+              </Button>
+            </Stack>
+          </Stack>
+        </Paper>
+
+        {error ? (
+          <Alert severity="warning" sx={{ mb: 3, borderRadius: 3 }}>
             {error}
           </Alert>
-        )}
+        ) : null}
 
-        {/* Loading */}
         {loading ? (
           <Grid container spacing={3}>
             {Array.from(new Array(6)).map((_, index) => (
-              <Grid key={index} size={{ xs: 12, sm: 6, md: 4 }}>
-                <Skeleton
-                  variant="rectangular"
-                  height={220}
-                  sx={{ borderRadius: 3 }}
-                />
+              <Grid key={index} size={{ xs: 12, sm: 6, xl: 4 }}>
+                <Skeleton variant="rectangular" height={380} sx={{ borderRadius: 5 }} />
               </Grid>
             ))}
           </Grid>
-        ) : providers.length === 0 ? (
-          <Box textAlign="center" py={6}>
-            <Typography variant="h6">
+        ) : displayedProviders.length === 0 ? (
+          <Paper
+            elevation={0}
+            sx={{
+              p: { xs: 4, md: 5 },
+              textAlign: "center",
+              borderRadius: 5,
+              border: "1px dashed",
+              borderColor: alpha("#2563eb", 0.24),
+              bgcolor: alpha("#ffffff", 0.82),
+            }}
+          >
+            <Typography variant="h5" sx={{ fontWeight: 800, color: "#0f172a" }}>
               No providers found
             </Typography>
-            <Typography color="text.secondary">
-              Try adjusting your filters
+            <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>
+              Try another service type, broaden the location, or clear your current filters.
             </Typography>
-          </Box>
+            <Button variant="contained" onClick={handleResetFilters} sx={{ borderRadius: 999, fontWeight: 700 }}>
+              Reset Search
+            </Button>
+          </Paper>
         ) : (
           <>
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              mb={2}
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={1.5}
+              sx={{ mb: 2.5, alignItems: { xs: "flex-start", md: "center" }, justifyContent: "space-between" }}
             >
-              Showing {providers.length} results
-            </Typography>
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 800, color: "#0f172a" }}>
+                  {totalResults || displayedProviders.length} provider{(totalResults || displayedProviders.length) === 1 ? "" : "s"} found
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {activeFiltersCount
+                    ? `${activeFiltersCount} active filter${activeFiltersCount === 1 ? "" : "s"} applied`
+                    : "Showing all currently matched providers"}
+                </Typography>
+              </Box>
+              <Chip
+                label={`${availableCount} available for booking`}
+                color="success"
+                sx={{ borderRadius: 999, fontWeight: 700 }}
+              />
+            </Stack>
 
             <Grid container spacing={3}>
-              {providers.map((provider) => (
-                <Grid
-                  key={provider.id}
-                  size={{ xs: 12, sm: 6, md: 4 }}
-                >
+              {displayedProviders.map((provider) => (
+                <Grid key={provider.id} size={{ xs: 12, sm: 6, xl: 4 }}>
                   <ProviderCard provider={provider} />
                 </Grid>
               ))}
             </Grid>
 
-            {totalPages > 1 && (
-              <Box
-                sx={{ display: "flex", justifyContent: "center", mt: 5 }}
-              >
+            {totalPages > 1 ? (
+              <Box sx={{ display: "flex", justifyContent: "center", mt: 5 }}>
                 <Pagination
                   count={totalPages}
                   page={page}
@@ -303,7 +575,7 @@ sx={{ color: "#9e9e9e" }}
                   size="large"
                 />
               </Box>
-            )}
+            ) : null}
           </>
         )}
       </Container>

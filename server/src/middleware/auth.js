@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Admin = require("../models/Admin");
 
 // Authenticate
 const authenticate = async (req, res, next) => {
@@ -18,16 +19,34 @@ const authenticate = async (req, res, next) => {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      const user = await User.findById(decoded.userId).select("-password");
+      // Handle different token formats - check for id, accountId, or userId
+      const accountId = decoded.accountId || decoded.userId || decoded.id;
 
-      if (!user) {
+      if (!accountId) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token: missing account ID",
+        });
+      }
+
+      const isAdminToken =
+        decoded.accountType === "ADMIN" || decoded.role === "ADMIN";
+
+      const account = isAdminToken
+        ? await Admin.findById(accountId).select("-password")
+        : await User.findById(accountId).select("-password");
+
+      if (!account) {
         return res.status(401).json({
           success: false,
           message: "User not found.",
         });
       }
 
-      req.user = user;
+      req.user = account;
+      req.auth = {
+        accountType: isAdminToken ? "ADMIN" : "USER",
+      };
       next();
     } catch (jwtError) {
       console.error("JWT Error:", jwtError.message);
@@ -64,7 +83,13 @@ const optionalAuth = async (req, res, next) => {
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.userId).select("-password");
+      const isAdminToken =
+        decoded.accountType === "ADMIN" || decoded.role === "ADMIN";
+      // Handle different token formats - check for id, accountId, or userId
+      const accountId = decoded.accountId || decoded.userId || decoded.id;
+      const user = isAdminToken
+        ? await Admin.findById(accountId).select("-password")
+        : await User.findById(accountId).select("-password");
 
       if (user) req.user = user;
     } catch (err) {
@@ -87,7 +112,11 @@ const authorize = (...roles) => {
       });
     }
 
-    if (roles.length && !roles.includes(req.user.role)) {
+    // Normalize roles to lowercase for comparison
+    const userRole = req.user.role ? req.user.role.toLowerCase() : "";
+    const normalizedRoles = roles.map(role => role.toLowerCase());
+    
+    if (roles.length && !normalizedRoles.includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: "Insufficient permissions.",

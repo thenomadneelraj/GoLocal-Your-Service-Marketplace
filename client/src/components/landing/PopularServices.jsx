@@ -6,38 +6,38 @@ const services = [
   {
     icon: Zap,
     name: "Electrical",
-    providers: "120+ providers"
+    providers: "120+ providers",
   },
   {
     icon: Wrench,
-    name: "Plumbing", 
-    providers: "95+ providers"
+    name: "Plumbing",
+    providers: "95+ providers",
   },
   {
     icon: Sparkles,
     name: "Cleaning",
-    providers: "150+ providers"
+    providers: "150+ providers",
   },
   {
     icon: Hammer,
     name: "Repair & Maintenance",
-    providers: "85+ providers"
+    providers: "85+ providers",
   },
   {
     icon: Paintbrush,
     name: "Painting",
-    providers: "70+ providers"
+    providers: "70+ providers",
   },
   {
     icon: Truck,
     name: "Moving Services",
-    providers: "60+ providers"
-  }
+    providers: "60+ providers",
+  },
 ];
 
 export default function PopularServices() {
   return (
-    <section id="services" className="py-12 bg-zinc-950">
+    <section id="services" className="py-12 bg-background dark:bg-background">
       <Motion.div
         className="max-w-7xl mx-auto px-6 text-center"
         variants={staggerContainer}
@@ -47,7 +47,7 @@ export default function PopularServices() {
       >
         <Motion.h2
           variants={fadeUp}
-          className="text-blue-500 text-3xl font-bold mb-6"
+          className="text-3xl font-bold mb-6 text-primary"
         >
           Popular Services
         </Motion.h2>
@@ -60,15 +60,15 @@ export default function PopularServices() {
                 key={index}
                 variants={fadeUp}
                 whileHover={{ y: -4 }}
-                className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-left transition-all duration-300 hover:border-blue-500"
+                className="bg-card border border-border rounded-xl p-6 text-left transition-all duration-300 hover:border-primary/50 dark:hover:border-primary/50"
               >
-                <div className="w-12 h-12 rounded-lg bg-blue-600/20 text-blue-500 flex items-center justify-center mb-4">
+                <div className="w-12 h-12 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-4">
                   <Icon className="w-6 h-6" />
                 </div>
-                <h3 className="font-semibold text-white text-lg mb-1">
+                <h3 className="font-semibold text-lg mb-1 text-foreground">
                   {service.name}
                 </h3>
-                <p className="text-sm text-zinc-400">
+                <p className="text-sm text-muted-foreground">
                   {service.providers}
                 </p>
               </Motion.div>
@@ -77,7 +77,7 @@ export default function PopularServices() {
         </Motion.div>
 
         <Motion.div variants={fadeUp} className="mt-8">
-          <button className="text-blue-500 hover:text-blue-400 font-medium inline-flex items-center gap-2">
+          <button className="text-primary hover:text-primary/80 font-medium inline-flex items-center gap-2">
             View all services →
           </button>
         </Motion.div>

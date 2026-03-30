@@ -1,221 +1,464 @@
-const User = require('../models/User');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
-const { validationResult } = require('express-validator');
+const User = require("../models/User");
+const Admin = require("../models/Admin");
+const Provider = require("../models/Provider");
+const Client = require("../models/Client");
+const LoginHistory = require("../models/LoginHistory");
+const jwt = require("jsonwebtoken");
+const { validationResult } = require("express-validator");
+const {
+  buildMaintenanceResponse,
+  getPlatformStatus,
+} = require("../middleware/maintenance");
+const { buildAccountAccessState } = require("../middleware/accountAccess");
 
-
-// Generate JWT token
-const generateToken = (user) => {
+const generateToken = (account, accountType = "USER") => {
   return jwt.sign(
-  { userId: user._id,
-    role: user.role },
-  process.env.JWT_SECRET,
-  { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
-);
+    { accountId: account._id, role: account.role, accountType },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: "1d",
+    }
+  );
 };
 
+const shapeAccount = (user, profile) => {
+  const payload = {
+    id: user._id,
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive !== false,
+  };
 
-// 🔹 Register
+  // Admin and fallback handling
+  if (user.role === "admin" || !profile) {
+    if (user.name) payload.name = user.name;
+    if (user.phone) payload.phone = user.phone;
+    if (user.address) payload.address = user.address;
+    if (user.profileImage || user.profilePhoto) {
+      payload.profilePhoto = user.profileImage || user.profilePhoto;
+    }
+    return payload; // For Admin model or incomplete queries
+  }
+
+  if (profile) {
+    if (profile.name) payload.name = profile.name;
+    if (profile.phone) payload.phone = profile.phone;
+    if (profile.address) payload.address = profile.address;
+    if (profile.profileImage || profile.profilePhoto) {
+      payload.profilePhoto = profile.profileImage || profile.profilePhoto;
+    }
+    if (user.role === "provider" || user.role === "PROVIDER") {
+      payload.isApproved = profile.isApproved;
+      payload.services = profile.services;
+    }
+  }
+
+  return payload;
+};
+
 const register = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        errors: errors.array()
+        errors: errors.array(),
       });
     }
 
-    const { firstName, lastName, email, phone, password } = req.body;
+    const { name, firstName, lastName, email, phone, password, role, profilePhoto, serviceType } =
+      req.body;
 
-    // Check existing email
+    const actualName = name || `${firstName || ""} ${lastName || ""}`.trim();
+
+    if (role === "ADMIN" || role === "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Admin registration is not allowed from this route.",
+      });
+    }
+
+    const platformStatus = await getPlatformStatus();
+    if (platformStatus.maintenanceMode) {
+      return res.status(503).json(buildMaintenanceResponse(platformStatus));
+    }
+
+    const assignedRole = (role === "PROVIDER" || role === "provider") ? "provider" : "client";
+
     const existingEmail = await User.findOne({ email });
     if (existingEmail) {
       return res.status(400).json({
         success: false,
-        message: 'Email already registered'
+        message: "Email already registered",
       });
     }
 
-    // Check existing phone
-    const existingPhone = await User.findOne({ phone });
-    if (existingPhone) {
+    const existingPhoneInClient = await Client.findOne({ phone });
+    const existingPhoneInProvider = await Provider.findOne({ phone });
+    if (existingPhoneInClient || existingPhoneInProvider) {
       return res.status(400).json({
         success: false,
-        message: 'Phone already registered'
+        message: "Phone already registered",
       });
     }
 
-    // 🔐 Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
     const user = await User.create({
-      firstName,
-      lastName,
       email,
-      phone,
-      password: hashedPassword
+      password,
+      role: assignedRole,
     });
 
+    let profile;
+    if (assignedRole === "provider") {
+      profile = await Provider.create({
+        userId: user._id,
+        name: actualName,
+        phone,
+        profileImage: profilePhoto || "",
+        serviceType: serviceType || "Other",
+        services: [], // can be populated later
+        experience: 0,
+        availability: true,
+      });
+    } else {
+      profile = await Client.create({
+        userId: user._id,
+        name: actualName,
+        phone,
+        profileImage: profilePhoto || "",
+      });
+    }
+
     const token = generateToken(user);
+    const userPayload = shapeAccount(user, profile);
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: "User registered successfully",
+      token,
+      user: userPayload,
       data: {
-        user: {
-          id: user._id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phone: user.phone
-        },
-        token
-      }
+        user: userPayload,
+        token,
+      },
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
 
-
-// 🔹 Login
 const signIn = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        errors: errors.array()
+        errors: errors.array(),
       });
     }
 
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
+    let wantsAdmin = (role === "ADMIN" || role === "admin");
+    let accountType = wantsAdmin ? "ADMIN" : "USER";
 
-    const user = await User.findOne({ email });
-    if (!user) {
+    let account = wantsAdmin
+      ? await Admin.findOne({ email }).select("+password")
+      : await User.findOne({ email }).select("+password");
+
+    if (!account && (!role || role === "")) {
+      // allow fallback
+      account = await Admin.findOne({ email }).select("+password");
+      if (account) {
+        accountType = "ADMIN";
+        wantsAdmin = true;
+      }
+    }
+
+    if (!account) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: "Invalid email or password",
       });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await account.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: "Invalid email or password",
       });
     }
 
-    const token = generateToken(user);
+    const roleLower = role ? role.toLowerCase() : null;
+    const accountRoleLower = account.role ? account.role.toLowerCase() : null;
+
+    if (roleLower && accountRoleLower && roleLower !== accountRoleLower) {
+        return res.status(403).json({
+            success: false,
+            message: "Role mismatch for this account.",
+        });
+    }
+
+    if (accountType !== "ADMIN") {
+      const platformStatus = await getPlatformStatus();
+      if (platformStatus.maintenanceMode) {
+        return res.status(503).json(buildMaintenanceResponse(platformStatus));
+      }
+    }
+
+    let profile = null;
+    if (accountType === "USER") {
+      if (account.role === "client") {
+        profile = await Client.findOne({ userId: account._id });
+      } else if (account.role === "provider") {
+        profile = await Provider.findOne({ userId: account._id });
+      }
+      
+      account.totalLogins = (account.totalLogins || 0) + 1;
+      account.lastLogin = new Date();
+      await account.save();
+    } else {
+      profile = account; 
+    }
+
+    const token = generateToken(account, accountType);
+    const userPayload = shapeAccount(account, profile);
+
+    LoginHistory.create({
+      account: account._id,
+      accountModel: accountType === "ADMIN" ? "Admin" : "User",
+      role: account.role,
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent") || "",
+      success: true,
+    }).catch(() => {});
 
     res.json({
       success: true,
-      message: 'Login successful',
+      message: "Login successful",
+      token,
+      user: userPayload,
       data: {
-        user: {
-          id: user._id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phone: user.phone
-        },
-        token
-      }
+        user: userPayload,
+        token,
+      },
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
 
-
-// 🔹 Get Profile
 const getProfile = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const user = req.user; 
+    let profile = null;
 
-    const user = await User.findById(userId).select('-password');
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: { user }
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-
-// 🔹 Update Profile
-const updateProfile = async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { firstName, lastName, phone } = req.body;
-
-    if (phone) {
-      const existingPhone = await User.findOne({ phone });
-      if (existingPhone && existingPhone._id.toString() !== userId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Phone already registered'
-        });
+    if (req.auth?.accountType === "ADMIN") {
+      profile = user;
+    } else {
+      if (user.role === "client") {
+        profile = await Client.findOne({ userId: user._id });
+      } else if (user.role === "provider") {
+        profile = await Provider.findOne({ userId: user._id });
       }
     }
 
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { firstName, lastName, phone },
-      { new: true }
-    ).select('-password');
+    const userPayload = shapeAccount(user, profile);
+    const accountAccess = await buildAccountAccessState(user);
 
     res.json({
       success: true,
-      message: 'Profile updated',
-      data: { user: updatedUser }
+      user: {
+        ...userPayload,
+        isApproved:
+          typeof userPayload.isApproved === "boolean"
+            ? userPayload.isApproved
+            : accountAccess.isApproved,
+      },
+      data: {
+        user: {
+          ...userPayload,
+          isApproved:
+            typeof userPayload.isApproved === "boolean"
+              ? userPayload.isApproved
+              : accountAccess.isApproved,
+        },
+      },
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
 
+const getPlatformStatusController = async (req, res) => {
+  try {
+    const status = await getPlatformStatus();
 
-// 🔹 Logout (client-side)
+    return res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { name, firstName, lastName, phone, profilePhoto, address } = req.body;
+    
+    const actualName = name || (firstName || lastName ? `${firstName || ""} ${lastName || ""}`.trim() : undefined);
+
+    let updatedUser;
+    let profile = null;
+
+    if (req.auth?.accountType === "ADMIN") {
+      const updateData = {};
+      if (actualName) updateData.name = actualName;
+      if (phone) {
+        const existingPhone = await Admin.findOne({ phone });
+        if (existingPhone && existingPhone._id.toString() !== userId) {
+          return res.status(400).json({ success: false, message: "Phone already registered" });
+        }
+        updateData.phone = phone;
+      }
+      if (address !== undefined) updateData.address = address;
+      if (profilePhoto) {
+         updateData.profileImage = profilePhoto; 
+      }
+      updatedUser = await Admin.findByIdAndUpdate(userId, updateData, { new: true }).select("-password");
+      profile = updatedUser;
+    } else {
+      updatedUser = req.user; 
+
+      const updateData = {};
+      if (actualName) updateData.name = actualName;
+      if (phone) updateData.phone = phone;
+      if (address !== undefined) updateData.address = address;
+      if (profilePhoto) {
+         updateData.profileImage = profilePhoto; 
+      }
+
+      if (updatedUser.role === "client") {
+        if (phone) {
+          const existingPhone = await Client.findOne({ phone });
+          if (existingPhone && existingPhone.userId.toString() !== userId) {
+            return res.status(400).json({ success: false, message: "Phone already registered" });
+          }
+        }
+        profile = await Client.findOneAndUpdate({ userId }, updateData, { new: true });
+      } else if (updatedUser.role === "provider") {
+        if (phone) {
+          const existingPhone = await Provider.findOne({ phone });
+          if (existingPhone && existingPhone.userId.toString() !== userId) {
+            return res.status(400).json({ success: false, message: "Phone already registered" });
+          }
+        }
+        profile = await Provider.findOneAndUpdate({ userId }, updateData, { new: true });
+      }
+    }
+
+    const payload = shapeAccount(updatedUser, profile);
+
+    res.json({
+      success: true,
+      message: "Profile updated",
+      user: payload,
+      data: { user: payload },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const changePassword = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { currentPassword, newPassword } = req.body;
+    
+    let account;
+    if (req.auth?.accountType === "ADMIN") {
+      account = await Admin.findById(userId).select("+password");
+    } else {
+      account = await User.findById(userId).select("+password");
+    }
+
+    if (!account) {
+      return res.status(404).json({ success: false, message: "Account not found" });
+    }
+
+    const isMatch = await account.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: "Incorrect current password" });
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: "Password must be at least 8 characters long" });
+    }
+
+    account.password = newPassword;
+    await account.save();
+
+    res.json({ success: true, message: "Password updated successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+
+    if (req.auth?.accountType === "ADMIN") {
+      await Admin.findByIdAndDelete(userId);
+    } else {
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ success: false, message: "Account not found" });
+
+      if (user.role === "provider") {
+        await Provider.findOneAndDelete({ userId });
+      } else if (user.role === "client") {
+        await Client.findOneAndDelete({ userId });
+      }
+      await User.findByIdAndDelete(userId);
+    }
+
+    res.json({ success: true, message: "Account deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const logout = (req, res) => {
   res.json({
     success: true,
-    message: 'Logout successful'
+    message: "Logout successful",
   });
 };
-
 
 module.exports = {
   register,
   signIn,
   getProfile,
+  getPlatformStatusController,
   updateProfile,
-  logout
+  changePassword,
+  deleteAccount,
+  logout,
 };

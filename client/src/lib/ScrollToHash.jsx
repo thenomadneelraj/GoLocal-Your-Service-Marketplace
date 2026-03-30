@@ -1,17 +1,17 @@
 import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 
 export default function ScrollToHash() {
   const location = useLocation();
-  const navigate = useNavigate();
 
   useEffect(() => {
-    // 🔥 If page is loaded with a hash, remove it
-    if (location.hash) {
-      navigate("/", { replace: true });
-      window.scrollTo({ top: 0, behavior: "auto" });
+    if (!location.hash) return;
+
+    const element = document.getElementById(location.hash.slice(1));
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, []); // run ONLY on first load
+  }, [location.hash]);
 
   return null;
 }

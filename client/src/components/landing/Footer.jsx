@@ -1,12 +1,13 @@
 import { MapPin, Facebook, Twitter, Instagram, Linkedin } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const footerLinks = {
   quickLinks: [
-    { label: "Home", href: "#" },
-    { label: "Services", href: "#" },
+    { label: "Home", href: "/" },
+    { label: "Our Services", href: "/providers" },
+    { label: "My Account", href: "/my-account" },
     { label: "About Us", href: "#" },
-    { label: "Contact", href: "#" },
-    { label: "Careers", href: "#" },
+    { label: "Help Center", href: "#" },
   ],
   services: [
     { label: "Plumbing", href: "#" },
@@ -32,7 +33,7 @@ const socialLinks = [
 
 export default function Footer() {
   return (
-    <footer className="bg-zinc-950 text-zinc-400 pt-12 pb-8 border-t border-zinc-800">
+    <footer className="bg-background text-muted-foreground pt-12 pb-8 border-t border-border">
       <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-5 gap-8">
         {/* Brand */}
         <div className="col-span-2">
@@ -40,10 +41,10 @@ export default function Footer() {
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <MapPin className="w-5 h-5 text-primary-foreground" />
             </div>
-            <span className="text-xl font-bold">GoLocal</span>
+            <span className="text-xl font-bold text-foreground">GoLocal</span>
           </div>
 
-          <p className="text-card/70 text-zinc-400 text-sm mb-6">
+          <p className="text-muted-foreground text-sm mb-6">
             Connecting you with trusted local professionals for all your service
             needs.
           </p>
@@ -56,9 +57,9 @@ export default function Footer() {
                   key={social.label}
                   href={social.href}
                   aria-label={social.label}
-                  className="w-10 h-10 rounded-full bg-card/10 flex items-center justify-center hover:bg-card/20 transition"
+                  className="w-10 h-10 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition"
                 >
-                  <Icon className="w-5 h-5" />
+                  <Icon className="w-5 h-5 text-foreground" />
                 </a>
               );
             })}
@@ -67,16 +68,16 @@ export default function Footer() {
 
         {/* Quick Links */}
         <div>
-          <h3 className="font-semibold mb-4">Quick Links</h3>
+          <h3 className="font-semibold mb-4 text-foreground">Quick Links</h3>
           <ul className="space-y-3">
             {footerLinks.quickLinks.map((link) => (
               <li key={link.label}>
-                <a
-                  href={link.href}
-                  className="text-zinc-400 text-sm text-card/70 hover:text-card transition"
+                <Link
+                  to={link.href}
+                  className="text-sm text-muted-foreground hover:text-foreground transition"
                 >
                   {link.label}
-                </a>
+                </Link>
               </li>
             ))}
           </ul>
@@ -84,13 +85,15 @@ export default function Footer() {
 
         {/* Services */}
         <div>
-          <h3 className="font-semibold mb-4">Popular Services</h3>
+          <h3 className="font-semibold mb-4 text-foreground">
+            Popular Services
+          </h3>
           <ul className="space-y-3">
             {footerLinks.services.map((link) => (
               <li key={link.label}>
                 <a
                   href={link.href}
-                  className="text-zinc-400 text-sm text-card/70 hover:text-card transition"
+                  className="text-sm text-muted-foreground hover:text-foreground transition"
                 >
                   {link.label}
                 </a>
@@ -101,13 +104,13 @@ export default function Footer() {
 
         {/* Support */}
         <div>
-          <h3 className="font-semibold mb-4">Support</h3>
+          <h3 className="font-semibold mb-4 text-foreground">Support</h3>
           <ul className="space-y-3">
             {footerLinks.support.map((link) => (
               <li key={link.label}>
                 <a
                   href={link.href}
-                  className="text-zinc-400 text-sm text-card/70 hover:text-card transition"
+                  className="text-sm text-muted-foreground hover:text-foreground transition"
                 >
                   {link.label}
                 </a>
@@ -118,7 +121,7 @@ export default function Footer() {
       </div>
 
       {/* Bottom Bar */}
-      <div className="text-zinc-400 border-t border-card/10 mt-12 pt-6 text-center text-sm text-card/60">
+      <div className="text-muted-foreground border-t border-border mt-12 pt-6 text-center text-sm">
         © {new Date().getFullYear()} GoLocal. All rights reserved.
       </div>
     </footer>
