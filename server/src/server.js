@@ -5,19 +5,12 @@ const PORT = process.env.PORT || 5000;
 const connectDB = require("./config/db");
 const { ensureSingleAdmin } = require("./services/adminBootstrapService");
 
-
-const http = require("http");
-const socketIO = require("./socket");
-
 const startServer = async () => {
   try {
     await connectDB();
     await ensureSingleAdmin();
 
-    const server = http.createServer(app);
-    socketIO.init(server);
-
-    server.listen(PORT, () => {
+    app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {

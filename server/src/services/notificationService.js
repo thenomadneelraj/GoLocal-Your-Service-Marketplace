@@ -1,6 +1,8 @@
 const Notification = require("../models/Notification");
-const socketIO = require("../socket");
-
+const {
+  SOCKET_EVENTS,
+  emitSocketEvent,
+} = require("../utils/socketEvents");
 const toObjectIdString = (value) => String(value || "");
 
 const serializeNotification = (notification) => ({
@@ -14,15 +16,6 @@ const serializeNotification = (notification) => ({
   createdAt: notification.createdAt,
   updatedAt: notification.updatedAt,
 });
-
-const emitNotificationEvent = (userId, eventName, payload) => {
-  try {
-    const io = socketIO.getIO();
-    io.to(toObjectIdString(userId)).emit(eventName, payload);
-  } catch (error) {
-    console.error(`Socket emit failed for ${eventName}:`, error.message);
-  }
-};
 
 const getUnreadCount = async (userId) =>
   Notification.countDocuments({
@@ -49,9 +42,13 @@ const createNotification = async ({
 
   const unreadCount = await getUnreadCount(userId);
 
-  emitNotificationEvent(userId, "notification:new", {
-    notification: serializeNotification(notification),
-    unreadCount,
+  emitSocketEvent({
+    userIds: [userId],
+    eventName: SOCKET_EVENTS.NOTIFICATION_CREATED,
+    payload: {
+      notification: serializeNotification(notification),
+      unreadCount,
+    },
   });
 
   return {
@@ -76,9 +73,13 @@ const markNotificationRead = async ({ userId, notificationId }) => {
   const unreadCount = await getUnreadCount(userId);
 
   if (notification) {
-    emitNotificationEvent(userId, "notification:read", {
-      notificationIds: [toObjectIdString(notification._id)],
-      unreadCount,
+    emitSocketEvent({
+      userIds: [userId],
+      eventName: SOCKET_EVENTS.NOTIFICATION_READ,
+      payload: {
+        notificationIds: [toObjectIdString(notification._id)],
+        unreadCount,
+      },
     });
   }
 
@@ -114,9 +115,13 @@ const markNotificationsReadByFilter = async ({ userId, filter = {} }) => {
 
   const unreadCount = await getUnreadCount(userId);
 
-  emitNotificationEvent(userId, "notification:read", {
-    notificationIds,
-    unreadCount,
+  emitSocketEvent({
+    userIds: [userId],
+    eventName: SOCKET_EVENTS.NOTIFICATION_READ,
+    payload: {
+      notificationIds,
+      unreadCount,
+    },
   });
 
   return {

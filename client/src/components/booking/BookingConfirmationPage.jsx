@@ -87,15 +87,15 @@ export default function BookingConfirmationPage() {
         address: draft.address,
         notes:
           draft.locationType === "online"
-            ? "Online booking confirmed by client."
-            : "Offline booking confirmed by client.",
+            ? "Online booking requested by client."
+            : "Offline booking requested by client.",
         totalAmount: draft.totalAmount,
         paymentMethod: draft.paymentMethod,
       });
 
       sessionStorage.removeItem(BOOKING_DRAFT_KEY(id));
       setSuccess(true);
-      toast.success("Booking confirmed successfully.");
+      toast.success("Booking request submitted successfully.");
     } catch (err) {
       console.error(err);
       const message =
@@ -181,7 +181,7 @@ export default function BookingConfirmationPage() {
 
       {success ? (
         <p className="mb-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-          Booking confirmed successfully. Your appointment and payout records were created with the selected live service data.
+          Booking request submitted successfully. Your appointment is now waiting for the provider to accept or decline it.
         </p>
       ) : null}
 

@@ -22,6 +22,10 @@ import api from "@/lib/api";
 import { getGreetingByTime } from "@/lib/greeting";
 import { getAccountAccessState } from "@/lib/accountAccess";
 import RestrictedAccountBanner from "@/components/shared/RestrictedAccountBanner";
+import {
+  getBookingStatusLabel,
+  normalizeBookingStatus,
+} from "@/lib/bookingStatus";
 
 const EMPTY_DASHBOARD = {
   summary: {
@@ -47,8 +51,9 @@ const CARD_STYLES = [
 
 const STATUS_STYLES = {
   pending: "bg-amber-500/12 text-amber-600 dark:text-amber-300",
-  confirmed: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300",
+  accepted: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300",
   completed: "bg-primary/12 text-primary",
+  rejected: "bg-rose-500/12 text-rose-600 dark:text-rose-300",
   cancelled: "bg-rose-500/12 text-rose-600 dark:text-rose-300",
 };
 
@@ -92,13 +97,11 @@ const formatDate = (value) => {
   });
 };
 
-const statusLabel = (value = "") => String(value || "").replace(/^\w/, (letter) => letter.toUpperCase());
-
 function StatusBadge({ status }) {
-  const normalized = String(status || "").toLowerCase();
+  const normalized = normalizeBookingStatus(status);
   return (
     <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${STATUS_STYLES[normalized] || "bg-muted text-muted-foreground"}`}>
-      {statusLabel(normalized || "unknown")}
+      {getBookingStatusLabel(normalized || "unknown")}
     </span>
   );
 }

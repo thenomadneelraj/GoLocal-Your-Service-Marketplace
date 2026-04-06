@@ -1,3 +1,24 @@
+const normalizeUserStatus = (value = "", fallbackIsActive = true) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["active", "suspended", "rejected"].includes(normalized)) {
+    return normalized;
+  }
+  return fallbackIsActive === false ? "suspended" : "active";
+};
+
+const normalizeApprovalStatus = (value = "", role = "", legacyApproved = true) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["pending", "approved", "rejected"].includes(normalized)) {
+    return normalized;
+  }
+
+  return String(role || "").toUpperCase() === "PROVIDER"
+    ? legacyApproved
+      ? "approved"
+      : "pending"
+    : "approved";
+};
+
 export const getDashboardPathByRole = (role) => {
   const normalizedRole = String(role || "").toUpperCase();
   if (normalizedRole === "PROVIDER") return "/provider-dashboard";
@@ -7,9 +28,15 @@ export const getDashboardPathByRole = (role) => {
 
 export const getAccountAccessState = (user) => {
   const role = String(user?.role || "").toUpperCase();
-  const isActive = user?.isActive !== false;
+  const status = normalizeUserStatus(user?.status, user?.isActive);
+  const approvalStatus = normalizeApprovalStatus(
+    user?.approvalStatus,
+    role,
+    user?.isApproved !== false
+  );
+  const isActive = status === "active";
   const isApproved =
-    role === "PROVIDER" ? user?.isApproved !== false : true;
+    role === "PROVIDER" ? approvalStatus === "approved" : true;
 
   if (role === "CLIENT" && !isActive) {
     return {
@@ -35,9 +62,14 @@ export const getAccountAccessState = (user) => {
     return {
       role,
       restricted: true,
-      title: "Provider approval pending",
+      title:
+        approvalStatus === "rejected"
+          ? "Provider account rejected"
+          : "Provider approval pending",
       description:
-        "Your provider account is waiting for admin approval. You can access only this dashboard and should contact the admin for activation.",
+        approvalStatus === "rejected"
+          ? "Your provider account was rejected by admin. You can access only this dashboard and should contact the admin for next steps."
+          : "Your provider account is waiting for admin approval. You can access only this dashboard and should contact the admin for activation.",
     };
   }
 

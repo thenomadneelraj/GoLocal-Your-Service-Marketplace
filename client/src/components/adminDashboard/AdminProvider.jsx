@@ -35,12 +35,12 @@ function AdminProviders() {
     fetchProviders(1);
   }, []);
 
-  const toggleVerification = async (id, currentStatus) => {
+  const updateApprovalStatus = async (id, approvalStatus) => {
     try {
       setLoading(true);
       setError("");
       await api.put(`/api/admin/providers/${id}`, {
-        isApproved: !currentStatus,
+        approvalStatus,
       });
       await fetchProviders(pagination.page || 1);
     } catch (err) {
@@ -50,6 +50,10 @@ function AdminProviders() {
       setLoading(false);
     }
   };
+
+  const resolveApprovalStatus = (provider) =>
+    String(provider.approvalStatus || "").toLowerCase() ||
+    (provider.isApproved ? "approved" : "pending");
 
   return (
     <section className="space-y-4">
@@ -73,7 +77,7 @@ function AdminProviders() {
             { key: "name", label: "Provider" },
             { key: "service", label: "Service Type" },
             { key: "location", label: "Location" },
-            { key: "isApproved", label: "Approved" },
+            { key: "approvalStatus", label: "Approval" },
             { key: "actions", label: "Actions" },
           ]}
           data={providers}
@@ -93,27 +97,59 @@ function AdminProviders() {
                 {provider.location || "-"}
               </td>
               <td className="admin-cell">
-                <span
-                  className={`admin-badge ${
-                    provider.isApproved
+                {(() => {
+                  const approvalStatus = resolveApprovalStatus(provider);
+                  const badgeClass =
+                    approvalStatus === "approved"
                       ? "admin-badge-success"
-                      : "admin-badge-muted"
-                  }`}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                  {provider.isApproved ? "Approved" : "Unapproved"}
-                </span>
+                      : approvalStatus === "rejected"
+                        ? "admin-badge-warning"
+                        : "admin-badge-muted";
+                  const label =
+                    approvalStatus === "approved"
+                      ? "Approved"
+                      : approvalStatus === "rejected"
+                        ? "Rejected"
+                        : "Pending";
+
+                  return (
+                    <span className={`admin-badge ${badgeClass}`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {label}
+                    </span>
+                  );
+                })()}
               </td>
               <td className="admin-cell">
-                <button
-                  type="button"
-                  onClick={() =>
-                    toggleVerification(provider._id, provider.isApproved)
-                  }
-                  className="admin-pill-button"
-                >
-                  {provider.isApproved ? "Unapprove" : "Approve"}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateApprovalStatus(provider._id, "approved")
+                    }
+                    className="admin-pill-button admin-pill-button-success"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateApprovalStatus(provider._id, "pending")
+                    }
+                    className="admin-pill-button admin-pill-button-warning"
+                  >
+                    Pending
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateApprovalStatus(provider._id, "rejected")
+                    }
+                    className="admin-pill-button admin-pill-button-danger"
+                  >
+                    Reject
+                  </button>
+                </div>
               </td>
             </tr>
           )}

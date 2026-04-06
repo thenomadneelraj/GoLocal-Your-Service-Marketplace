@@ -10,6 +10,12 @@ const {
   getPlatformStatus,
 } = require("../middleware/maintenance");
 const { buildAccountAccessState } = require("../middleware/accountAccess");
+const {
+  USER_STATUS,
+  APPROVAL_STATUS,
+  buildPersistedAccountState,
+  normalizeApprovalStatus,
+} = require("../utils/accountState");
 
 const generateToken = (account, accountType = "USER") => {
   return jwt.sign(
@@ -22,11 +28,21 @@ const generateToken = (account, accountType = "USER") => {
 };
 
 const shapeAccount = (user, profile) => {
+  const operationalState = buildPersistedAccountState({
+    role: user?.role,
+    status: user?.status,
+    isActive: user?.isActive,
+    approvalStatus: user?.approvalStatus,
+    isApproved: profile?.isApproved,
+  });
+
   const payload = {
     id: user._id,
     email: user.email,
     role: user.role,
-    isActive: user.isActive !== false,
+    status: operationalState.status,
+    approvalStatus: operationalState.approvalStatus,
+    isActive: operationalState.isActive,
   };
 
   // Admin and fallback handling
@@ -48,7 +64,12 @@ const shapeAccount = (user, profile) => {
       payload.profilePhoto = profile.profileImage || profile.profilePhoto;
     }
     if (user.role === "provider" || user.role === "PROVIDER") {
-      payload.isApproved = profile.isApproved;
+      payload.isApproved =
+        normalizeApprovalStatus(operationalState.approvalStatus, {
+          role: user.role,
+          isApproved: profile?.isApproved,
+          status: operationalState.status,
+        }) === APPROVAL_STATUS.APPROVED;
       payload.services = profile.services;
     }
   }
@@ -106,6 +127,11 @@ const register = async (req, res) => {
       email,
       password,
       role: assignedRole,
+      status: USER_STATUS.ACTIVE,
+      approvalStatus:
+        assignedRole === "provider"
+          ? APPROVAL_STATUS.PENDING
+          : APPROVAL_STATUS.APPROVED,
     });
 
     let profile;
@@ -228,12 +254,14 @@ const signIn = async (req, res) => {
     const userPayload = shapeAccount(account, profile);
 
     LoginHistory.create({
-      account: account._id,
+      accountId: account._id,
+      account: account.email || String(account._id),
       accountModel: accountType === "ADMIN" ? "Admin" : "User",
       role: account.role,
       ipAddress: req.ip,
       userAgent: req.get("user-agent") || "",
       success: true,
+      loginTime: new Date(),
     }).catch(() => {});
 
     res.json({
@@ -247,6 +275,11 @@ const signIn = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("signIn error:", {
+      email: req.body?.email || "",
+      role: req.body?.role || "",
+      message: error.message,
+    });
     res.status(500).json({
       success: false,
       message: error.message,
@@ -276,18 +309,18 @@ const getProfile = async (req, res) => {
       success: true,
       user: {
         ...userPayload,
-        isApproved:
-          typeof userPayload.isApproved === "boolean"
-            ? userPayload.isApproved
-            : accountAccess.isApproved,
+        status: userPayload.status || accountAccess.status,
+        approvalStatus:
+          userPayload.approvalStatus || accountAccess.approvalStatus,
+        isApproved: accountAccess.isApproved,
       },
       data: {
         user: {
           ...userPayload,
-          isApproved:
-            typeof userPayload.isApproved === "boolean"
-              ? userPayload.isApproved
-              : accountAccess.isApproved,
+          status: userPayload.status || accountAccess.status,
+          approvalStatus:
+            userPayload.approvalStatus || accountAccess.approvalStatus,
+          isApproved: accountAccess.isApproved,
         },
       },
     });

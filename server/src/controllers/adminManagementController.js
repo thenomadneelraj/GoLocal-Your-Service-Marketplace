@@ -584,16 +584,24 @@ const listLoginHistory = async (req, res) => {
 
     const [items, total] = await Promise.all([
       LoginHistory.find()
-        .sort({ createdAt: -1 })
+        .sort({ loginTime: -1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       LoginHistory.countDocuments(),
     ]);
 
+    const normalizedItems = items.map((item) => {
+      const plain = item.toObject ? item.toObject() : item;
+      return {
+        ...plain,
+        createdAt: plain.loginTime || plain.createdAt,
+      };
+    });
+
     res.json({
       success: true,
       data: {
-        items,
+        items: normalizedItems,
         pagination: buildPagination(page, limit, total),
       },
     });

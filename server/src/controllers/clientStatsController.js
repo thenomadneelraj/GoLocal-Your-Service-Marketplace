@@ -3,11 +3,17 @@ const Booking = require("../models/Booking");
 const Transaction = require("../models/Transaction");
 const Client = require("../models/Client");
 const PlatformSetting = require("../models/PlatformSetting");
+const {
+  BOOKING_STATUS,
+  isAcceptedBooking,
+  normalizeBookingStatus,
+} = require("../utils/bookingStatus");
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const normalizeStatus = (status = "") => String(status || "").trim().toLowerCase();
 const toNumber = (value) => Number(value || 0);
+const normalizeTransactionStatus = (value = "") =>
+  String(value || "").trim().toLowerCase();
 
 const getDayKey = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -49,13 +55,14 @@ const build6MonthOverview = (bookings = [], transactions = []) => {
   const seriesMap = new Map(buckets.map((bucket) => [bucket.key, bucket]));
 
   bookings.forEach((booking) => {
-    if (normalizeStatus(booking.status) === "cancelled") return;
+    const bookingStatus = normalizeBookingStatus(booking.status);
+    if ([BOOKING_STATUS.CANCELLED, BOOKING_STATUS.REJECTED].includes(bookingStatus)) return;
     const bucket = seriesMap.get(getMonthKey(new Date(booking.createdAt)));
     if (bucket) bucket.bookings += 1;
   });
 
   transactions.forEach((transaction) => {
-    if (normalizeStatus(transaction.status) !== "success") return;
+    if (normalizeTransactionStatus(transaction.status) !== "success") return;
     const bucket = seriesMap.get(getMonthKey(new Date(transaction.createdAt)));
     if (bucket) bucket.spend += toNumber(transaction.amount);
   });
@@ -87,13 +94,14 @@ const build30DayOverview = (bookings = [], transactions = []) => {
     buckets.find((bucket) => value >= bucket.start && value <= bucket.end);
 
   bookings.forEach((booking) => {
-    if (normalizeStatus(booking.status) === "cancelled") return;
+    const bookingStatus = normalizeBookingStatus(booking.status);
+    if ([BOOKING_STATUS.CANCELLED, BOOKING_STATUS.REJECTED].includes(bookingStatus)) return;
     const bucket = findBucket(new Date(booking.createdAt));
     if (bucket) bucket.bookings += 1;
   });
 
   transactions.forEach((transaction) => {
-    if (normalizeStatus(transaction.status) !== "success") return;
+    if (normalizeTransactionStatus(transaction.status) !== "success") return;
     const bucket = findBucket(new Date(transaction.createdAt));
     if (bucket) bucket.spend += toNumber(transaction.amount);
   });
@@ -122,7 +130,8 @@ const build7DayActivity = (bookings = []) => {
   const map = new Map(buckets.map((bucket) => [bucket.key, bucket]));
 
   bookings.forEach((booking) => {
-    if (normalizeStatus(booking.status) === "cancelled") return;
+    const bookingStatus = normalizeBookingStatus(booking.status);
+    if ([BOOKING_STATUS.CANCELLED, BOOKING_STATUS.REJECTED].includes(bookingStatus)) return;
     const bucket = map.get(getDayKey(new Date(booking.createdAt)));
     if (bucket) bucket.count += 1;
   });
@@ -135,7 +144,7 @@ const serializeBookingForClient = (booking) => ({
   providerName: booking.providerId?.name || "Provider",
   providerId: booking.providerId?._id || null,
   serviceTitle: booking.serviceId?.title || booking.serviceId?.name || "Service",
-  status: normalizeStatus(booking.status),
+  status: normalizeBookingStatus(booking.status),
   bookingDate: booking.bookingDate ? booking.bookingDate.toISOString() : null,
   timeSlot: booking.timeSlot || "",
   amount: toNumber(booking.price),
@@ -177,7 +186,10 @@ const getClientDashboard = async (req, res) => {
     ]);
 
     const activeBookings = bookings.filter(
-      (booking) => normalizeStatus(booking.status) !== "cancelled"
+      (booking) =>
+        ![BOOKING_STATUS.CANCELLED, BOOKING_STATUS.REJECTED].includes(
+          normalizeBookingStatus(booking.status)
+        )
     );
 
     const activeProviders = new Set(
@@ -203,10 +215,10 @@ const getClientDashboard = async (req, res) => {
         summary: {
           activeProviders: activeProviders.size,
           ongoingProjects: activeBookings.filter(
-            (booking) => normalizeStatus(booking.status) === "confirmed"
+            (booking) => isAcceptedBooking(booking.status)
           ).length,
           totalSpent: transactions.reduce((total, transaction) => {
-            return normalizeStatus(transaction.status) === "success"
+            return normalizeTransactionStatus(transaction.status) === "success"
               ? total + toNumber(transaction.amount)
               : total;
           }, 0),
@@ -240,11 +252,12 @@ const getBookingsStats = async (req, res) => {
     let upcomingCount = 0;
     
     bookings.forEach(b => {
-      if (b.status !== "cancelled" && b.status !== "CANCELLED") {
+      const bookingStatus = normalizeBookingStatus(b.status);
+      if (![BOOKING_STATUS.CANCELLED, BOOKING_STATUS.REJECTED].includes(bookingStatus)) {
         const m = months[b.createdAt.getMonth()];
         jobsByMonth[m] = (jobsByMonth[m] || 0) + 1;
       }
-      if (b.status === "confirmed" || b.status === "CONFIRMED") upcomingCount++;
+      if (isAcceptedBooking(b.status)) upcomingCount++;
     });
 
     const data = Object.keys(jobsByMonth).map(m => ({
@@ -312,9 +325,61 @@ const getCategoryStats = async (req, res) => {
   }
 };
 
+const getClientTransactions = async (req, res) => {
+  try {
+    const client = await Client.findOne({ userId: req.user._id });
+    if (!client) return res.json({ success: true, data: { items: [], total: 0 } });
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      Transaction.find({ clientId: client._id })
+        .populate({
+          path: "bookingId",
+          select: "price paymentStatus paymentMethod",
+          populate: {
+            path: "providerId",
+            select: "name serviceType",
+          },
+        })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Transaction.countDocuments({ clientId: client._id }),
+    ]);
+
+    const serialized = items.map((tx) => ({
+      id: tx._id,
+      amount: toNumber(tx.amount),
+      status: tx.status,
+      paymentMethod: tx.paymentMethod,
+      createdAt: tx.createdAt,
+      bookingId: tx.bookingId?._id || tx.bookingId,
+      providerName: tx.bookingId?.providerId?.name || "Provider",
+      serviceType: tx.bookingId?.providerId?.serviceType || "Service",
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        items: serialized,
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getClientDashboard,
   getBookingsStats,
   getSpendingStats,
   getCategoryStats,
+  getClientTransactions,
 };

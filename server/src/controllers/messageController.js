@@ -1,13 +1,17 @@
 const mongoose = require("mongoose");
+const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
 const User = require("../models/User");
 const Client = require("../models/Client");
 const Provider = require("../models/Provider");
-const socketIO = require("../socket");
 const {
   createNotification,
   markNotificationsReadByFilter,
 } = require("../services/notificationService");
+const {
+  SOCKET_EVENTS,
+  emitSocketEvent,
+} = require("../utils/socketEvents");
 
 const isValidObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(String(value || ""));
@@ -133,15 +137,43 @@ const findOtherUser = async (otherUserId) => {
   return User.findById(otherUserId).select("email role").lean();
 };
 
-const emitSocketEvent = (targets, eventName, payload) => {
-  try {
-    const io = socketIO.getIO();
-    [...new Set(targets.map(toObjectIdString).filter(Boolean))].forEach((target) => {
-      io.to(target).emit(eventName, payload);
-    });
-  } catch (error) {
-    console.error(`Socket emit failed for ${eventName}:`, error.message);
+const buildConversationKey = (userIds = []) =>
+  [...new Set(userIds.map(toObjectIdString).filter(Boolean))]
+    .sort()
+    .join(":");
+
+const findConversationByParticipants = async (userIds = []) => {
+  const uniqueIds = [...new Set(userIds.map(toObjectIdString).filter(Boolean))];
+
+  if (uniqueIds.length !== 2) {
+    return null;
   }
+
+  return Conversation.findOne({
+    participants: {
+      $all: uniqueIds.map((id) => new mongoose.Types.ObjectId(id)),
+      $size: uniqueIds.length,
+    },
+  }).lean();
+};
+
+const findOrCreateConversation = async (userIds = []) => {
+  const uniqueIds = [...new Set(userIds.map(toObjectIdString).filter(Boolean))];
+
+  if (uniqueIds.length !== 2) {
+    return null;
+  }
+
+  const existingConversation = await findConversationByParticipants(uniqueIds);
+  if (existingConversation) {
+    return existingConversation;
+  }
+
+  const conversation = await Conversation.create({
+    participants: uniqueIds,
+  });
+
+  return conversation.toObject ? conversation.toObject() : conversation;
 };
 
 const listConversations = async (req, res) => {
@@ -169,6 +201,9 @@ const listConversations = async (req, res) => {
       if (!summaries.has(counterpartId)) {
         summaries.set(counterpartId, {
           counterpartId,
+          conversationId:
+            message.conversationId ||
+            buildConversationKey([currentUserId, counterpartId]),
           lastMessage: serializeMessage(message, currentUserId),
           unreadCount: 0,
           lastMessageAt: message.createdAt,
@@ -198,6 +233,7 @@ const listConversations = async (req, res) => {
             serviceType: "",
           },
         unreadCount: summary.unreadCount,
+        conversationId: summary.conversationId,
         lastMessage: summary.lastMessage,
         lastMessageAt: summary.lastMessageAt,
       }))
@@ -246,13 +282,22 @@ const getConversationThread = async (req, res) => {
         .json({ success: false, message: pairCheck.message });
     }
 
+    const conversation = await findConversationByParticipants([
+      currentUserId,
+      otherUserId,
+    ]);
+
     const [messages, participants] = await Promise.all([
-      Message.find({
-        $or: [
-          { sender: currentUserId, receiver: otherUserId },
-          { sender: otherUserId, receiver: currentUserId },
-        ],
-      })
+      Message.find(
+        conversation?._id
+          ? { conversationId: conversation._id }
+          : {
+              $or: [
+                { sender: currentUserId, receiver: otherUserId },
+                { sender: otherUserId, receiver: currentUserId },
+              ],
+            }
+      )
         .sort({ createdAt: 1 })
         .lean(),
       buildParticipantDirectory([otherUserId]),
@@ -261,6 +306,7 @@ const getConversationThread = async (req, res) => {
     res.json({
       success: true,
       data: {
+        conversationId: conversation?._id || null,
         participant: participants.get(toObjectIdString(otherUserId)) || null,
         messages: messages.map((message) =>
           serializeMessage(message, currentUserId)
@@ -361,7 +407,10 @@ const sendMessage = async (req, res) => {
         .json({ success: false, message: pairCheck.message });
     }
 
+    const conversation = await findOrCreateConversation([senderId, receiverId]);
+
     const message = await Message.create({
+      conversationId: conversation?._id || undefined,
       sender: senderId,
       receiver: receiverId,
       content: trimmedContent,
@@ -374,6 +423,7 @@ const sendMessage = async (req, res) => {
 
     const payload = {
       message: serializeMessage(savedMessage, senderId),
+      conversationId: conversation?._id || null,
       receiver: participants.get(toObjectIdString(receiverId)) || null,
       sender: participants.get(toObjectIdString(senderId)) || null,
     };
@@ -396,14 +446,15 @@ const sendMessage = async (req, res) => {
       },
     });
 
-    emitSocketEvent(
-      [senderId, receiverId],
-      "message:new",
-      {
+    emitSocketEvent({
+      userIds: [senderId, receiverId],
+      conversationIds: conversation?._id ? [conversation._id] : [],
+      eventName: SOCKET_EVENTS.MESSAGE_SENT,
+      payload: {
         ...payload,
         conversationUserId: toObjectIdString(senderId),
-      }
-    );
+      },
+    });
 
     res.status(201).json({
       success: true,
@@ -461,15 +512,22 @@ const markConversationRead = async (req, res) => {
       },
     });
 
-    emitSocketEvent(
-      [currentUserId, otherUserId],
-      "message:read",
-      {
+    const conversation = await findConversationByParticipants([
+      currentUserId,
+      otherUserId,
+    ]);
+
+    emitSocketEvent({
+      userIds: [currentUserId, otherUserId],
+      conversationIds: conversation?._id ? [conversation._id] : [],
+      eventName: SOCKET_EVENTS.MESSAGE_READ,
+      payload: {
+        conversationId: conversation?._id || null,
         conversationUserId: toObjectIdString(currentUserId),
         readerId: toObjectIdString(currentUserId),
         counterpartId: toObjectIdString(otherUserId),
-      }
-    );
+      },
+    });
 
     res.json({
       success: true,

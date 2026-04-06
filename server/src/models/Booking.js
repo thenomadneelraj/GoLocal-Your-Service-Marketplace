@@ -1,4 +1,9 @@
 const mongoose = require("mongoose");
+const {
+  BOOKING_STATUS,
+  BOOKING_STATUS_VALUES,
+  toBookingPersistenceStatus,
+} = require("../utils/bookingStatus");
 
 const bookingSchema = new mongoose.Schema(
   {
@@ -39,8 +44,9 @@ const bookingSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "confirmed", "completed", "cancelled"],
-      default: "pending",
+      enum: [...BOOKING_STATUS_VALUES, "confirmed"],
+      default: BOOKING_STATUS.PENDING,
+      set: (value) => toBookingPersistenceStatus(value),
     },
     paymentStatus: {
       type: String,

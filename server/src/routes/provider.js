@@ -18,6 +18,7 @@ const {
   getEarnings,
   getBookingsTrend,
   getServicePerformance,
+  getProviderPayouts,
 } = require("../controllers/providerStatsController");
 
 // Protected "Me" endpoints
@@ -29,6 +30,7 @@ router.get("/stats/dashboard", authenticate, authorize("PROVIDER"), enforceMaint
 router.get("/stats/earnings", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, getEarnings);
 router.get("/stats/bookings", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, getBookingsTrend);
 router.get("/stats/services", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, getServicePerformance);
+router.get("/stats/payouts", authenticate, authorize("PROVIDER"), enforceMaintenanceMode, enforceAccountAccess, getProviderPayouts);
 
 // Public
 router.get("/", optionalAuth, enforceMaintenanceMode, enforceAccountAccess, getProviders);

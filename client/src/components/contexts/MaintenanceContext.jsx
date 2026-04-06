@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import api from "@/lib/api";
 
 const MaintenanceContext = createContext(null);
@@ -20,6 +20,7 @@ export const useMaintenance = () => {
 export const MaintenanceProvider = ({ children }) => {
   const [status, setStatus] = useState(DEFAULT_STATUS);
   const [loading, setLoading] = useState(true);
+  const hasLoggedConnectionIssueRef = useRef(false);
 
   const refreshStatus = async ({ silent = false } = {}) => {
     if (!silent) {
@@ -35,8 +36,20 @@ export const MaintenanceProvider = ({ children }) => {
         platformName: nextStatus.platformName || DEFAULT_STATUS.platformName,
         supportEmail: nextStatus.supportEmail || DEFAULT_STATUS.supportEmail,
       });
+      hasLoggedConnectionIssueRef.current = false;
     } catch (error) {
-      console.error("Failed to load platform status:", error);
+      setStatus((current) => ({
+        maintenanceMode: Boolean(current?.maintenanceMode),
+        platformName: current?.platformName || DEFAULT_STATUS.platformName,
+        supportEmail: current?.supportEmail || DEFAULT_STATUS.supportEmail,
+      }));
+
+      if (!hasLoggedConnectionIssueRef.current) {
+        console.warn(
+          "Platform status is temporarily unavailable. Using default maintenance settings."
+        );
+        hasLoggedConnectionIssueRef.current = true;
+      }
     } finally {
       setLoading(false);
     }

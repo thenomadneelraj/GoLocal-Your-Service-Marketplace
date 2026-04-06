@@ -2,22 +2,37 @@ const mongoose = require("mongoose");
 
 const loginHistorySchema = new mongoose.Schema(
   {
-    userId: {
+    accountId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // Can also optionally be Admin, handled in logic
+      refPath: "accountModel",
+      required: true,
+    },
+    account: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    accountModel: {
+      type: String,
+      enum: ["User", "Admin"],
       required: true,
     },
     role: {
       type: String,
-      required: true, // "client", "provider", "admin"
+      required: true,
+      trim: true,
     },
     ipAddress: {
       type: String,
       trim: true,
     },
-    device: {
+    userAgent: {
       type: String,
       trim: true,
+    },
+    success: {
+      type: Boolean,
+      default: true,
     },
     loginTime: {
       type: Date,

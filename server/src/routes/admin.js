@@ -9,7 +9,7 @@ const adminStatsController = require("../controllers/adminStatsController");
 // Middleware to check if user is admin
 const isAdmin = async (req, res, next) => {
   try {
-    if (req.user.role !== "ADMIN") {
+    if (String(req.user?.role || "").toLowerCase() !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Access denied. Admin only.",
@@ -94,9 +94,12 @@ router.get("/providers", async (req, res) => {
 router.put("/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { isActive } = req.body;
+    const { isActive, status } = req.body;
     
-    const user = await adminService.updateUserStatus(id, isActive);
+    const user = await adminService.updateUserStatus(
+      id,
+      status !== undefined ? status : isActive
+    );
     res.json({
       success: true,
       message: 'User status updated',
@@ -114,9 +117,12 @@ router.put("/users/:id", async (req, res) => {
 router.put("/providers/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { isApproved } = req.body;
+    const { isApproved, approvalStatus } = req.body;
     
-    const provider = await adminService.updateProviderStatus(id, isApproved);
+    const provider = await adminService.updateProviderStatus(
+      id,
+      approvalStatus !== undefined ? approvalStatus : isApproved
+    );
     res.json({
       success: true,
       message: 'Provider status updated',

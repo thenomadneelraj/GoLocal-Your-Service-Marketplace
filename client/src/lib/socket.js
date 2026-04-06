@@ -1,6 +1,16 @@
 import { io } from "socket.io-client";
 
 const resolveSocketUrl = () => {
+  const configuredSocketUrl = import.meta.env.VITE_SOCKET_URL;
+
+  if (configuredSocketUrl) {
+    try {
+      return new URL(configuredSocketUrl).origin;
+    } catch {
+      return configuredSocketUrl;
+    }
+  }
+
   const configuredBase =
     import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
 
@@ -39,7 +49,7 @@ const ensureSocket = () => {
 
 		socket.on("connect", () => {
 			if (joinedUserId) {
-				socket.emit("join", joinedUserId);
+				socket.emit("join", { userId: joinedUserId });
 			}
 		});
 	}
@@ -60,7 +70,7 @@ export const initiateSocketConnection = (userId) => {
 	if (userId) {
 		joinedUserId = String(userId);
 		if (instance.connected) {
-			instance.emit("join", joinedUserId);
+			instance.emit("join", { userId: joinedUserId });
 		}
 	}
 
@@ -92,9 +102,13 @@ export const subscribeToBookingUpdates = (cb) => {
 	if (!socket) return () => {};
 
 	const handler = (data) => cb(null, data);
+	socket.on("booking_updated", handler);
+	socket.on("booking_created", handler);
 	socket.on("bookingStatusUpdate", handler);
 
 	return () => {
+		socket?.off("booking_updated", handler);
+		socket?.off("booking_created", handler);
 		socket?.off("bookingStatusUpdate", handler);
 	};
 };
@@ -103,9 +117,11 @@ export const subscribeToNewMessages = (cb) => {
 	if (!socket) return () => {};
 
 	const handler = (data) => cb(null, data);
+	socket.on("message_sent", handler);
 	socket.on("message:new", handler);
 
 	return () => {
+		socket?.off("message_sent", handler);
 		socket?.off("message:new", handler);
 	};
 };
@@ -114,9 +130,11 @@ export const subscribeToReadReceipts = (cb) => {
 	if (!socket) return () => {};
 
 	const handler = (data) => cb(null, data);
+	socket.on("message_read", handler);
 	socket.on("message:read", handler);
 
 	return () => {
+		socket?.off("message_read", handler);
 		socket?.off("message:read", handler);
 	};
 };
@@ -125,9 +143,11 @@ export const subscribeToNotifications = (cb) => {
 	if (!socket) return () => {};
 
 	const handler = (data) => cb(null, data);
+	socket.on("notification_created", handler);
 	socket.on("notification:new", handler);
 
 	return () => {
+		socket?.off("notification_created", handler);
 		socket?.off("notification:new", handler);
 	};
 };
@@ -136,10 +156,23 @@ export const subscribeToNotificationReads = (cb) => {
 	if (!socket) return () => {};
 
 	const handler = (data) => cb(null, data);
+	socket.on("notification_read", handler);
 	socket.on("notification:read", handler);
 
 	return () => {
+		socket?.off("notification_read", handler);
 		socket?.off("notification:read", handler);
+	};
+};
+
+export const subscribeToUserStatusUpdates = (cb) => {
+	if (!socket) return () => {};
+
+	const handler = (data) => cb(null, data);
+	socket.on("user_status_updated", handler);
+
+	return () => {
+		socket?.off("user_status_updated", handler);
 	};
 };
 

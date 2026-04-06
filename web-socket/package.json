@@ -1,0 +1,27 @@
+{
+  "name": "golocal-web-socket",
+  "version": "1.0.0",
+  "description": "Standalone Socket.IO service for GoLocal",
+  "main": "src/server.js",
+  "scripts": {
+    "server": "nodemon src/server.js",
+    "start": "node src/server.js"
+  },
+  "keywords": [
+    "socket.io",
+    "websocket",
+    "golocal"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}

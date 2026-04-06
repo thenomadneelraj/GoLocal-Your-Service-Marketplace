@@ -2,6 +2,18 @@ const User = require("../models/User");
 const Admin = require("../models/Admin");
 const Provider = require("../models/Provider");
 const Client = require("../models/Client");
+const { createNotification } = require("./notificationService");
+const {
+  USER_STATUS,
+  APPROVAL_STATUS,
+  buildPersistedAccountState,
+  normalizeApprovalStatus,
+  normalizeUserStatus,
+} = require("../utils/accountState");
+const {
+  SOCKET_EVENTS,
+  emitSocketEvent,
+} = require("../utils/socketEvents");
 
 // Get dashboard statistics
 const getDashboardStats = async () => {
@@ -66,7 +78,13 @@ const getAllUsers = async (page = 1, limit = 10, role = null) => {
         return {
           ...u.toObject(),
           name,
-          phone
+          phone,
+          status: normalizeUserStatus(u.status, u.isActive),
+          approvalStatus: normalizeApprovalStatus(u.approvalStatus, {
+            role: u.role,
+            isApproved: u.role === "provider" ? undefined : true,
+            status: normalizeUserStatus(u.status, u.isActive),
+          }),
         };
       })
     );
@@ -86,7 +104,7 @@ const getAllUsers = async (page = 1, limit = 10, role = null) => {
 const getAllProviders = async (page = 1, limit = 10) => {
   try {
     const providers = await Provider.find()
-      .populate("userId", "email role")
+      .populate("userId", "email role status approvalStatus isActive")
       .skip((page - 1) * limit)
       .limit(limit)
       .sort({ createdAt: -1 });
@@ -94,7 +112,24 @@ const getAllProviders = async (page = 1, limit = 10) => {
     const total = await Provider.countDocuments();
 
     return {
-      providers,
+      providers: providers.map((provider) => {
+        const user = provider.userId || {};
+        const state = buildPersistedAccountState({
+          role: user.role,
+          status: user.status,
+          isActive: user.isActive,
+          approvalStatus: user.approvalStatus,
+          isApproved: provider.isApproved,
+        });
+
+        return {
+          ...(provider.toObject ? provider.toObject() : provider),
+          status: state.status,
+          approvalStatus: state.approvalStatus,
+          isActive: state.isActive,
+          isApproved: state.approvalStatus === APPROVAL_STATUS.APPROVED,
+        };
+      }),
       total,
       page,
       pages: Math.ceil(total / limit),
@@ -107,15 +142,48 @@ const getAllProviders = async (page = 1, limit = 10) => {
 // Update user status (enable/disable)
 const updateUserStatus = async (userId, isActive) => {
   try {
+    const currentUser = await User.findById(userId).select("-password");
+    if (!currentUser) {
+      throw new Error("User not found");
+    }
+
+    const nextStatus =
+      typeof isActive === "string" && isActive.trim()
+        ? normalizeUserStatus(isActive, currentUser.isActive)
+        : isActive === false
+          ? USER_STATUS.SUSPENDED
+          : USER_STATUS.ACTIVE;
+
     const user = await User.findByIdAndUpdate(
       userId,
-      { isActive },
+      {
+        status: nextStatus,
+        isActive: nextStatus === USER_STATUS.ACTIVE,
+      },
       { new: true },
     ).select("-password");
 
-    if (!user) {
-      throw new Error("User not found");
-    }
+    await createNotification({
+      userId,
+      title: "Account status updated",
+      message: `Your account status is now ${nextStatus}.`,
+      type: "account",
+      actionUrl: "",
+      metadata: {
+        status: nextStatus,
+      },
+    });
+
+    emitSocketEvent({
+      userIds: [userId],
+      eventName: SOCKET_EVENTS.USER_STATUS_UPDATED,
+      payload: {
+        userId,
+        status: nextStatus,
+        approvalStatus: user.approvalStatus,
+        message: `Your account status is now ${nextStatus}.`,
+      },
+    });
 
     return user;
   } catch (error) {
@@ -124,16 +192,89 @@ const updateUserStatus = async (userId, isActive) => {
 };
 
 // Verify/unverify provider
-const updateProviderStatus = async (providerId, isApproved) => {
+const updateProviderStatus = async (providerId, approvalInput) => {
   try {
+    const currentProvider = await Provider.findById(providerId).populate(
+      "userId",
+      "email role status approvalStatus isActive"
+    );
+
+    if (!currentProvider) {
+      throw new Error("Provider not found");
+    }
+
+    let nextApprovalStatus;
+    if (typeof approvalInput === "string" && approvalInput.trim()) {
+      nextApprovalStatus = normalizeApprovalStatus(approvalInput, {
+        role: "provider",
+        isApproved: currentProvider.isApproved,
+        status: normalizeUserStatus(
+          currentProvider.userId?.status,
+          currentProvider.userId?.isActive
+        ),
+      });
+    } else {
+      nextApprovalStatus =
+        approvalInput === true
+          ? APPROVAL_STATUS.APPROVED
+          : APPROVAL_STATUS.PENDING;
+    }
+
+    const currentUserStatus = normalizeUserStatus(
+      currentProvider.userId?.status,
+      currentProvider.userId?.isActive
+    );
+    const nextUserStatus =
+      nextApprovalStatus === APPROVAL_STATUS.REJECTED
+        ? USER_STATUS.REJECTED
+        : nextApprovalStatus === APPROVAL_STATUS.APPROVED
+          ? USER_STATUS.ACTIVE
+          : currentUserStatus === USER_STATUS.SUSPENDED
+            ? USER_STATUS.SUSPENDED
+            : USER_STATUS.ACTIVE;
+
+    await User.findByIdAndUpdate(currentProvider.userId?._id, {
+      status: nextUserStatus,
+      isActive: nextUserStatus === USER_STATUS.ACTIVE,
+      approvalStatus: nextApprovalStatus,
+    });
+
     const provider = await Provider.findByIdAndUpdate(
       providerId,
-      { isApproved },
+      {
+        isApproved: nextApprovalStatus === APPROVAL_STATUS.APPROVED,
+      },
       { new: true },
-    ).populate("userId", "email role");
+    ).populate("userId", "email role status approvalStatus isActive");
 
     if (!provider) {
       throw new Error("Provider not found");
+    }
+
+    const providerUserId = provider.userId?._id;
+    if (providerUserId) {
+      await createNotification({
+        userId: providerUserId,
+        title: "Provider approval updated",
+        message: `Your provider approval status is now ${nextApprovalStatus}.`,
+        type: "account",
+        actionUrl: "/provider-dashboard",
+        metadata: {
+          approvalStatus: nextApprovalStatus,
+          status: nextUserStatus,
+        },
+      });
+
+      emitSocketEvent({
+        userIds: [providerUserId],
+        eventName: SOCKET_EVENTS.USER_STATUS_UPDATED,
+        payload: {
+          userId: providerUserId,
+          status: nextUserStatus,
+          approvalStatus: nextApprovalStatus,
+          message: `Your provider approval status is now ${nextApprovalStatus}.`,
+        },
+      });
     }
 
     return provider;
@@ -151,7 +292,14 @@ const getUserById = async (userId) => {
       throw new Error("User not found");
     }
 
-    return user;
+    return {
+      ...(user.toObject ? user.toObject() : user),
+      status: normalizeUserStatus(user.status, user.isActive),
+      approvalStatus: normalizeApprovalStatus(user.approvalStatus, {
+        role: user.role,
+        status: normalizeUserStatus(user.status, user.isActive),
+      }),
+    };
   } catch (error) {
     throw new Error(error.message);
   }
@@ -162,14 +310,37 @@ const getProviderById = async (providerId) => {
   try {
     const provider = await Provider.findById(providerId).populate(
       "userId",
-      "email role",
+      "email role status approvalStatus isActive",
     );
 
     if (!provider) {
       throw new Error("Provider not found");
     }
 
-    return provider;
+    return {
+      ...(provider.toObject ? provider.toObject() : provider),
+      status: normalizeUserStatus(
+        provider.userId?.status,
+        provider.userId?.isActive
+      ),
+      approvalStatus: normalizeApprovalStatus(provider.userId?.approvalStatus, {
+        role: provider.userId?.role,
+        status: normalizeUserStatus(
+          provider.userId?.status,
+          provider.userId?.isActive
+        ),
+        isApproved: provider.isApproved,
+      }),
+      isApproved:
+        normalizeApprovalStatus(provider.userId?.approvalStatus, {
+          role: provider.userId?.role,
+          status: normalizeUserStatus(
+            provider.userId?.status,
+            provider.userId?.isActive
+          ),
+          isApproved: provider.isApproved,
+        }) === APPROVAL_STATUS.APPROVED,
+    };
   } catch (error) {
     throw new Error(error.message);
   }

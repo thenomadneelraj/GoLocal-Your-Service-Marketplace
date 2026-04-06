@@ -31,6 +31,11 @@ import {
 } from "@/lib/socket";
 import { toast } from "sonner";
 import { getGreetingByTime } from "@/lib/greeting";
+import {
+  BOOKING_STATUS,
+  getBookingStatusLabel,
+  normalizeBookingStatus,
+} from "@/lib/bookingStatus";
 
 const EMPTY_DASHBOARD = {
   summary: {
@@ -57,8 +62,9 @@ const CARD_STYLES = [
 
 const STATUS_STYLES = {
   pending: "bg-amber-500/12 text-amber-600 dark:text-amber-300",
-  confirmed: "bg-primary/12 text-primary",
+  accepted: "bg-primary/12 text-primary",
   completed: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300",
+  rejected: "bg-rose-500/12 text-rose-600 dark:text-rose-300",
   cancelled: "bg-rose-500/12 text-rose-600 dark:text-rose-300",
 };
 
@@ -116,8 +122,6 @@ const formatShortDate = (value) => {
   });
 };
 
-const statusLabel = (value = "") => String(value || "").replace(/^\w/, (letter) => letter.toUpperCase());
-
 function Panel({ className = "", children }) {
   return (
     <section className={`overflow-hidden rounded-[2rem] border border-border/70 bg-card/92 shadow-[0_28px_80px_-48px_rgba(15,23,42,0.58)] backdrop-blur-xl ${className}`}>
@@ -127,10 +131,10 @@ function Panel({ className = "", children }) {
 }
 
 function StatusBadge({ status }) {
-  const normalized = String(status || "").toLowerCase();
+  const normalized = normalizeBookingStatus(status);
   return (
     <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${STATUS_STYLES[normalized] || "bg-muted text-muted-foreground"}`}>
-      {statusLabel(normalized || "unknown")}
+      {getBookingStatusLabel(normalized || "unknown")}
     </span>
   );
 }
@@ -291,7 +295,7 @@ export default function ClientDashboard() {
                     {card.key === "activeProviders"
                       ? "Providers you have booked with"
                       : card.key === "ongoingProjects"
-                        ? "Confirmed live bookings"
+                        ? "Accepted live bookings"
                         : card.key === "totalSpent"
                           ? "Successful transaction total"
                           : "Upcoming booked sessions"}
@@ -382,7 +386,7 @@ export default function ClientDashboard() {
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-semibold tracking-tight text-foreground">Task Overview</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Your next confirmed or pending sessions.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Your next accepted or pending sessions.</p>
             </div>
             <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
               {dashboard.taskOverview.length}

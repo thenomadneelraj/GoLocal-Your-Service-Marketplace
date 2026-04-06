@@ -40,7 +40,7 @@ function AdminUsers() {
       setLoading(true);
       setError("");
       await api.put(`/api/admin/users/${id}`, {
-        isActive: !currentStatus,
+        status: currentStatus === "active" ? "suspended" : "active",
       });
       await fetchUsers(pagination.page || 1);
     } catch (err) {
@@ -50,6 +50,10 @@ function AdminUsers() {
       setLoading(false);
     }
   };
+
+  const resolveUserStatus = (user) =>
+    String(user.status || "").toLowerCase() ||
+    (user.isActive ? "active" : "suspended");
 
   return (
     <section className="space-y-4">
@@ -92,24 +96,42 @@ function AdminUsers() {
                 {user.role || "CLIENT"}
               </td>
               <td className="admin-cell">
-                <span
-                  className={`admin-badge ${
-                    user.isActive
+                {(() => {
+                  const status = resolveUserStatus(user);
+                  const badgeClass =
+                    status === "active"
                       ? "admin-badge-success"
-                      : "admin-badge-muted"
-                  }`}
+                      : status === "rejected"
+                        ? "admin-badge-warning"
+                        : "admin-badge-muted";
+                  const label =
+                    status === "rejected"
+                      ? "Rejected"
+                      : status === "active"
+                        ? "Active"
+                        : "Suspended";
+
+                  return (
+                <span
+                      className={`admin-badge ${badgeClass}`}
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                  {user.isActive ? "Active" : "Disabled"}
+                      {label}
                 </span>
+                  );
+                })()}
               </td>
               <td className="admin-cell">
                 <button
                   type="button"
-                  onClick={() => toggleUserStatus(user._id, user.isActive)}
-                  className="admin-pill-button"
+                  onClick={() => toggleUserStatus(user._id, resolveUserStatus(user))}
+                  className={`admin-pill-button ${
+                    resolveUserStatus(user) === "active"
+                      ? "admin-pill-button-warning"
+                      : "admin-pill-button-success"
+                  }`}
                 >
-                  {user.isActive ? "Disable" : "Enable"}
+                  {resolveUserStatus(user) === "active" ? "Suspend" : "Activate"}
                 </button>
               </td>
             </tr>

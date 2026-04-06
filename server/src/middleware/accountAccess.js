@@ -1,11 +1,24 @@
 const Provider = require("../models/Provider");
+const {
+  APPROVAL_STATUS,
+  buildPersistedAccountState,
+  normalizeApprovalStatus,
+} = require("../utils/accountState");
 
 const buildAccountAccessState = async (user) => {
   const role = String(user?.role || "").toUpperCase();
+  const baseState = buildPersistedAccountState({
+    role: user?.role,
+    status: user?.status,
+    isActive: user?.isActive,
+    approvalStatus: user?.approvalStatus,
+  });
 
   if (!user || role === "ADMIN") {
     return {
       role,
+      status: baseState.status,
+      approvalStatus: baseState.approvalStatus,
       isActive: true,
       isApproved: true,
       restricted: false,
@@ -14,11 +27,13 @@ const buildAccountAccessState = async (user) => {
     };
   }
 
-  if (user.isActive === false) {
+  if (!baseState.isActive) {
     return {
       role,
+      status: baseState.status,
+      approvalStatus: baseState.approvalStatus,
       isActive: false,
-      isApproved: true,
+      isApproved: baseState.approvalStatus === APPROVAL_STATUS.APPROVED,
       restricted: true,
       reason: role === "PROVIDER" ? "provider_disabled" : "client_suspended",
       message:
@@ -32,22 +47,39 @@ const buildAccountAccessState = async (user) => {
     const provider = await Provider.findOne({ userId: user._id })
       .select("isApproved")
       .lean();
+    const approvalStatus = normalizeApprovalStatus(
+      user.approvalStatus,
+      {
+        role: user.role,
+        status: baseState.status,
+        isApproved: provider?.isApproved,
+      }
+    );
 
-    if (!provider?.isApproved) {
+    if (approvalStatus !== APPROVAL_STATUS.APPROVED) {
       return {
         role,
+        status: baseState.status,
+        approvalStatus,
         isActive: true,
         isApproved: false,
         restricted: true,
-        reason: "provider_unapproved",
+        reason:
+          approvalStatus === APPROVAL_STATUS.REJECTED
+            ? "provider_rejected"
+            : "provider_unapproved",
         message:
-          "Your provider account is awaiting admin approval. You can access only your dashboard to contact the admin.",
+          approvalStatus === APPROVAL_STATUS.REJECTED
+            ? "Your provider account was rejected by admin. You can access only your dashboard to contact the admin."
+            : "Your provider account is awaiting admin approval. You can access only your dashboard to contact the admin.",
       };
     }
   }
 
   return {
     role,
+    status: baseState.status,
+    approvalStatus: baseState.approvalStatus,
     isActive: true,
     isApproved: true,
     restricted: false,
@@ -62,12 +94,14 @@ const buildAccountRestrictionResponse = (accessState = {}) => ({
   message:
     accessState.message ||
     "Your account has limited access right now. Please contact the admin.",
-  data: {
-    role: accessState.role || "",
-    reason: accessState.reason || null,
-    isActive: accessState.isActive !== false,
-    isApproved: accessState.isApproved !== false,
-    restricted: true,
+    data: {
+      role: accessState.role || "",
+      reason: accessState.reason || null,
+      status: accessState.status || "",
+      approvalStatus: accessState.approvalStatus || "",
+      isActive: accessState.isActive !== false,
+      isApproved: accessState.isApproved !== false,
+      restricted: true,
   },
 });
 

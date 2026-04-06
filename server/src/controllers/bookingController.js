@@ -8,6 +8,37 @@ const Payout = require("../models/Payout");
 const Review = require("../models/Review");
 const Dispute = require("../models/Dispute");
 const Client = require("../models/Client");
+const { createNotification } = require("../services/notificationService");
+const {
+  APPROVAL_STATUS,
+  isAccountActive,
+  isProviderApproved,
+} = require("../utils/accountState");
+const {
+  BOOKING_STATUS,
+  normalizeBookingStatus,
+  toBookingPersistenceStatus,
+  isCompletedBooking,
+} = require("../utils/bookingStatus");
+const {
+  SOCKET_EVENTS,
+  emitSocketEvent,
+} = require("../utils/socketEvents");
+
+const BOOKING_STATUS_TRANSITIONS = {
+  [BOOKING_STATUS.PENDING]: [
+    BOOKING_STATUS.ACCEPTED,
+    BOOKING_STATUS.REJECTED,
+    BOOKING_STATUS.CANCELLED,
+  ],
+  [BOOKING_STATUS.ACCEPTED]: [
+    BOOKING_STATUS.COMPLETED,
+    BOOKING_STATUS.CANCELLED,
+  ],
+  [BOOKING_STATUS.REJECTED]: [],
+  [BOOKING_STATUS.COMPLETED]: [],
+  [BOOKING_STATUS.CANCELLED]: [],
+};
 
 const normalizeArea = (value = "") =>
   String(value || "")
@@ -165,18 +196,23 @@ const createBooking = async (req, res) => {
       });
     }
 
-    const providerUser = await User.findById(provider.userId).select("isActive");
-    if (providerUser && providerUser.isActive === false) {
+    const providerUser = await User.findById(provider.userId).select(
+      "role status approvalStatus isActive"
+    );
+    if (providerUser && !isAccountActive(providerUser)) {
       return res.status(409).json({
         success: false,
         message: "Provider account is currently disabled.",
       });
     }
 
-    if (!provider.isApproved) {
+    if (!isProviderApproved({ user: providerUser, provider })) {
       return res.status(409).json({
         success: false,
-        message: "Provider is not approved for bookings yet.",
+        message:
+          providerUser?.approvalStatus === APPROVAL_STATUS.REJECTED
+            ? "Provider account has been rejected."
+            : "Provider is not approved for bookings yet.",
       });
     }
 
@@ -207,7 +243,7 @@ const createBooking = async (req, res) => {
 
     const conflictingBooking = await Booking.findOne({
       providerId,
-      status: { $in: ["pending", "confirmed"] },
+      status: { $in: [BOOKING_STATUS.PENDING, BOOKING_STATUS.ACCEPTED, "confirmed"] },
       timeSlot: actualTimeSlot,
       bookingDate: { $gte: startOfBookingDay, $lt: endOfBookingDay },
     });
@@ -241,7 +277,7 @@ const createBooking = async (req, res) => {
       address,
       notes: notes || undefined, // Add notes field to schema if needed, skipping for now if it's not strictly schema
       price: actualAmount,
-      status: "confirmed",
+      status: BOOKING_STATUS.PENDING,
       paymentStatus: "paid",
     });
 
@@ -268,9 +304,41 @@ const createBooking = async (req, res) => {
       status: "pending",
     });
 
+    if (provider.userId) {
+      await createNotification({
+        userId: provider.userId,
+        title: `New booking request from ${client.name}`,
+        message: `${client.name} requested ${service.title || provider.serviceType || "a service"} for ${actualTimeSlot}.`,
+        type: "booking",
+        actionUrl: "/provider/booking-management",
+        metadata: {
+          bookingId: booking._id.toString(),
+          clientId: client._id.toString(),
+          providerId: provider._id.toString(),
+          status: BOOKING_STATUS.PENDING,
+        },
+      });
+
+      emitSocketEvent({
+        userIds: [provider.userId],
+        eventName: SOCKET_EVENTS.BOOKING_CREATED,
+        payload: {
+          bookingId: booking._id,
+          status: BOOKING_STATUS.PENDING,
+          message: `New booking request from ${client.name}`,
+          booking: {
+            id: booking._id,
+            bookingDate: booking.bookingDate,
+            timeSlot: booking.timeSlot,
+            price: booking.price,
+          },
+        },
+      });
+    }
+
     return res.status(201).json({
       success: true,
-      message: "Booking created successfully.",
+      message: "Booking request submitted successfully.",
       data: { booking, transaction, payout },
     });
   } catch (error) {
@@ -301,13 +369,28 @@ const getMyBookings = async (req, res) => {
     }
 
     if (req.query.status) {
-      filter.status = req.query.status.toLowerCase();
+      filter.status = toBookingPersistenceStatus(req.query.status);
     }
 
     const [items, total] = await Promise.all([
       Booking.find(filter)
-        .populate("providerId", "name phone profileImage serviceType location hourlyRate userId")
-        .populate("clientId", "name phone profileImage")
+        .populate({
+          path: "providerId",
+          select:
+            "name phone profileImage serviceType location hourlyRate userId bio experience rating totalReviews isApproved availability address",
+          populate: {
+            path: "userId",
+            select: "email role status approvalStatus isActive",
+          },
+        })
+        .populate({
+          path: "clientId",
+          select: "name phone profileImage address userId",
+          populate: {
+            path: "userId",
+            select: "email role status approvalStatus isActive",
+          },
+        })
         .populate("serviceId", "title category price")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
@@ -330,6 +413,7 @@ const getMyBookings = async (req, res) => {
       const plain = item.toObject ? item.toObject() : item;
       return {
         ...plain,
+        status: normalizeBookingStatus(plain.status),
         review: reviewMap.get(String(item._id)) || null,
       };
     });
@@ -354,19 +438,20 @@ const getMyBookings = async (req, res) => {
   }
 };
 
-const socketIO = require("../socket");
-
 // CHANGE booking status (simplified)
 const updateBookingStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const nextStatus = toBookingPersistenceStatus(req.body?.status);
 
-    const booking = await Booking.findByIdAndUpdate(
-      id,
-      { status: status ? status.toLowerCase() : undefined },
-      { new: true }
-    ).populate("clientId", "userId");
+    if (!BOOKING_STATUS_TRANSITIONS[nextStatus]) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking status.",
+      });
+    }
+
+    const booking = await Booking.findById(id).populate("clientId", "userId");
 
     if (!booking) {
       return res.status(404).json({
@@ -375,15 +460,112 @@ const updateBookingStatus = async (req, res) => {
       });
     }
 
-    // Emit real-time notification to the client
-    if (booking.clientId && booking.clientId.userId) {
-      const io = socketIO.getIO();
-      io.to(booking.clientId.userId.toString()).emit("bookingStatusUpdate", {
-        bookingId: booking._id,
-        status: booking.status,
-        message: `Your booking status has been updated to ${booking.status}`
+    const actorRole = String(req.user?.role || "").trim().toLowerCase();
+    const currentStatus = normalizeBookingStatus(booking.status);
+
+    if (actorRole === "provider") {
+      const providerProfile = await Provider.findOne({ userId: req.user._id }).select("_id");
+
+      if (!providerProfile || String(booking.providerId) !== String(providerProfile._id)) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only update your own booking requests.",
+        });
+      }
+
+      if (
+        currentStatus !== nextStatus &&
+        !BOOKING_STATUS_TRANSITIONS[currentStatus]?.includes(nextStatus)
+      ) {
+        return res.status(409).json({
+          success: false,
+          message: `A ${currentStatus || "booking"} request cannot be moved to ${nextStatus}.`,
+        });
+      }
+    } else if (actorRole === "client") {
+      const clientProfile = await Client.findOne({ userId: req.user._id }).select("_id");
+
+      if (!clientProfile || String(booking.clientId?._id || booking.clientId) !== String(clientProfile._id)) {
+        return res.status(403).json({
+          success: false,
+          message: "You can only update your own bookings.",
+        });
+      }
+
+      if (nextStatus !== BOOKING_STATUS.CANCELLED) {
+        return res.status(403).json({
+          success: false,
+          message: "Clients can only cancel their bookings.",
+        });
+      }
+
+      if (![BOOKING_STATUS.PENDING, BOOKING_STATUS.ACCEPTED].includes(currentStatus)) {
+        return res.status(409).json({
+          success: false,
+          message: "Only pending or accepted bookings can be cancelled.",
+        });
+      }
+    } else if (actorRole !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to update this booking.",
       });
     }
+
+    booking.status = nextStatus;
+    await booking.save();
+    await booking.populate([
+      {
+        path: "providerId",
+        select:
+          "name phone profileImage serviceType location hourlyRate userId bio experience rating totalReviews isApproved availability address",
+        populate: {
+          path: "userId",
+          select: "email role status approvalStatus isActive",
+        },
+      },
+      {
+        path: "clientId",
+        select: "name phone profileImage address userId",
+        populate: {
+          path: "userId",
+          select: "email role status approvalStatus isActive",
+        },
+      },
+      {
+        path: "serviceId",
+        select: "title category price",
+      },
+    ]);
+
+    const normalizedNextStatus = normalizeBookingStatus(booking.status);
+    const providerUserId = booking.providerId?.userId?._id || booking.providerId?.userId;
+    const clientUserId = booking.clientId?.userId?._id || booking.clientId?.userId;
+
+    if (clientUserId) {
+      await createNotification({
+        userId: clientUserId,
+        title: "Booking request updated",
+        message: `Your booking is now ${normalizedNextStatus}.`,
+        type: "booking",
+        actionUrl: "/client/bookings",
+        metadata: {
+          bookingId: booking._id.toString(),
+          status: normalizedNextStatus,
+        },
+      });
+    }
+
+    emitSocketEvent({
+      userIds: [clientUserId, providerUserId],
+      eventName: SOCKET_EVENTS.BOOKING_UPDATED,
+      payload: {
+        bookingId: booking._id,
+        status: normalizedNextStatus,
+        message: `Your booking status has been updated to ${normalizedNextStatus}`,
+        booking,
+      },
+    });
 
     res.json({
       success: true,
@@ -428,7 +610,7 @@ const createBookingReview = async (req, res) => {
       });
     }
 
-    if (String(booking.status || "").toLowerCase() !== "completed") {
+    if (!isCompletedBooking(booking.status)) {
       return res.status(409).json({
         success: false,
         message: "You can review a provider after the booking is completed.",

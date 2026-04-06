@@ -1,95 +1,222 @@
-import React, { useState } from "react";
-import { 
-  IndianRupee, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  TrendingUp, 
-  Wallet, 
-  CreditCard, 
-  History, 
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  IndianRupee,
+  ArrowUpRight,
+  ArrowDownLeft,
+  TrendingUp,
+  Wallet,
+  CreditCard,
+  History,
   Banknote,
   MoreVertical,
   Download,
   Filter,
   Search,
   CheckCircle2,
-  Clock
+  Clock,
+  Loader2,
+  RefreshCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import api from "@/lib/api";
+import { toast } from "sonner";
+import {
+  initiateSocketConnection,
+  subscribeToNotifications,
+  disconnectSocket,
+} from "@/lib/socket";
+import { useAuth } from "@/components/contexts/AuthContext";
 
-const TRANSACTIONS = [
-  { id: "TX-1002", type: "payout", amount: "₹12,450", date: "2026-03-25", status: "completed", description: "Monthly Payout - IDBI Bank" },
-  { id: "TX-1001", type: "earnings", amount: "+₹2,500", date: "2026-03-24", status: "completed", description: "Booking BK-8821 - Deep House Cleaning" },
-  { id: "TX-1000", type: "earnings", amount: "+₹1,800", date: "2026-03-23", status: "completed", description: "Booking BK-8820 - Kitchen Deep Clean" },
-  { id: "TX-0999", type: "earnings", amount: "+₹4,200", date: "2026-03-22", status: "pending", description: "Booking BK-8819 - Full Apartment Sanitization" }
-];
+const formatCurrency = (amount) =>
+  `₹${Number(amount || 0).toLocaleString("en-IN")}`;
+
+const formatDate = (value) => {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const STATUS_COLORS = {
+  paid: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+  pending: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+};
 
 export default function ProviderEarnings() {
+  const { user } = useAuth();
+  const [payouts, setPayouts] = useState([]);
+  const [totalEarnings, setTotalEarnings] = useState(0);
+  const [pendingAmount, setPendingAmount] = useState(0);
+  const [lastPaidAmount, setLastPaidAmount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const LIMIT = 10;
+
+  const fetchPayouts = useCallback(
+    async (pg = 1) => {
+      try {
+        setLoading(true);
+        const res = await api.get(
+          `/api/providers/stats/payouts?page=${pg}&limit=${LIMIT}`
+        );
+        const data = res.data?.data || {};
+        setPayouts(data.items || []);
+        setTotalEarnings(data.totalEarnings || 0);
+        setPendingAmount(data.pendingAmount || 0);
+        setLastPaidAmount(data.lastPaidAmount || 0);
+        setTotalPages(data.pages || 1);
+        setTotalCount(data.total || 0);
+        setPage(pg);
+      } catch (err) {
+        console.error("Failed to fetch earnings:", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    fetchPayouts(1);
+  }, [fetchPayouts]);
+
+  // Real-time: listen for payment-related notifications
+  useEffect(() => {
+    if (!user?.id) return;
+    initiateSocketConnection(user.id);
+
+    const unsub = subscribeToNotifications((err, payload) => {
+      if (err) return;
+      if (payload?.notification?.type === "payment") {
+        fetchPayouts(1);
+      }
+    });
+
+    return () => {
+      unsub();
+      disconnectSocket();
+    };
+  }, [user?.id, fetchPayouts]);
+
+  const handleRequestPayout = () => {
+    toast.info("Payout request feature coming soon. Please contact support.");
+  };
+
+  const handleExport = () => {
+    toast.info("CSV export coming soon.");
+  };
+
+  const filteredPayouts = payouts.filter((p) => {
+    const matchesTab = activeTab === "all" || p.status === activeTab;
+    const matchesSearch =
+      !searchQuery ||
+      p.serviceTitle?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      String(p.id).toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesTab && matchesSearch;
+  });
 
   return (
     <div className="space-y-6 pb-10 font-sans">
-      {/* Header & Balance Cards */}
+      {/* Header Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {/* Total Wallet Balance */}
+        {/* Wallet Balance */}
         <div className="lg:col-span-2 relative bg-card/60 p-8 rounded-[2rem] border border-border/60 backdrop-blur-xl overflow-hidden group shadow-sm">
           <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent pointer-events-none" />
           <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none group-hover:bg-emerald-500/20 transition-all duration-700" />
-          
+
           <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-8 h-full">
             <div className="space-y-4">
               <div className="flex items-center gap-2 bg-emerald-500/10 text-emerald-600 px-3 py-1.5 rounded-xl w-fit text-[10px] font-black uppercase tracking-widest border border-emerald-500/20 shadow-xs">
                 <Wallet size={12} />
-                Wallet balance
+                Total Earnings
               </div>
               <div>
-                <h1 className="text-5xl font-black tracking-tight text-foreground italic">₹42,850</h1>
-                <p className="text-muted-foreground mt-2 text-[10px] font-bold flex items-center gap-2 uppercase tracking-widest leading-none">
-                  <TrendingUp size={14} className="text-emerald-500" />
-                  <span className="text-emerald-600 font-black">+12%</span> vs last month
-                </p>
+                {loading ? (
+                  <div className="h-14 w-48 animate-pulse bg-muted/40 rounded-2xl" />
+                ) : (
+                  <>
+                    <h1 className="text-5xl font-black tracking-tight text-foreground italic">
+                      {formatCurrency(totalEarnings)}
+                    </h1>
+                    <p className="text-muted-foreground mt-2 text-[10px] font-bold flex items-center gap-2 uppercase tracking-widest leading-none">
+                      <TrendingUp size={14} className="text-emerald-500" />
+                      {totalCount} payout record{totalCount !== 1 ? "s" : ""}
+                    </p>
+                  </>
+                )}
               </div>
             </div>
-            
+
             <div className="flex flex-col gap-2 min-w-[160px]">
-              <Button size="lg" className="rounded-xl h-11 text-xs font-black uppercase tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-md gap-2">
+              <Button
+                size="lg"
+                className="rounded-xl h-11 text-xs font-black uppercase tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-md gap-2"
+                onClick={handleRequestPayout}
+              >
                 <Banknote size={16} />
                 Request Payout
               </Button>
-              <Button size="lg" variant="outline" className="rounded-xl h-11 text-xs font-black uppercase tracking-widest border-border/60 hover:bg-muted/50 gap-2 shadow-xs">
-                <CreditCard size={16} />
-                Linked Accounts
+              <Button
+                size="lg"
+                variant="outline"
+                className="rounded-xl h-11 text-xs font-black uppercase tracking-widest border-border/60 hover:bg-muted/50 gap-2 shadow-xs"
+                onClick={handleExport}
+              >
+                <Download size={16} />
+                Export CSV
               </Button>
             </div>
           </div>
         </div>
 
-        {/* Small Stats */}
+        {/* Stats */}
         <div className="grid grid-cols-1 gap-4">
           <div className="bg-card/40 border border-border/60 rounded-[2rem] p-6 group hover:border-emerald-500/40 transition-all duration-300 backdrop-blur-sm shadow-xs h-full flex flex-col justify-center">
             <div className="flex items-center justify-between mb-4">
               <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-600 border border-orange-500/20 shadow-xs">
                 <Clock size={18} />
               </div>
-              <ArrowUpRight size={16} className="text-muted-foreground group-hover:text-emerald-500 transition-colors" />
+              <ArrowUpRight size={16} className="text-muted-foreground" />
             </div>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">Pending Payout</p>
-            <p className="text-2xl font-black leading-none italic">₹8,200</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">
+              Pending Amount
+            </p>
+            {loading ? (
+              <div className="h-8 w-24 animate-pulse bg-muted/40 rounded-xl" />
+            ) : (
+              <p className="text-2xl font-black leading-none italic">
+                {formatCurrency(pendingAmount)}
+              </p>
+            )}
           </div>
           <div className="bg-card/40 border border-border/60 rounded-[2rem] p-6 group hover:border-emerald-500/40 transition-all duration-300 backdrop-blur-sm shadow-xs h-full flex flex-col justify-center">
             <div className="flex items-center justify-between mb-4">
               <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600 border border-indigo-500/20 shadow-xs">
                 <History size={18} />
               </div>
-              <Download size={16} className="text-muted-foreground group-hover:text-emerald-500 transition-colors" />
+              <Download size={16} className="text-muted-foreground" />
             </div>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">Last Payout</p>
-            <p className="text-2xl font-black leading-none italic">₹24,500</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">
+              Last Paid
+            </p>
+            {loading ? (
+              <div className="h-8 w-24 animate-pulse bg-muted/40 rounded-xl" />
+            ) : (
+              <p className="text-2xl font-black leading-none italic">
+                {formatCurrency(lastPaidAmount)}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Transactions Section */}
+      {/* Transaction table */}
       <div className="space-y-6">
         <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
           <div className="flex items-center gap-3">
@@ -97,82 +224,214 @@ export default function ProviderEarnings() {
               <History size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-bold tracking-tight">Transactions</h2>
-              <p className="text-[10px] text-muted-foreground mt-0.5 font-medium italic opacity-70">Earnings and payout history.</p>
+              <h2 className="text-xl font-bold tracking-tight">
+                Earnings History
+              </h2>
+              <p className="text-[10px] text-muted-foreground mt-0.5 font-medium italic opacity-70">
+                Completed and pending payouts.
+              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 w-full xl:w-auto">
+            {/* Filter tabs */}
+            <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-xl border border-border/40">
+              {["all", "paid", "pending"].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                    activeTab === tab
+                      ? "bg-background text-emerald-600 shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
             <div className="relative group flex-1 xl:w-72">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground group-focus-within:text-emerald-500 transition-colors" />
-              <input 
-                type="text" 
-                placeholder="Search history..." 
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search history..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full h-10 pl-9 pr-4 rounded-xl border border-border/60 bg-card/50 focus:bg-background outline-none transition-all text-xs shadow-xs"
               />
             </div>
-            <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl border-border/60 hover:bg-muted/50 shadow-xs">
-              <Filter size={16} className="text-muted-foreground" />
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-xl border-border/60"
+              onClick={() => fetchPayouts(1)}
+            >
+              <RefreshCcw size={16} className="text-muted-foreground" />
             </Button>
-            <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl border-border/60 hover:bg-muted/50 shadow-xs">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-xl border-border/60"
+              onClick={handleExport}
+            >
               <Download size={16} className="text-muted-foreground" />
             </Button>
           </div>
         </div>
 
         <div className="overflow-hidden bg-card/30 border border-border/60 rounded-[2rem] backdrop-blur-sm shadow-xs">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-muted/30 border-b border-border/40">
-                  <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80">Descriptor</th>
-                  <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">Date</th>
-                  <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">Amount</th>
-                  <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">Status</th>
-                  <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/20">
-                {TRANSACTIONS.map((tx) => (
-                  <tr key={tx.id} className="group hover:bg-emerald-500/5 transition-all duration-300">
-                    <td className="px-8 py-4">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center border shadow-xs ${
-                          tx.type === "earnings" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-orange-500/10 text-orange-600 border-orange-500/20"
-                        }`}>
-                          {tx.type === "earnings" ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight">{tx.description}</p>
-                          <p className="text-[9px] text-muted-foreground mt-0.5 font-bold tracking-widest opacity-60">{tx.id}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-8 py-4 text-center text-[10px] font-bold text-muted-foreground">{tx.date}</td>
-                    <td className="px-8 py-4 text-center">
-                      <p className={`text-sm font-black italic ${tx.type === "earnings" ? "text-emerald-600" : "text-orange-600"}`}>
-                        {tx.amount}
-                      </p>
-                    </td>
-                    <td className="px-8 py-4 text-center">
-                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-widest ${
-                        tx.status === "completed" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-amber-500/10 text-amber-600 border-amber-500/20"
-                      }`}>
-                        {tx.status === "completed" ? <CheckCircle2 size={8} /> : <Clock size={8} />}
-                        {tx.status}
-                      </div>
-                    </td>
-                    <td className="px-8 py-4 text-right">
-                      <Button variant="ghost" size="icon" className="rounded-lg h-8 w-8 hover:bg-emerald-500/10 hover:text-emerald-600">
-                        <MoreVertical size={14} className="text-muted-foreground" />
-                      </Button>
-                    </td>
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="animate-spin text-emerald-500" size={32} />
+            </div>
+          ) : filteredPayouts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <IndianRupee size={40} className="mb-4 opacity-20" />
+              <p className="text-sm font-bold">No earnings yet</p>
+              <p className="text-[10px] mt-1 italic opacity-70">
+                Payouts are generated when bookings are marked complete.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-muted/30 border-b border-border/40">
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80">
+                      Descriptor
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Date
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Gross
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Commission
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Net
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Status
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-right">
+                      Action
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-border/20">
+                  {filteredPayouts.map((p) => (
+                    <tr
+                      key={p.id}
+                      className="group hover:bg-emerald-500/5 transition-all duration-300"
+                    >
+                      <td className="px-8 py-4">
+                        <div className="flex items-center gap-4">
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center border shadow-xs ${
+                              p.status === "paid"
+                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                : "bg-orange-500/10 text-orange-600 border-orange-500/20"
+                            }`}
+                          >
+                            {p.status === "paid" ? (
+                              <ArrowDownLeft size={16} />
+                            ) : (
+                              <Clock size={16} />
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight line-clamp-1">
+                              {p.serviceTitle || "Service Booking"}
+                            </p>
+                            <p className="text-[9px] text-muted-foreground mt-0.5 font-bold tracking-widest opacity-60">
+                              #{String(p.id).slice(-8).toUpperCase()}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-4 text-center text-[10px] font-bold text-muted-foreground">
+                        {formatDate(p.createdAt)}
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <p className="text-sm font-black italic text-emerald-600">
+                          {formatCurrency(p.amount)}
+                        </p>
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <p className="text-xs font-bold text-rose-600">
+                          -{formatCurrency(p.commission)}
+                        </p>
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <p className="text-sm font-black italic text-foreground">
+                          {formatCurrency(p.netAmount)}
+                        </p>
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <div
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-widest ${
+                            STATUS_COLORS[p.status] || STATUS_COLORS.pending
+                          }`}
+                        >
+                          {p.status === "paid" ? (
+                            <CheckCircle2 size={8} />
+                          ) : (
+                            <Clock size={8} />
+                          )}
+                          {p.status}
+                        </div>
+                      </td>
+                      <td className="px-8 py-4 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="rounded-lg h-8 w-8 hover:bg-emerald-500/10 hover:text-emerald-600"
+                        >
+                          <MoreVertical
+                            size={14}
+                            className="text-muted-foreground"
+                          />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-2">
+            <p className="text-xs text-muted-foreground">
+              Page {page} of {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => fetchPayouts(page - 1)}
+                disabled={page <= 1 || loading}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => fetchPayouts(page + 1)}
+                disabled={page >= totalPages || loading}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

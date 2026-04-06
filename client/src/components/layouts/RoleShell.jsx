@@ -33,6 +33,7 @@ import {
 import { useAuth } from "@/components/contexts/AuthContext";
 import { useTheme } from "@/components/contexts/ThemeContext";
 import api from "@/lib/api";
+import { toast } from "sonner";
 import {
   getAccountAccessState,
   getDashboardPathByRole,
@@ -42,6 +43,7 @@ import {
   initiateSocketConnection,
   subscribeToNotificationReads,
   subscribeToNotifications,
+  subscribeToUserStatusUpdates,
 } from "@/lib/socket";
 
 const ADMIN_SECTIONS = [
@@ -236,7 +238,7 @@ function ProfileMenu({ user, displayName, profileOpen, setProfileOpen, handleSet
 }
 
 export default function RoleShell({ role }) {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshProfile } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
@@ -347,12 +349,26 @@ export default function RoleShell({ role }) {
       );
     });
 
+    const unsubscribeUserStatus = subscribeToUserStatusUpdates(
+      async (err, payload) => {
+        if (err || !payload?.userId || payload.userId !== user.id) {
+          return;
+        }
+
+        await refreshProfile({ silent: true });
+        if (payload.message) {
+          toast.info(payload.message);
+        }
+      }
+    );
+
     return () => {
       unsubscribeNew();
       unsubscribeRead();
+      unsubscribeUserStatus();
       disconnectSocket();
     };
-  }, [isRestrictedAccount, user?.id]);
+  }, [isRestrictedAccount, refreshProfile, user?.id]);
 
   const unreadNotifications = useMemo(
     () => notifications.filter((notification) => !notification.read).length,

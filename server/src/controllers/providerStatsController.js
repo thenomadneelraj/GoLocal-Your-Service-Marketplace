@@ -4,10 +4,13 @@ const Provider = require("../models/Provider");
 const Payout = require("../models/Payout");
 const Review = require("../models/Review");
 const PlatformSetting = require("../models/PlatformSetting");
+const {
+  BOOKING_STATUS,
+  normalizeBookingStatus,
+} = require("../utils/bookingStatus");
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const normalizeStatus = (status = "") => String(status || "").trim().toLowerCase();
 const toNumber = (value) => Number(value || 0);
 
 const getDayKey = (date) =>
@@ -106,7 +109,7 @@ const serializeBooking = (booking) => ({
   clientName: booking.clientId?.name || "Client",
   clientAvatar: booking.clientId?.profileImage || null,
   serviceTitle: booking.serviceId?.title || booking.serviceId?.name || "Service",
-  status: normalizeStatus(booking.status),
+  status: normalizeBookingStatus(booking.status),
   bookingDate: booking.bookingDate ? booking.bookingDate.toISOString() : null,
   timeSlot: booking.timeSlot || "",
   amount: toNumber(booking.price),
@@ -132,7 +135,10 @@ const getProviderDashboard = async (req, res) => {
     ]);
 
     const activeBookings = bookings.filter(
-      (booking) => normalizeStatus(booking.status) !== "cancelled"
+      (booking) =>
+        ![BOOKING_STATUS.CANCELLED, BOOKING_STATUS.REJECTED].includes(
+          normalizeBookingStatus(booking.status)
+        )
     );
     const distinctClients = new Set(
       activeBookings
@@ -186,7 +192,7 @@ const getProviderDashboard = async (req, res) => {
         summary: {
           appointmentsBooked: activeBookings.length,
           pendingRequests: bookings.filter(
-            (booking) => normalizeStatus(booking.status) === "pending"
+            (booking) => normalizeBookingStatus(booking.status) === BOOKING_STATUS.PENDING
           ).length,
           totalIncome: payouts.reduce((total, payout) => total + toNumber(payout.netAmount), 0),
           totalClients: distinctClients.size,
@@ -239,7 +245,11 @@ const getBookingsTrend = async (req, res) => {
     );
 
     bookings.forEach((booking) => {
-      if (normalizeStatus(booking.status) === "cancelled") return;
+      if (
+        [BOOKING_STATUS.CANCELLED, BOOKING_STATUS.REJECTED].includes(
+          normalizeBookingStatus(booking.status)
+        )
+      ) return;
       const key = getMonthKey(new Date(booking.createdAt));
       const bucket = dataMap.get(key);
       if (bucket) bucket.jobs += 1;
@@ -276,9 +286,63 @@ const getServicePerformance = async (req, res) => {
   }
 };
 
+const getProviderPayouts = async (req, res) => {
+  try {
+    const provider = await Provider.findOne({ userId: req.user._id });
+    if (!provider) return res.json({ success: true, data: { items: [], total: 0, totalEarnings: 0, pendingAmount: 0 } });
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const skip = (page - 1) * limit;
+
+    const [items, total, allPayouts] = await Promise.all([
+      Payout.find({ providerId: provider._id })
+        .populate({ path: "bookingId", select: "price bookingDate serviceId", populate: { path: "serviceId", select: "title" } })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Payout.countDocuments({ providerId: provider._id }),
+      Payout.find({ providerId: provider._id }).lean(),
+    ]);
+
+    const totalEarnings = allPayouts.reduce((sum, p) => sum + toNumber(p.netAmount), 0);
+    const pendingAmount = allPayouts.filter(p => p.status === "pending").reduce((sum, p) => sum + toNumber(p.netAmount), 0);
+    const lastPaid = allPayouts.filter(p => p.status === "paid").sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+
+    const serialized = items.map((p) => ({
+      id: p._id,
+      amount: toNumber(p.amount),
+      commission: toNumber(p.commission),
+      netAmount: toNumber(p.netAmount),
+      status: p.status,
+      createdAt: p.createdAt,
+      payoutDate: p.payoutDate,
+      bookingId: p.bookingId?._id || p.bookingId,
+      serviceTitle: p.bookingId?.serviceId?.title || "Service",
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        items: serialized,
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        totalEarnings,
+        pendingAmount,
+        lastPaidAmount: lastPaid ? toNumber(lastPaid.netAmount) : 0,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getProviderDashboard,
   getEarnings,
   getBookingsTrend,
   getServicePerformance,
+  getProviderPayouts,
 };
