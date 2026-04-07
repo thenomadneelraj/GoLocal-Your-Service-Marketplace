@@ -123,7 +123,7 @@ export default function SignIn(props) {
     }
 
     if (normalizedRole === "ADMIN") {
-      navigate("/admin-dashboard", { replace: true });
+      navigate("/admin", { replace: true });
     } else if (normalizedRole === "PROVIDER") {
       navigate("/provider-dashboard", { replace: true });
     } else {
@@ -175,7 +175,7 @@ export default function SignIn(props) {
       }
 
       if (loggedInRole === "ADMIN") {
-        navigate("/admin-dashboard", { replace: true });
+        navigate("/admin", { replace: true });
       } else if (loggedInRole === "PROVIDER") {
         navigate("/provider-dashboard", { replace: true });
       } else {

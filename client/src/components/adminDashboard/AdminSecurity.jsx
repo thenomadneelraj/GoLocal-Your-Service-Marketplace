@@ -1,175 +1,124 @@
 import { useEffect, useState } from "react";
-import { ShieldCheck, Clock3, Activity } from "lucide-react";
-import { fetchActivityLogs, fetchLoginHistory } from "@/lib/adminApi";
-import { AdminTable } from "./AdminTable";
-import { AdminPagination } from "./AdminPagination";
+import { Link } from "react-router-dom";
+import { AlertTriangle, ShieldCheck, UserRoundCog, Users } from "lucide-react";
+import { toast } from "sonner";
+import {
+  fetchAdminSecuritySettings,
+  runAdminSecurityAudit,
+} from "@/lib/adminApi";
+import {
+  AdminLoadingState,
+  AdminPageShell,
+  AdminPanel,
+  AdminStatCard,
+  AdminStatusBadge,
+} from "./AdminWorkspaceCommon";
 
 export default function AdminSecurity() {
-  const [loginHistory, setLoginHistory] = useState([]);
-  const [loginPagination, setLoginPagination] = useState({ page: 1, pages: 1 });
-  const [activityLogs, setActivityLogs] = useState([]);
-  const [activityPagination, setActivityPagination] = useState({
-    page: 1,
-    pages: 1,
-  });
-  const [loadingLogins, setLoadingLogins] = useState(false);
-  const [loadingActivity, setLoadingActivity] = useState(false);
-  const [errorLogins, setErrorLogins] = useState("");
-  const [errorActivity, setErrorActivity] = useState("");
+  const [payload, setPayload] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
 
-  const loadLoginHistory = async (page = 1) => {
+  const loadSecurity = async () => {
     try {
-      setLoadingLogins(true);
-      setErrorLogins("");
-      const res = await fetchLoginHistory({ page, limit: 10 });
-      const payload = res.data?.data || {};
-      setLoginHistory(payload.items || []);
-      setLoginPagination(payload.pagination || { page, pages: 1 });
-    } catch (err) {
-      console.error(err);
-      setErrorLogins("Failed to load login history.");
+      setLoading(true);
+      const response = await fetchAdminSecuritySettings();
+      setPayload(response.data?.data || null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load security data.");
     } finally {
-      setLoadingLogins(false);
-    }
-  };
-
-  const loadActivityLogs = async (page = 1) => {
-    try {
-      setLoadingActivity(true);
-      setErrorActivity("");
-      const res = await fetchActivityLogs({ page, limit: 10 });
-      const payload = res.data?.data || {};
-      setActivityLogs(payload.items || []);
-      setActivityPagination(payload.pagination || { page, pages: 1 });
-    } catch (err) {
-      console.error(err);
-      setErrorActivity("Failed to load activity logs.");
-    } finally {
-      setLoadingActivity(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadLoginHistory(1);
-    loadActivityLogs(1);
+    loadSecurity();
   }, []);
 
+  const handleRunAudit = async () => {
+    try {
+      setRunning(true);
+      const response = await runAdminSecurityAudit();
+      toast.success(response.data?.message || "Security audit completed.");
+      await loadSecurity();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to run security audit.");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (loading && !payload) {
+    return <AdminLoadingState label="Loading security audit..." />;
+  }
+
+  const summary = payload?.summary || {};
+  const checklist = payload?.checklist || [];
+
   return (
-    <section className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="admin-page-kicker">Security</p>
-          <h2 className="admin-page-title">Security &amp; Audit</h2>
-          <p className="admin-page-description">
-            Review login activity and admin actions across the platform.
-          </p>
-        </div>
-      </header>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <article className="admin-card space-y-3">
-          <div className="flex items-center justify-between gap-2 text-[11px]">
-            <div className="admin-chip">
-              <Clock3 size={14} className="text-primary" />
-              <span className="admin-chip-label">Login history</span>
-            </div>
-          </div>
-
-          <AdminTable
-            columns={[
-              { key: "account", label: "Account" },
-              { key: "role", label: "Role" },
-              { key: "ip", label: "IP" },
-              { key: "userAgent", label: "User Agent" },
-              { key: "createdAt", label: "Time" },
-            ]}
-            data={loginHistory}
-            loading={loadingLogins}
-            error={errorLogins}
-            renderRow={(log) => (
-              <tr
-                key={log._id}
-                className="admin-table-row"
-              >
-                <td className="admin-cell admin-cell-strong">
-                  {log.account || "-"}
-                </td>
-                <td className="admin-cell admin-cell-muted">{log.role || "-"}</td>
-                <td className="admin-cell">{log.ipAddress || "-"}</td>
-                <td className="admin-cell max-w-xs">
-                  <p className="line-clamp-1 text-[10px] text-muted-foreground">
-                    {log.userAgent || "Unknown client"}
-                  </p>
-                </td>
-                <td className="admin-cell admin-cell-muted">
-                  {log.createdAt ? new Date(log.createdAt).toLocaleString() : "-"}
-                </td>
-              </tr>
-            )}
-          />
-
-          <AdminPagination
-            page={loginPagination.page || 1}
-            pages={loginPagination.pages || 1}
-            onPageChange={(page) => loadLoginHistory(page)}
-          />
-        </article>
-
-        <article className="admin-card space-y-3">
-          <div className="flex items-center justify-between gap-2 text-[11px]">
-            <div className="admin-chip">
-              <ShieldCheck size={14} className="text-primary" />
-              <span className="admin-chip-label">Admin activity logs</span>
-            </div>
-          </div>
-
-          <AdminTable
-            columns={[
-              { key: "actor", label: "Actor" },
-              { key: "action", label: "Action" },
-              { key: "target", label: "Target" },
-              { key: "metadata", label: "Metadata" },
-              { key: "createdAt", label: "Time" },
-            ]}
-            data={activityLogs}
-            loading={loadingActivity}
-            error={errorActivity}
-            renderRow={(log) => (
-              <tr
-                key={log._id}
-                className="admin-table-row"
-              >
-                <td className="admin-cell admin-cell-strong">
-                  {log.actorRole || log.actorModel || "-"}
-                </td>
-                <td className="admin-cell">
-                  <span className="admin-badge admin-badge-info">
-                    <Activity size={12} />
-                    {log.action}
-                  </span>
-                </td>
-                <td className="admin-cell admin-cell-muted">
-                  {log.targetType || "-"} {log.targetId ? `#${log.targetId}` : ""}
-                </td>
-                <td className="admin-cell max-w-xs">
-                  <pre className="line-clamp-2 whitespace-pre-wrap break-words text-[10px] text-muted-foreground">
-                    {log.metadata ? JSON.stringify(log.metadata) : "-"}
-                  </pre>
-                </td>
-                <td className="admin-cell admin-cell-muted">
-                  {log.createdAt ? new Date(log.createdAt).toLocaleString() : "-"}
-                </td>
-              </tr>
-            )}
-          />
-
-          <AdminPagination
-            page={activityPagination.page || 1}
-            pages={activityPagination.pages || 1}
-            onPageChange={(page) => loadActivityLogs(page)}
-          />
-        </article>
+    <AdminPageShell
+      title="Security Audit"
+      description="Run a backend-generated security posture snapshot for approvals, disputes, elevated admin access, and recent login activity."
+      actions={
+        <>
+          <Link to="/admin/users" className="admin-button-secondary">
+            <Users size={14} />
+            Review users
+          </Link>
+          <button type="button" onClick={handleRunAudit} disabled={running} className="admin-button-primary">
+            <ShieldCheck size={14} />
+            Run audit snapshot
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AdminStatCard icon={UserRoundCog} title="Admin accounts" value={summary.adminAccounts ?? 0} />
+        <AdminStatCard icon={Users} title="Pending approvals" value={summary.pendingApprovals ?? 0} tone="text-blue-600" />
+        <AdminStatCard icon={AlertTriangle} title="Open disputes" value={summary.openDisputes ?? 0} tone="text-amber-600" />
+        <AdminStatCard icon={ShieldCheck} title="Last audit run" value={summary.lastAuditLabel || "Not run yet"} tone="text-rose-600" />
       </div>
-    </section>
+
+      <div className="grid gap-5 xl:grid-cols-[1.35fr_0.9fr]">
+        <AdminPanel title="Audit Checklist" description="Each item below is generated from the current backend state to help guide admin review.">
+          <div className="space-y-3">
+            {checklist.map((item) => (
+              <div key={item.id} className="admin-card-soft flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
+                </div>
+                <AdminStatusBadge value={item.status} />
+              </div>
+            ))}
+          </div>
+        </AdminPanel>
+
+        <div className="space-y-5">
+          <AdminPanel title="Audit Guidance">
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <p>Admin accounts with elevated access: {summary.adminAccounts ?? 0}.</p>
+              <p>Pending provider approvals currently in queue: {summary.pendingApprovals ?? 0}.</p>
+              <p>Open disputes requiring continued attention: {summary.openDisputes ?? 0}.</p>
+              <p>Last audit snapshot recorded at: {summary.lastAuditLabel || "Not run yet"}.</p>
+            </div>
+          </AdminPanel>
+
+          <AdminPanel title="Follow-up Pages">
+            <div className="space-y-3">
+              <Link to="/admin/bookings" className="admin-button-secondary w-full justify-start">
+                Review booking changes
+              </Link>
+              <Link to="/admin/disputes" className="admin-button-secondary w-full justify-start">
+                Open disputes queue
+              </Link>
+              <Link to="/admin/settings/advanced" className="admin-button-secondary w-full justify-start">
+                Open advanced controls
+              </Link>
+            </div>
+          </AdminPanel>
+        </div>
+      </div>
+    </AdminPageShell>
   );
 }

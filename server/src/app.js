@@ -7,8 +7,11 @@ const authRoutes = require("./routes/auth");
 const providerRoutes = require("./routes/provider");
 const bookingRoutes = require("./routes/booking");
 const clientRoutes = require("./routes/client");
+const contactMessageRoutes = require("./routes/contactMessage");
+const disputeRoutes = require("./routes/dispute");
 const messageRoutes = require("./routes/message");
 const notificationRoutes = require("./routes/notification");
+const transactionRoutes = require("./routes/transaction");
 
 const app = express();
 
@@ -38,11 +41,20 @@ app.use("/api/bookings", bookingRoutes);
 // Client routes
 app.use("/api/clients", clientRoutes);
 
+// Public contact-message route
+app.use("/api/contact-messages", contactMessageRoutes);
+
+// Client dispute routes
+app.use("/api/disputes", disputeRoutes);
+
 // Message routes
 app.use("/api/messages", messageRoutes);
 
 // Notification routes
 app.use("/api/notifications", notificationRoutes);
+
+// Transaction routes
+app.use("/api/transactions", transactionRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

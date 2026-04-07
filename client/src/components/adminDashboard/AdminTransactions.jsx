@@ -1,180 +1,132 @@
 import { useEffect, useState } from "react";
-import { CalendarRange, Filter, CreditCard } from "lucide-react";
-import { fetchTransactions } from "@/lib/adminApi";
-import { AdminTable } from "./AdminTable";
-import { AdminPagination } from "./AdminPagination";
+import { Coins, Landmark, ShieldCheck, Wallet } from "lucide-react";
+import { toast } from "sonner";
+import {
+  fetchAdminTransactions,
+  fetchAdminTransactionsSummary,
+} from "@/lib/adminApi";
+import {
+  AdminLoadingState,
+  AdminPageShell,
+  AdminPanel,
+  AdminSearchField,
+  AdminStatCard,
+  AdminStatusBadge,
+  formatAdminCurrency,
+} from "./AdminWorkspaceCommon";
 
 export default function AdminTransactions() {
-  const [transactions, setTransactions] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, pages: 1 });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [summary, setSummary] = useState(null);
+  const [items, setItems] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const [filters, setFilters] = useState({
-    status: "",
-    from: "",
-    to: "",
-  });
-
-  const loadTransactions = async (page = 1) => {
+  const loadTransactions = async (nextSearch = search) => {
     try {
       setLoading(true);
-      setError("");
-      const res = await fetchTransactions({
-        page,
-        limit: 10,
-        ...filters,
-      });
-      const payload = res.data?.data || {};
-      setTransactions(payload.items || []);
-      setPagination(payload.pagination || { page, pages: 1 });
-    } catch (err) {
-      console.error(err);
-      setError("Failed to load transactions.");
+      const [summaryResponse, transactionsResponse] = await Promise.all([
+        fetchAdminTransactionsSummary(),
+        fetchAdminTransactions({ search: nextSearch }),
+      ]);
+      setSummary(summaryResponse.data?.data || null);
+      setItems(transactionsResponse.data?.data?.items || []);
+      setAlerts(transactionsResponse.data?.data?.financeAlerts || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load transactions.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadTransactions(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadTransactions();
   }, []);
 
-  const handleApplyFilters = () => {
-    loadTransactions(1);
-  };
+  const currency = summary?.currency || "USD";
 
-  const handleResetFilters = () => {
-    setFilters({ status: "", from: "", to: "" });
-    loadTransactions(1);
-  };
-
-  const getStatusClassName = (status) => {
-    if (status === "SUCCESS") return "admin-badge-success";
-    if (status === "REFUNDED") return "admin-badge-warning";
-    if (status === "FAILED") return "admin-badge-danger";
-    return "admin-badge-muted";
-  };
+  if (loading && !summary) {
+    return <AdminLoadingState label="Loading transaction center..." />;
+  }
 
   return (
-    <section className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="admin-page-kicker">Finance</p>
-          <h2 className="admin-page-title">Transactions</h2>
-          <p className="admin-page-description">
-            View booking payments and filter by date or status.
-          </p>
-        </div>
-      </header>
+    <AdminPageShell
+      title="Transaction Center"
+      description="Track payment settlements, platform revenue, and cases that are still waiting on finance review."
+    >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AdminStatCard icon={Coins} title="Gross volume" value={formatAdminCurrency(summary?.grossVolume ?? 0, currency)} />
+        <AdminStatCard icon={Landmark} title="Platform fees" value={formatAdminCurrency(summary?.platformFees ?? 0, currency)} tone="text-blue-600" />
+        <AdminStatCard icon={Wallet} title="Pending holds" value={formatAdminCurrency(summary?.pendingHolds ?? 0, currency)} tone="text-amber-600" />
+        <AdminStatCard icon={ShieldCheck} title="Chargebacks" value={`${summary?.chargebackRate ?? 0}%`} tone="text-emerald-600" />
+      </div>
 
-      <article className="admin-card space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-[11px]">
-          <div className="admin-chip">
-            <CreditCard size={14} className="text-primary" />
-            <span className="admin-chip-label">Payments</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="admin-filter-cluster">
-              <CalendarRange size={14} className="text-muted-foreground" />
-              <input
-                type="date"
-                value={filters.from}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, from: e.target.value }))
-                }
-                className="w-[132px] bg-transparent text-[11px] text-foreground outline-none"
-              />
-              <span className="text-muted-foreground">to</span>
-              <input
-                type="date"
-                value={filters.to}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, to: e.target.value }))
-                }
-                className="w-[132px] bg-transparent text-[11px] text-foreground outline-none"
-              />
+      <AdminPanel>
+        <AdminSearchField
+          value={search}
+          onChange={(value) => {
+            setSearch(value);
+            loadTransactions(value);
+          }}
+          placeholder="Search transactions, providers, or references..."
+        />
+      </AdminPanel>
+
+      <AdminPanel title="Latest transaction activity">
+        <div className="admin-table-shell">
+          <table className="admin-table">
+            <thead className="admin-table-head">
+              <tr>
+                <th className="admin-table-head-cell">Transaction</th>
+                <th className="admin-table-head-cell">Provider</th>
+                <th className="admin-table-head-cell">Amount</th>
+                <th className="admin-table-head-cell">Platform fee</th>
+                <th className="admin-table-head-cell">Status</th>
+              </tr>
+            </thead>
+            <tbody className="admin-table-body">
+              {items.map((transaction) => (
+                <tr key={transaction.id} className="admin-table-row">
+                  <td className="admin-cell">
+                    <p className="admin-cell-strong">{transaction.reference}</p>
+                    <p className="admin-cell-muted">{transaction.createdLabel}</p>
+                  </td>
+                  <td className="admin-cell">
+                    <p className="admin-cell-strong">{transaction.provider}</p>
+                    <p className="admin-cell-muted">{transaction.service}</p>
+                  </td>
+                  <td className="admin-cell">{transaction.amountLabel}</td>
+                  <td className="admin-cell">{transaction.platformFeeLabel}</td>
+                  <td className="admin-cell">
+                    <AdminStatusBadge value={transaction.statusLabel} />
+                  </td>
+                </tr>
+              ))}
+              {!items.length ? (
+                <tr>
+                  <td className="admin-empty-state" colSpan={5}>
+                    No transactions matched the current search.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </AdminPanel>
+
+      <AdminPanel title="Finance alerts" description="Backend-generated notes to help the admin team prioritize finance follow-up.">
+        <div className="space-y-3">
+          {alerts.map((alert) => (
+            <div key={alert.id} className="admin-card-soft flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">{alert.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{alert.description}</p>
+              </div>
+              <AdminStatusBadge value={alert.severity} />
             </div>
-            <select
-              value={filters.status}
-              onChange={(e) =>
-                setFilters((prev) => ({ ...prev, status: e.target.value }))
-              }
-              className="admin-select h-10 w-auto min-w-[142px] px-3 text-[11px]"
-            >
-              <option value="">All statuses</option>
-              <option value="SUCCESS">Success</option>
-              <option value="PENDING">Pending</option>
-              <option value="FAILED">Failed</option>
-              <option value="REFUNDED">Refunded</option>
-            </select>
-            <button
-              type="button"
-              onClick={handleApplyFilters}
-              className="admin-button-primary rounded-[1rem] px-3 py-2 text-[11px]"
-            >
-              <Filter size={12} />
-              Apply
-            </button>
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="admin-button-ghost"
-            >
-              Reset
-            </button>
-          </div>
+          ))}
         </div>
-
-        <AdminTable
-          columns={[
-            { key: "id", label: "ID" },
-            { key: "user", label: "Customer" },
-            { key: "provider", label: "Provider" },
-            { key: "service", label: "Service" },
-            { key: "amount", label: "Amount" },
-            { key: "status", label: "Status" },
-            { key: "createdAt", label: "Date" },
-          ]}
-          data={transactions}
-          loading={loading}
-          error={error}
-          renderRow={(tx) => (
-            <tr
-              key={tx._id}
-              className="admin-table-row"
-            >
-              <td className="admin-cell admin-cell-muted">{tx._id.slice(-8)}</td>
-              <td className="admin-cell admin-cell-strong">
-                {tx.clientId?.name || "-"}
-              </td>
-              <td className="admin-cell admin-cell-strong">
-                {tx.bookingId?.providerId?.name || "-"}
-              </td>
-              <td className="admin-cell">{tx.bookingId?.serviceId?.name || "-"}</td>
-              <td className="admin-cell admin-cell-strong">
-                Rs {Number(tx.amount || 0).toLocaleString("en-IN")}
-              </td>
-              <td className="admin-cell">
-                <span className={`admin-badge ${getStatusClassName(tx.status)}`}>
-                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                  {tx.status}
-                </span>
-              </td>
-              <td className="admin-cell admin-cell-muted">
-                {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : "-"}
-              </td>
-            </tr>
-          )}
-        />
-
-        <AdminPagination
-          page={pagination.page || 1}
-          pages={pagination.pages || 1}
-          onPageChange={(page) => loadTransactions(page)}
-        />
-      </article>
-    </section>
+      </AdminPanel>
+    </AdminPageShell>
   );
 }

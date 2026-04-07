@@ -22,7 +22,7 @@ const normalizeApprovalStatus = (value = "", role = "", legacyApproved = true) =
 export const getDashboardPathByRole = (role) => {
   const normalizedRole = String(role || "").toUpperCase();
   if (normalizedRole === "PROVIDER") return "/provider-dashboard";
-  if (normalizedRole === "ADMIN") return "/admin-dashboard";
+  if (normalizedRole === "ADMIN") return "/admin";
   return "/dashboard";
 };
 

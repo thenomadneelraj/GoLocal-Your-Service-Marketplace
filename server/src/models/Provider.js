@@ -19,6 +19,11 @@ const providerSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    upiId: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     profileImage: {
       type: String,
       default: "",

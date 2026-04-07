@@ -42,7 +42,7 @@ export const SocketProvider = ({ children }) => {
   useEffect(() => {
     if (!user?.id) return;
 
-    initiateSocketConnection(user.id);
+    initiateSocketConnection(user.id, user.role);
 
     const ubooking = subscribeToBookingUpdates((err, data) => {
       if (err) return;

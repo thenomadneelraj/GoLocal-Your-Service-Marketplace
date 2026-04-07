@@ -17,6 +17,12 @@ router.post("/", bookingController.createBooking);
 // GET /api/bookings - current user's bookings
 router.get("/", bookingController.getMyBookings);
 
+// GET /api/bookings/:id - current user's single booking
+router.get("/:id", bookingController.getBookingById);
+
+// PATCH /api/bookings/:id/payment - confirm booking payment method
+router.patch("/:id/payment", bookingController.confirmBookingPayment);
+
 // PATCH /api/bookings/:id/status - update status
 router.patch("/:id/status", bookingController.updateBookingStatus);
 

@@ -1,25 +1,70 @@
 import { io } from "socket.io-client";
 
+const DEFAULT_SOCKET_PORT = "5003";
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+const normalizeRole = (value) => String(value || "").trim().toLowerCase();
+
+const normalizeUrlOrigin = (value, fallbackOrigin = window.location.origin) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return new URL(value, fallbackOrigin).origin;
+  } catch {
+    return String(value).trim();
+  }
+};
+
+const inferLocalSocketOrigin = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(value, window.location.origin);
+
+    if (!LOCAL_HOSTNAMES.has(parsed.hostname)) {
+      return "";
+    }
+
+    parsed.port =
+      import.meta.env.VITE_SOCKET_PORT || parsed.port || DEFAULT_SOCKET_PORT;
+
+    if (!parsed.port || parsed.port === window.location.port) {
+      parsed.port = DEFAULT_SOCKET_PORT;
+    }
+
+    return parsed.origin;
+  } catch {
+    return "";
+  }
+};
+
 const resolveSocketUrl = () => {
   const configuredSocketUrl = import.meta.env.VITE_SOCKET_URL;
+  const configuredSocketPort =
+    import.meta.env.VITE_SOCKET_PORT || DEFAULT_SOCKET_PORT;
 
   if (configuredSocketUrl) {
-    try {
-      return new URL(configuredSocketUrl).origin;
-    } catch {
-      return configuredSocketUrl;
-    }
+    return normalizeUrlOrigin(configuredSocketUrl);
   }
 
   const configuredBase =
     import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
 
   if (configuredBase) {
-    try {
-      return new URL(configuredBase).origin;
-    } catch {
-      return configuredBase;
+    const inferredLocalSocketOrigin = inferLocalSocketOrigin(configuredBase);
+
+    if (inferredLocalSocketOrigin) {
+      return inferredLocalSocketOrigin;
     }
+
+    return normalizeUrlOrigin(configuredBase);
+  }
+
+  if (LOCAL_HOSTNAMES.has(window.location.hostname)) {
+    return `${window.location.protocol}//${window.location.hostname}:${configuredSocketPort}`;
   }
 
   return window.location.origin;
@@ -31,7 +76,31 @@ let socket;
 let activeConsumers = 0;
 let disconnectTimer = null;
 let joinedUserId = "";
+let joinedUserRole = "";
 const DISCONNECT_GRACE_MS = 350;
+
+const resolveSocketIdentity = (userOrId, explicitRole = "") => {
+	const isObjectInput =
+		typeof userOrId === "object" && userOrId !== null && !Array.isArray(userOrId);
+
+	return {
+		userId: String(
+			isObjectInput ? userOrId.id ?? userOrId.userId ?? "" : userOrId ?? ""
+		).trim(),
+		role: normalizeRole(isObjectInput ? userOrId.role : explicitRole),
+	};
+};
+
+const applySocketAuth = () => {
+	if (!socket) {
+		return;
+	}
+
+	socket.auth = {
+		...(joinedUserId ? { user_id: joinedUserId } : {}),
+		...(joinedUserRole ? { role: joinedUserRole } : {}),
+	};
+};
 
 const clearPendingDisconnect = () => {
 	if (disconnectTimer) {
@@ -45,15 +114,20 @@ const ensureSocket = () => {
 		socket = io(SOCKET_URL, {
 			autoConnect: false,
 			transports: ["websocket", "polling"],
+			auth: {},
 		});
 
 		socket.on("connect", () => {
 			if (joinedUserId) {
-				socket.emit("join", { userId: joinedUserId });
+				socket.emit("join", {
+					userId: joinedUserId,
+					role: joinedUserRole,
+				});
 			}
 		});
 	}
 
+	applySocketAuth();
 	clearPendingDisconnect();
 
 	if (!socket.connected && !socket.active) {
@@ -63,14 +137,26 @@ const ensureSocket = () => {
 	return socket;
 };
 
-export const initiateSocketConnection = (userId) => {
+export const initiateSocketConnection = (userOrId, role = "") => {
 	activeConsumers += 1;
+	const identity = resolveSocketIdentity(userOrId, role);
+
+	if (identity.userId) {
+		joinedUserId = identity.userId;
+	}
+
+	if (identity.role) {
+		joinedUserRole = identity.role;
+	}
+
 	const instance = ensureSocket();
 
-	if (userId) {
-		joinedUserId = String(userId);
+	if (joinedUserId) {
 		if (instance.connected) {
-			instance.emit("join", { userId: joinedUserId });
+			instance.emit("join", {
+				userId: joinedUserId,
+				role: joinedUserRole,
+			});
 		}
 	}
 
@@ -94,6 +180,7 @@ export const disconnectSocket = () => {
 		socket.disconnect();
 		socket = null;
 		joinedUserId = "";
+		joinedUserRole = "";
 		disconnectTimer = null;
 	}, DISCONNECT_GRACE_MS);
 };
@@ -140,7 +227,7 @@ export const subscribeToReadReceipts = (cb) => {
 };
 
 export const subscribeToNotifications = (cb) => {
-	if (!socket) return () => {};
+  if (!socket) return () => {};
 
 	const handler = (data) => cb(null, data);
 	socket.on("notification_created", handler);
@@ -149,7 +236,33 @@ export const subscribeToNotifications = (cb) => {
 	return () => {
 		socket?.off("notification_created", handler);
 		socket?.off("notification:new", handler);
-	};
+  };
+};
+
+export const subscribeToTransactions = (cb) => {
+  if (!socket) return () => {};
+
+  const handler = (data) => cb(null, data);
+  socket.on("transaction_created", handler);
+  socket.on("payment_completed", handler);
+
+  return () => {
+    socket?.off("transaction_created", handler);
+    socket?.off("payment_completed", handler);
+  };
+};
+
+export const subscribeToDisputes = (cb) => {
+  if (!socket) return () => {};
+
+  const handler = (data) => cb(null, data);
+  socket.on("dispute_created", handler);
+  socket.on("dispute:created", handler);
+
+  return () => {
+    socket?.off("dispute_created", handler);
+    socket?.off("dispute:created", handler);
+  };
 };
 
 export const subscribeToNotificationReads = (cb) => {
@@ -166,14 +279,16 @@ export const subscribeToNotificationReads = (cb) => {
 };
 
 export const subscribeToUserStatusUpdates = (cb) => {
-	if (!socket) return () => {};
+  if (!socket) return () => {};
 
-	const handler = (data) => cb(null, data);
-	socket.on("user_status_updated", handler);
+  const handler = (data) => cb(null, data);
+  socket.on("user_updated", handler);
+  socket.on("user_status_updated", handler);
 
-	return () => {
-		socket?.off("user_status_updated", handler);
-	};
+  return () => {
+    socket?.off("user_updated", handler);
+    socket?.off("user_status_updated", handler);
+  };
 };
 
 export const getSocket = () => socket;

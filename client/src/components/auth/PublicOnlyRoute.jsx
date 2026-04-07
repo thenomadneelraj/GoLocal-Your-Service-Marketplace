@@ -2,7 +2,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "@/components/contexts/AuthContext";
 
 const getHomeByRole = (role) => {
-  if (role === "ADMIN") return "/admin-dashboard";
+  if (role === "ADMIN") return "/admin";
   if (role === "PROVIDER") return "/provider-dashboard";
   return "/dashboard";
 };

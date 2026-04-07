@@ -164,19 +164,22 @@ export default function Navbar() {
   };
 
   const dashboardPath = useMemo(() => {
-    if (user?.role === "ADMIN") return "/admin-dashboard";
-    if (user?.role === "PROVIDER") return "/provider-dashboard";
+    const normalizedRole = String(user?.role || "").toUpperCase();
+    if (normalizedRole === "ADMIN") return "/admin";
+    if (normalizedRole === "PROVIDER") return "/provider-dashboard";
     return "/dashboard";
   }, [user?.role]);
 
   const bookingPagePath = useMemo(() => {
-    if (user?.role === "PROVIDER") return "/provider/booking-management";
+    const normalizedRole = String(user?.role || "").toUpperCase();
+    if (normalizedRole === "PROVIDER") return "/provider/booking-management";
     return "/client/bookings";
   }, [user?.role]);
 
   const settingsPath = useMemo(() => {
-    if (user?.role === "ADMIN") return "/admin/settings";
-    if (user?.role === "PROVIDER") return "/provider/settings";
+    const normalizedRole = String(user?.role || "").toUpperCase();
+    if (normalizedRole === "ADMIN") return "/admin/settings";
+    if (normalizedRole === "PROVIDER") return "/provider/settings";
     return "/settings";
   }, [user?.role]);
 
@@ -460,7 +463,7 @@ export default function Navbar() {
                       </Button>
                     </Link>
                     <Link 
-                      to="/projects" 
+                      to={bookingPagePath}
                       onClick={closeMenus}
                       className="flex items-center gap-4 p-3 rounded-xl hover:bg-muted transition-colors"
                     >
@@ -470,7 +473,7 @@ export default function Navbar() {
                       <span className="font-medium">My Bookings</span>
                     </Link>
                     <Link 
-                      to="/settings" 
+                      to={settingsPath}
                       onClick={closeMenus}
                       className="flex items-center gap-4 p-3 rounded-xl hover:bg-muted transition-colors"
                     >

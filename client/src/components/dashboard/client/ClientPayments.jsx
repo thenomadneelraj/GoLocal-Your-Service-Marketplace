@@ -11,6 +11,8 @@ import {
   Loader2,
   RefreshCcw,
   AlertCircle,
+  FileDown,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
@@ -18,6 +20,7 @@ import { toast } from "sonner";
 import {
   initiateSocketConnection,
   subscribeToNotifications,
+  subscribeToTransactions,
   disconnectSocket,
 } from "@/lib/socket";
 import { useAuth } from "@/components/contexts/AuthContext";
@@ -85,7 +88,7 @@ export default function ClientPayments() {
   // Real-time: listen for new notifications that include payment events
   useEffect(() => {
     if (!user?.id) return;
-    initiateSocketConnection(user.id);
+    initiateSocketConnection(user.id, user.role);
 
     const unsub = subscribeToNotifications((err, payload) => {
       if (err) return;
@@ -100,8 +103,54 @@ export default function ClientPayments() {
     };
   }, [user?.id, fetchTransactions]);
 
-  const handleExport = () => {
-    toast.info("Export functionality coming soon.");
+  const handleExport = async () => {
+    try {
+      toast.loading("Generating CSV export...");
+      const response = await api.get("/api/transactions/export", {
+        responseType: "blob",
+      });
+      
+      // Create blob and download
+      const blob = new Blob([response.data], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `golocal-transactions-${Date.now()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success("Transactions exported successfully!");
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export transactions.");
+    }
+  };
+
+  const handleDownloadInvoice = async (transactionId) => {
+    try {
+      toast.loading("Generating invoice...");
+      const response = await api.get(`/api/transactions/${transactionId}/invoice`, {
+        responseType: "blob",
+      });
+      
+      // Create blob and download
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `invoice-${transactionId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success("Invoice downloaded successfully!");
+    } catch (err) {
+      console.error("Invoice download error:", err);
+      toast.error("Failed to download invoice.");
+    }
   };
 
   const filtered = transactions.filter((tx) => {
@@ -247,58 +296,70 @@ export default function ClientPayments() {
                   <th className="px-8 py-5 font-bold text-right">Amount</th>
                   <th className="px-8 py-5 font-bold text-center">Status</th>
                   <th className="px-8 py-5 font-bold text-center">Method</th>
+                  <th className="px-8 py-5 font-bold text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/40">
-                {filtered.map((tx) => (
-                  <tr
-                    key={tx.id}
-                    className="transition-colors hover:bg-muted/10 group"
+          <tbody className="divide-y divide-border/40">
+            {filtered.map((tx) => (
+              <tr
+                key={tx.id}
+                className="transition-colors hover:bg-muted/10 group"
+              >
+                <td className="px-8 py-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm border bg-primary/10 text-primary border-primary/20">
+                      <ArrowUpRight size={18} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
+                        {tx.serviceType || "Service"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {tx.providerName || "Provider"}
+                      </p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-8 py-6">
+                  <span className="text-xs font-mono text-muted-foreground bg-muted/30 px-2 py-1 rounded-md border border-border/30 font-semibold">
+                    {String(tx.id).slice(-10).toUpperCase()}
+                  </span>
+                </td>
+                <td className="px-8 py-6 text-sm font-medium text-foreground">
+                  {formatDate(tx.createdAt)}
+                </td>
+                <td className="px-8 py-6 text-sm font-bold text-right text-foreground">
+                  -{formatCurrency(tx.amount)}
+                </td>
+                <td className="px-8 py-6">
+                  <div className="flex justify-center">
+                    <span
+                      className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border shadow-sm ${
+                        STATUS_COLORS[tx.status] ||
+                        STATUS_COLORS.pending
+                      }`}
+                    >
+                      {tx.status}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-8 py-6 text-center text-xs text-muted-foreground font-medium capitalize">
+                  {tx.paymentMethod || "—"}
+                </td>
+                <td className="px-8 py-6 text-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-3 text-xs font-semibold gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary/10 hover:text-primary"
+                    onClick={() => handleDownloadInvoice(tx.id)}
                   >
-                    <td className="px-8 py-6">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm border bg-primary/10 text-primary border-primary/20">
-                          <ArrowUpRight size={18} />
-                        </div>
-                        <div>
-                          <p className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
-                            {tx.serviceType || "Service"}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {tx.providerName || "Provider"}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <span className="text-xs font-mono text-muted-foreground bg-muted/30 px-2 py-1 rounded-md border border-border/30 font-semibold">
-                        {String(tx.id).slice(-10).toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-8 py-6 text-sm font-medium text-foreground">
-                      {formatDate(tx.createdAt)}
-                    </td>
-                    <td className="px-8 py-6 text-sm font-bold text-right text-foreground">
-                      -{formatCurrency(tx.amount)}
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex justify-center">
-                        <span
-                          className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border shadow-sm ${
-                            STATUS_COLORS[tx.status] ||
-                            STATUS_COLORS.pending
-                          }`}
-                        >
-                          {tx.status}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6 text-center text-xs text-muted-foreground font-medium capitalize">
-                      {tx.paymentMethod || "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+                    <FileDown size={14} />
+                    Invoice
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
             </table>
           )}
         </div>

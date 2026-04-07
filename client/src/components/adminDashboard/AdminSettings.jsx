@@ -1,24 +1,58 @@
 import { useEffect, useState } from "react";
-import { Settings2, Percent, Wrench } from "lucide-react";
+import { Link } from "react-router-dom";
+import { HardDrive, ShieldCheck, Upload, Wrench } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/components/contexts/AuthContext";
+import { fetchAdminSettings, updateAdminSettings } from "@/lib/adminApi";
 import {
-  fetchPlatformSettings,
-  updatePlatformSettings,
-} from "@/lib/adminApi";
+  AdminLoadingState,
+  AdminPageShell,
+  AdminPanel,
+  AdminSelectField,
+} from "./AdminWorkspaceCommon";
+
+const EMPTY_FORM = {
+  name: "",
+  email: "",
+  phone: "",
+  address: "",
+  profileImage: "",
+  platformName: "",
+  supportEmail: "",
+  currency: "INR",
+  maintenanceMode: false,
+  maintenanceMessage: "",
+  commissionPercentage: 10,
+};
 
 export default function AdminSettings() {
-  const [settings, setSettings] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const { refreshProfile } = useAuth();
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const loadSettings = async () => {
     try {
       setLoading(true);
-      setError("");
-      const res = await fetchPlatformSettings();
-      setSettings(res.data?.data || null);
-    } catch (err) {
-      console.error(err);
-      setError("Failed to load settings.");
+      const response = await fetchAdminSettings();
+      const payload = response.data?.data || {};
+      setStatus(payload.systemStatus || null);
+      setForm({
+        name: payload.profile?.name || "",
+        email: payload.profile?.email || "",
+        phone: payload.profile?.phone || "",
+        address: payload.profile?.address || "",
+        profileImage: payload.profile?.profileImage || "",
+        platformName: payload.platform?.platformName || "",
+        supportEmail: payload.platform?.supportEmail || "",
+        currency: payload.platform?.currency || "INR",
+        maintenanceMode: Boolean(payload.platform?.maintenanceMode),
+        maintenanceMessage: payload.platform?.maintenanceMessage || "",
+        commissionPercentage: Number(payload.platform?.commissionPercentage ?? 10),
+      });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load settings.");
     } finally {
       setLoading(false);
     }
@@ -28,152 +62,184 @@ export default function AdminSettings() {
     loadSettings();
   }, []);
 
-  const handleSave = async (event) => {
-    event.preventDefault();
-    if (!settings) return;
+  const handleChange = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
 
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     try {
-      setLoading(true);
-      setError("");
-      await updatePlatformSettings({
-        commissionPercentage: settings.commissionPercentage,
-        platformName: settings.platformName,
-        maintenanceMode: settings.maintenanceMode,
-      });
+      setSaving(true);
+      const response = await updateAdminSettings(form);
+      toast.success(response.data?.message || "Settings saved.");
+      await refreshProfile({ silent: true });
       await loadSettings();
-    } catch (err) {
-      console.error(err);
-      setError("Failed to save settings.");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to save settings.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  if (!settings && loading) {
-    return (
-      <section className="space-y-4">
-        <div className="h-40 animate-pulse rounded-3xl bg-slate-900/70" />
-      </section>
-    );
+  if (loading) {
+    return <AdminLoadingState label="Loading admin settings..." />;
   }
 
   return (
-    <section className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
-            Platform
-          </p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-50">
-            Platform Settings
-          </h2>
-          <p className="text-xs text-slate-500">
-            Control global commission, branding, and maintenance mode.
-          </p>
-        </div>
-      </header>
-
-      {error ? (
-        <p className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
-          {error}
-        </p>
-      ) : null}
-
-      {settings && (
-        <form
-          onSubmit={handleSave}
-          className="space-y-4 rounded-3xl border border-slate-800 bg-slate-950/80 p-4 shadow-xl shadow-slate-950/80"
+    <AdminPageShell
+      title="Admin Settings"
+      description="Manage your personal information and platform-wide controls, including maintenance mode and support details."
+      actions={
+        <button
+          type="submit"
+          form="admin-settings-form"
+          disabled={saving}
+          className="admin-button-primary"
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/80 px-3 py-1 text-[11px] text-slate-400">
-              <Settings2 size={14} className="text-sky-400" />
-              <span className="font-medium text-slate-100">Core config</span>
+          <Upload size={14} />
+          Save Changes
+        </button>
+      }
+    >
+      <form
+        id="admin-settings-form"
+        onSubmit={handleSubmit}
+        className="grid gap-5 xl:grid-cols-[1.1fr_1fr]"
+      >
+        <AdminPanel title="Personal Information" description="Update your admin workspace profile details.">
+          <div className="space-y-4">
+            <div className="flex justify-center">
+              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-xl font-semibold text-primary">
+                {form.profileImage ? (
+                  <img src={form.profileImage} alt="Admin avatar" className="h-full w-full object-cover" />
+                ) : (
+                  form.name?.charAt(0)?.toUpperCase() || "A"
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="admin-label">Full Name</label>
+              <input className="admin-input mt-2" value={form.name} onChange={(event) => handleChange("name", event.target.value)} />
+            </div>
+            <div>
+              <label className="admin-label">Email Address</label>
+              <input className="admin-input mt-2" value={form.email} onChange={(event) => handleChange("email", event.target.value)} />
+            </div>
+            <div>
+              <label className="admin-label">Phone Number</label>
+              <input className="admin-input mt-2" value={form.phone} onChange={(event) => handleChange("phone", event.target.value)} />
+            </div>
+            <div>
+              <label className="admin-label">Address</label>
+              <textarea className="admin-textarea mt-2" value={form.address} onChange={(event) => handleChange("address", event.target.value)} />
             </div>
           </div>
+        </AdminPanel>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1 text-xs">
-              <label className="text-[11px] text-slate-400">
-                Platform name
-              </label>
-              <input
-                type="text"
-                value={settings.platformName || ""}
-                onChange={(e) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    platformName: e.target.value,
-                  }))
-                }
-                className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 outline-none focus:border-sky-500"
-              />
-            </div>
-
-            <div className="space-y-1 text-xs">
-              <label className="flex items-center gap-1 text-[11px] text-slate-400">
-                <Percent size={12} />
-                Commission percentage
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={settings.commissionPercentage ?? 0}
-                onChange={(e) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    commissionPercentage: Number(e.target.value),
-                  }))
-                }
-                className="w-full rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-xs text-slate-100 outline-none focus:border-sky-500"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950/80 p-3 text-xs">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-amber-500/10 text-amber-300">
-                  <Wrench size={13} />
-                </span>
+        <div className="space-y-5">
+          <AdminPanel title="Platform Settings" description="Control platform status, support channels, and the maintenance banner.">
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <p className="text-xs font-medium text-slate-50">
-                    Maintenance mode
-                  </p>
-                  <p className="text-[11px] text-slate-500">
-                    Temporarily pause bookings while you perform upgrades.
-                  </p>
+                  <label className="admin-label">Platform Name</label>
+                  <input className="admin-input mt-2" value={form.platformName} onChange={(event) => handleChange("platformName", event.target.value)} />
+                </div>
+                <div>
+                  <label className="admin-label">Support Email</label>
+                  <input className="admin-input mt-2" value={form.supportEmail} onChange={(event) => handleChange("supportEmail", event.target.value)} />
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    maintenanceMode: !prev.maintenanceMode,
-                  }))
-                }
-                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium ${
-                  settings.maintenanceMode
-                    ? "bg-amber-500/15 text-amber-200"
-                    : "bg-emerald-500/15 text-emerald-200"
-                }`}
-              >
-                {settings.maintenanceMode ? "Enabled" : "Disabled"}
-              </button>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="admin-label">Currency</label>
+                  <div className="mt-2">
+                    <AdminSelectField value={form.currency} onChange={(value) => handleChange("currency", value)}>
+                      <option value="INR">INR</option>
+                      <option value="USD">USD</option>
+                      <option value="EUR">EUR</option>
+                    </AdminSelectField>
+                  </div>
+                </div>
+                <div>
+                  <label className="admin-label">Commission Percentage</label>
+                  <input
+                    className="admin-input mt-2"
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={form.commissionPercentage}
+                    onChange={(event) => handleChange("commissionPercentage", Number(event.target.value))}
+                  />
+                </div>
+              </div>
+              <div className="admin-card-soft flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Maintenance Mode</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Keep admin access available while public browsing and dashboards are paused.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleChange("maintenanceMode", !form.maintenanceMode)}
+                  className={form.maintenanceMode ? "admin-button-primary" : "admin-button-secondary"}
+                >
+                  <Wrench size={14} />
+                  {form.maintenanceMode ? "Maintenance On" : "Maintenance Off"}
+                </button>
+              </div>
+              <div>
+                <label className="admin-label">Maintenance Message</label>
+                <textarea
+                  className="admin-textarea mt-2"
+                  value={form.maintenanceMessage}
+                  onChange={(event) => handleChange("maintenanceMessage", event.target.value)}
+                />
+              </div>
             </div>
-          </div>
+          </AdminPanel>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-2 inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-xs font-medium text-slate-950 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Saving..." : "Save changes"}
-          </button>
-        </form>
-      )}
-    </section>
+          <AdminPanel title="System Status" description="Live backend status surfaced from the current admin workspace configuration.">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="admin-card-soft">
+                <p className="text-xs text-muted-foreground">Database</p>
+                <p className="mt-2 text-sm font-semibold text-foreground">{status?.database || "Connected"}</p>
+              </div>
+              <div className="admin-card-soft">
+                <p className="text-xs text-muted-foreground">API Status</p>
+                <p className="mt-2 text-sm font-semibold text-foreground">{status?.apiStatus || "Healthy"}</p>
+              </div>
+              <div className="admin-card-soft">
+                <p className="text-xs text-muted-foreground">Websocket Monitoring</p>
+                <p className="mt-2 text-sm font-semibold text-foreground">
+                  {status?.websocketMonitoring ? "Monitored" : "Disabled"}
+                </p>
+              </div>
+            </div>
+          </AdminPanel>
+
+          <AdminPanel title="Quick Actions" description="Open the related admin pages for cache, export, security, and advanced controls.">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Link to="/admin/settings/cache" className="admin-button-secondary justify-start">
+                <HardDrive size={14} />
+                Cache Center
+              </Link>
+              <Link to="/admin/settings/export" className="admin-button-secondary justify-start">
+                <Upload size={14} />
+                Export Data
+              </Link>
+              <Link to="/admin/settings/security" className="admin-button-secondary justify-start">
+                <ShieldCheck size={14} />
+                Security Audit
+              </Link>
+              <Link to="/admin/settings/advanced" className="admin-button-secondary justify-start">
+                <Wrench size={14} />
+                Advanced Settings
+              </Link>
+            </div>
+          </AdminPanel>
+        </div>
+      </form>
+    </AdminPageShell>
   );
 }
-

@@ -189,7 +189,7 @@ export default function SignUp(props) {
       const registeredRole = result.user?.role;
 
       if (registeredRole === "ADMIN") {
-        navigate("/admin-dashboard", { replace: true });
+        navigate("/admin", { replace: true });
       } else if (registeredRole === "PROVIDER") {
         navigate("/provider-dashboard", { replace: true });
       } else {

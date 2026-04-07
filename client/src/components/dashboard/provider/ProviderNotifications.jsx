@@ -87,7 +87,7 @@ export default function ProviderNotifications() {
   // Real-time socket subscriptions
   useEffect(() => {
     if (!user?.id) return;
-    initiateSocketConnection(user.id);
+    initiateSocketConnection(user.id, user.role);
 
     const unsub1 = subscribeToNotifications((err, payload) => {
       if (err || !payload?.notification) return;

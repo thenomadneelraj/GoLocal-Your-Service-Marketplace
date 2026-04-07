@@ -47,12 +47,18 @@ import {
 } from "@/lib/socket";
 
 const ADMIN_SECTIONS = [
-  { title: "Core", items: [{ to: "/admin-dashboard", label: "Overview", icon: LayoutDashboard }] },
-  { title: "Users", items: [{ to: "/admin/users", label: "Users", icon: Users }, { to: "/admin/providers", label: "Providers", icon: BriefcaseBusiness }] },
-  { title: "Services", items: [{ to: "/admin/service-catalog", label: "Service Catalog", icon: BriefcaseBusiness }] },
-  { title: "Finance", items: [{ to: "/admin/payouts", label: "Payouts", icon: Wallet2 }, { to: "/admin/transactions", label: "Transactions", icon: ReceiptText }] },
-  { title: "Reviews", items: [{ to: "/admin/reviews", label: "Ratings & Reviews", icon: Star }, { to: "/admin/disputes", label: "Disputes", icon: MessagesSquare }] },
-  { title: "Settings", items: [{ to: "/admin/settings", label: "Platform Settings", icon: Settings2 }, { to: "/admin/security", label: "Security", icon: ShieldCheck }] },
+  {
+    title: "Workspace",
+    items: [
+      { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
+      { to: "/admin/users", label: "Users", icon: Users },
+      { to: "/admin/bookings", label: "Bookings", icon: CalendarClock },
+      { to: "/admin/transactions", label: "Transactions", icon: ReceiptText },
+      { to: "/admin/disputes", label: "Disputes", icon: MessagesSquare },
+      { to: "/admin/contact-messages", label: "Support", icon: CircleHelp },
+      { to: "/admin/settings", label: "Settings", icon: Settings2 },
+    ],
+  },
 ];
 
 const ROLE_NAV = {
@@ -126,16 +132,17 @@ const TITLES = {
     "/provider/help-support": "Support",
   },
   ADMIN: {
-    "/admin-dashboard": "Admin Dashboard",
+    "/admin": "Dashboard",
     "/admin/users": "Users",
-    "/admin/providers": "Providers",
-    "/admin/service-catalog": "Service Catalog",
+    "/admin/bookings": "Bookings",
     "/admin/transactions": "Transactions",
-    "/admin/payouts": "Payouts",
-    "/admin/reviews": "Ratings & Reviews",
     "/admin/disputes": "Disputes",
-    "/admin/settings": "Platform Settings",
-    "/admin/security": "Security",
+    "/admin/contact-messages": "Support",
+    "/admin/settings": "Settings",
+    "/admin/settings/advanced": "Settings",
+    "/admin/settings/cache": "Settings",
+    "/admin/settings/export": "Settings",
+    "/admin/settings/security": "Settings",
   },
 };
 
@@ -253,6 +260,13 @@ export default function RoleShell({ role }) {
 
   const displayName = user?.name || user?.email || "User";
   const currentTitle = TITLES[role]?.[location.pathname] || `${role === "PROVIDER" ? "Provider" : role === "ADMIN" ? "Admin" : "Client"} Dashboard`;
+  const isShellLinkActive = (to) => {
+    if (location.pathname === to) return true;
+    if (["/admin", "/dashboard", "/provider-dashboard"].includes(to)) {
+      return false;
+    }
+    return location.pathname.startsWith(`${to}/`);
+  };
   const themeClass = theme === "dark" ? "dark" : "";
   const isSpecialRole = role === "PROVIDER" || role === "CLIENT";
   const isAdminLight = role === "ADMIN" && theme === "light";
@@ -322,7 +336,7 @@ export default function RoleShell({ role }) {
   useEffect(() => {
     if (!user?.id || isRestrictedAccount) return undefined;
 
-    initiateSocketConnection(user.id);
+    initiateSocketConnection(user.id, user.role);
     loadNotifications(true);
 
     const unsubscribeNew = subscribeToNotifications((err, payload) => {
@@ -475,7 +489,7 @@ export default function RoleShell({ role }) {
               {!sidebarCollapsed && <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-sidebar-foreground/50">{section.title}</p>}
               <div className="space-y-1">
                 {section.items.map((item) => (
-                  <ShellLink key={item.to} item={item} active={location.pathname === item.to} collapsed={sidebarCollapsed} adminLight={isAdminLight} onClick={closeDrawer} />
+                  <ShellLink key={item.to} item={item} active={isShellLinkActive(item.to)} collapsed={sidebarCollapsed} adminLight={isAdminLight} onClick={closeDrawer} />
                 ))}
               </div>
             </div>
@@ -483,13 +497,13 @@ export default function RoleShell({ role }) {
         ) : (
           <>
             {visibleRoleNav.map((item) => (
-              <ShellLink key={item.to} item={item} active={location.pathname === item.to} collapsed={sidebarCollapsed} provider={isSpecialRole} onClick={closeDrawer} />
+              <ShellLink key={item.to} item={item} active={isShellLinkActive(item.to)} collapsed={sidebarCollapsed} provider={isSpecialRole} onClick={closeDrawer} />
             ))}
 
             {!isRestrictedAccount && (
               <div className="mt-6 border-t border-sidebar-foreground/10 pt-6">
                 {visibleRoleUtil.map((item) => (
-                  <ShellLink key={item.to} item={item} active={location.pathname === item.to} collapsed={sidebarCollapsed} provider={isSpecialRole} onClick={closeDrawer} />
+                  <ShellLink key={item.to} item={item} active={isShellLinkActive(item.to)} collapsed={sidebarCollapsed} provider={isSpecialRole} onClick={closeDrawer} />
                 ))}
               </div>
             )}
@@ -506,7 +520,7 @@ export default function RoleShell({ role }) {
       {isSpecialRole ? (
         <div className="mt-auto space-y-3 border-t border-sidebar-foreground/10 pt-5">
           {visibleSpecialBottom.map((item) => (
-            <ShellLink key={item.to} item={item} active={location.pathname === item.to} collapsed={sidebarCollapsed} provider onClick={closeDrawer} />
+            <ShellLink key={item.to} item={item} active={isShellLinkActive(item.to)} collapsed={sidebarCollapsed} provider onClick={closeDrawer} />
           ))}
           {!sidebarCollapsed && (
             <div className="rounded-[1.5rem] border border-sidebar-foreground/10 bg-sidebar-accent/45 p-3 shadow-[0_24px_48px_-30px_rgba(0,0,0,0.45)]">

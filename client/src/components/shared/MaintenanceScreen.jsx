@@ -4,6 +4,7 @@ import { ShieldAlert, Wrench } from "lucide-react";
 export default function MaintenanceScreen({
   platformName = "GoLocal",
   supportEmail = "support@golocal.com",
+  maintenanceMessage = "Website is currently under maintenance. Please check back soon.",
 }) {
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-50">
@@ -29,8 +30,7 @@ export default function MaintenanceScreen({
                 {platformName} is temporarily paused for maintenance
               </h1>
               <p className="max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
-                Client and provider access is currently disabled while the platform is being updated.
-                Please check back shortly.
+                {maintenanceMessage}
               </p>
             </div>
           </div>

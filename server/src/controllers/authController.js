@@ -16,6 +16,10 @@ const {
   buildPersistedAccountState,
   normalizeApprovalStatus,
 } = require("../utils/accountState");
+const {
+  SOCKET_EVENTS,
+  emitSocketEvent,
+} = require("../utils/socketEvents");
 
 const generateToken = (account, accountType = "USER") => {
   return jwt.sign(
@@ -140,6 +144,7 @@ const register = async (req, res) => {
         userId: user._id,
         name: actualName,
         phone,
+        upiId: phone ? `${phone}@golocal` : "",
         profileImage: profilePhoto || "",
         serviceType: serviceType || "Other",
         services: [], // can be populated later
@@ -210,7 +215,8 @@ const signIn = async (req, res) => {
       });
     }
 
-    const isMatch = await account.comparePassword(password);
+    const bcrypt = require("bcrypt");
+    const isMatch = await bcrypt.compare(password, account.password);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -242,12 +248,15 @@ const signIn = async (req, res) => {
       } else if (account.role === "provider") {
         profile = await Provider.findOne({ userId: account._id });
       }
-      
-      account.totalLogins = (account.totalLogins || 0) + 1;
-      account.lastLogin = new Date();
-      await account.save();
+
+      // Use updateOne to avoid triggering full model validators on unrelated fields
+      // (avoids ValidationErrors from stale/legacy data in existing documents)
+      await account.constructor.findByIdAndUpdate(account._id, {
+        $inc: { totalLogins: 1 },
+        $set: { lastLogin: new Date() },
+      });
     } else {
-      profile = account; 
+      profile = account;
     }
 
     const token = generateToken(account, accountType);
@@ -266,7 +275,7 @@ const signIn = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Login successful",
+      message: "Login successful TEST",
       token,
       user: userPayload,
       data: {
@@ -275,11 +284,7 @@ const signIn = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("signIn error:", {
-      email: req.body?.email || "",
-      role: req.body?.role || "",
-      message: error.message,
-    });
+    console.error("SIGNIN FULL ERROR:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -405,6 +410,15 @@ const updateProfile = async (req, res) => {
     }
 
     const payload = shapeAccount(updatedUser, profile);
+
+    emitSocketEvent({
+      userIds: [req.user._id],
+      eventName: SOCKET_EVENTS.USER_UPDATED,
+      payload: {
+        userId: req.user._id.toString(),
+        message: "Profile updated successfully.",
+      },
+    });
 
     res.json({
       success: true,

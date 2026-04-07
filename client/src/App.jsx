@@ -18,13 +18,14 @@ import BookingPage from "./components/booking/BookingPage";
 import BookingConfirmationPage from "./components/booking/BookingConfirmationPage";
 import AdminDashboard from "./components/adminDashboard/AdminDashboard";
 import AdminUsers from "./components/adminDashboard/AdminUsers";
-import AdminProviders from "./components/adminDashboard/AdminProvider";
-import AdminServiceCatalog from "./components/adminDashboard/AdminServiceCatalog";
+import AdminBookings from "./components/adminDashboard/AdminBookings";
 import AdminTransactions from "./components/adminDashboard/AdminTransactions";
-import AdminPayouts from "./components/adminDashboard/AdminPayouts";
-import AdminReviews from "./components/adminDashboard/AdminReviews";
 import AdminDisputes from "./components/adminDashboard/AdminDisputes";
+import AdminContactMessages from "./components/adminDashboard/AdminContactMessages";
 import AdminSettings from "./components/adminDashboard/AdminSettings";
+import AdminAdvancedSettings from "./components/adminDashboard/AdminAdvancedSettings";
+import AdminCacheSettings from "./components/adminDashboard/AdminCacheSettings";
+import AdminExportSettings from "./components/adminDashboard/AdminExportSettings";
 import AdminSecurity from "./components/adminDashboard/AdminSecurity";
 import ProviderDashboard from "./components/providerDashboard/ProviderDashboard";
 import ProviderReviews from "./components/providerDashboard/ProviderReviews";
@@ -39,6 +40,7 @@ import ClientTasks from "./components/dashboard/client/ClientTasks";
 import ClientNotifications from "./components/dashboard/client/ClientNotifications";
 import ClientChat from "./components/dashboard/client/ClientChat";
 import ClientDisputes from "./components/dashboard/client/ClientDisputes";
+import ClientSupport from "./components/dashboard/client/ClientSupport";
 import ClientVerification from "./components/dashboard/client/ClientVerification";
 
 // Provider Dashboard (New High-Fidelity)
@@ -86,6 +88,7 @@ function AppRoutes() {
     maintenanceMode,
     platformName,
     supportEmail,
+    maintenanceMessage,
     loading: maintenanceLoading,
   } = useMaintenance();
 
@@ -113,6 +116,7 @@ function AppRoutes() {
       <MaintenanceScreen
         platformName={platformName}
         supportEmail={supportEmail}
+        maintenanceMessage={maintenanceMessage}
       />
     );
   }
@@ -176,6 +180,7 @@ function AppRoutes() {
           <Route path="/client/notifications" element={<ClientNotifications />} />
           <Route path="/client/chat" element={<ClientChat />} />
           <Route path="/client/disputes" element={<ClientDisputes />} />
+          <Route path="/client/support" element={<ClientSupport />} />
           <Route path="/client/verification" element={<ClientVerification />} />
           <Route
             path="/settings"
@@ -183,12 +188,7 @@ function AppRoutes() {
           />
           <Route
             path="/help-support"
-            element={
-              <SectionPage
-                title="Help & Support"
-                description="Contact support for booking, payment, and account assistance."
-              />
-            }
+            element={<ClientSupport />}
           />
           <Route path="/booking/:id" element={<BookingPage />} />
           <Route
@@ -267,22 +267,20 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         >
-          <Route path="/admin-dashboard" element={<AdminDashboard />} />
+          <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/users" element={<AdminUsers />} />
-          <Route path="/admin/providers" element={<AdminProviders />} />
-          <Route
-            path="/admin/service-catalog"
-            element={<AdminServiceCatalog />}
-          />
+          <Route path="/admin/bookings" element={<AdminBookings />} />
           <Route
             path="/admin/transactions"
             element={<AdminTransactions />}
           />
-          <Route path="/admin/payouts" element={<AdminPayouts />} />
-          <Route path="/admin/reviews" element={<AdminReviews />} />
           <Route path="/admin/disputes" element={<AdminDisputes />} />
-          <Route path="/admin/settings" element={<SettingsLayout role="ADMIN" />} />
-          <Route path="/admin/security" element={<AdminSecurity />} />
+          <Route path="/admin/contact-messages" element={<AdminContactMessages />} />
+          <Route path="/admin/settings" element={<AdminSettings />} />
+          <Route path="/admin/settings/advanced" element={<AdminAdvancedSettings />} />
+          <Route path="/admin/settings/cache" element={<AdminCacheSettings />} />
+          <Route path="/admin/settings/export" element={<AdminExportSettings />} />
+          <Route path="/admin/settings/security" element={<AdminSecurity />} />
         </Route>
 
         {/* SaaS Navbar Routes */}

@@ -1,151 +1,193 @@
 import { useEffect, useState } from "react";
-import { Users } from "lucide-react";
-import api from "@/lib/api";
-import { AdminTable } from "./AdminTable";
-import { AdminPagination } from "./AdminPagination";
+import { Ban, CheckCircle2, Mail, ShieldX, UserRound } from "lucide-react";
+import { toast } from "sonner";
+import { fetchAdminUsers, updateAdminUserStatus } from "@/lib/adminApi";
+import {
+  AdminLoadingState,
+  AdminPageShell,
+  AdminPanel,
+  AdminSearchField,
+  AdminSelectField,
+  AdminStatCard,
+  AdminStatusBadge,
+  formatAdminDateTime,
+} from "./AdminWorkspaceCommon";
 
-function AdminUsers() {
-  const [users, setUsers] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, pages: 1 });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+export default function AdminUsers() {
+  const [filters, setFilters] = useState({
+    search: "",
+    role: "all",
+    status: "all",
+  });
+  const [loading, setLoading] = useState(true);
+  const [actionId, setActionId] = useState("");
+  const [payload, setPayload] = useState(null);
 
-  const fetchUsers = async (page = 1) => {
+  const loadUsers = async (nextFilters = filters) => {
     try {
       setLoading(true);
-      setError("");
-      const res = await api.get("/api/admin/users", {
-        params: { page, limit: 10 },
-      });
-      const payload = res.data?.data || {};
-      setUsers(payload.users || []);
-      setPagination({
-        page: payload.page || page,
-        pages: payload.pages || 1,
-      });
-    } catch (err) {
-      console.error("Error fetching users:", err);
-      setError("Failed to load users.");
+      const response = await fetchAdminUsers(nextFilters);
+      setPayload(response.data?.data || null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load users.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchUsers(1);
+    loadUsers();
   }, []);
 
-  const toggleUserStatus = async (id, currentStatus) => {
+  const handleFilterChange = (key, value) => {
+    const nextFilters = { ...filters, [key]: value };
+    setFilters(nextFilters);
+    loadUsers(nextFilters);
+  };
+
+  const handleAction = async (userId, status) => {
     try {
-      setLoading(true);
-      setError("");
-      await api.put(`/api/admin/users/${id}`, {
-        status: currentStatus === "active" ? "suspended" : "active",
-      });
-      await fetchUsers(pagination.page || 1);
-    } catch (err) {
-      console.error("Error updating user:", err);
-      setError("Failed to update user status.");
+      setActionId(`${userId}:${status}`);
+      const response = await updateAdminUserStatus(userId, { status });
+      toast.success(response.data?.message || "User updated successfully.");
+      await loadUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to update user.");
     } finally {
-      setLoading(false);
+      setActionId("");
     }
   };
 
-  const resolveUserStatus = (user) =>
-    String(user.status || "").toLowerCase() ||
-    (user.isActive ? "active" : "suspended");
+  if (loading && !payload) {
+    return <AdminLoadingState label="Loading user approvals..." />;
+  }
+
+  const summary = payload?.summary || {};
+  const items = payload?.items || [];
 
   return (
-    <section className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="admin-page-kicker">Users</p>
-          <h2 className="admin-page-title">Manage Users</h2>
-          <p className="admin-page-description">
-            View all accounts and enable or disable access.
-          </p>
-        </div>
-        <div className="admin-chip">
-          <Users size={14} className="text-primary" />
-          <span className="admin-chip-label">Total: {users.length}</span>
-        </div>
-      </header>
+    <AdminPageShell
+      title="Users"
+      description="Approve access, suspend accounts that should lose access, or permanently reject users you do not want on the platform."
+    >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <AdminStatCard icon={UserRound} title="Total users" value={summary.totalUsers ?? 0} />
+        <AdminStatCard icon={Ban} title="Pending approval" value={summary.pendingApproval ?? 0} tone="text-amber-600" />
+        <AdminStatCard icon={CheckCircle2} title="Approved" value={summary.approved ?? 0} tone="text-emerald-600" />
+        <AdminStatCard icon={ShieldX} title="Rejected" value={summary.rejected ?? 0} tone="text-rose-600" />
+        <AdminStatCard icon={Ban} title="Suspended" value={summary.suspended ?? 0} tone="text-slate-500" />
+      </div>
 
-      <article className="admin-card space-y-3">
-        <AdminTable
-          columns={[
-            { key: "name", label: "Name" },
-            { key: "email", label: "Email" },
-            { key: "role", label: "Role" },
-            { key: "status", label: "Status" },
-            { key: "actions", label: "Actions" },
-          ]}
-          data={users}
-          loading={loading}
-          error={error}
-          renderRow={(user) => (
-            <tr
-              key={user._id}
-              className="admin-table-row"
-            >
-              <td className="admin-cell admin-cell-strong">
-                <p className="font-medium">{user.name || "-"}</p>
-              </td>
-              <td className="admin-cell">{user.email}</td>
-              <td className="admin-cell admin-cell-muted font-semibold">
-                {user.role || "CLIENT"}
-              </td>
-              <td className="admin-cell">
-                {(() => {
-                  const status = resolveUserStatus(user);
-                  const badgeClass =
-                    status === "active"
-                      ? "admin-badge-success"
-                      : status === "rejected"
-                        ? "admin-badge-warning"
-                        : "admin-badge-muted";
-                  const label =
-                    status === "rejected"
-                      ? "Rejected"
-                      : status === "active"
-                        ? "Active"
-                        : "Suspended";
+      <AdminPanel>
+        <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_auto]">
+          <div>
+            <label className="admin-label">Search</label>
+            <div className="mt-2">
+              <AdminSearchField
+                value={filters.search}
+                onChange={(value) => handleFilterChange("search", value)}
+                placeholder="name or email"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="admin-label">Role</label>
+            <div className="mt-2">
+              <AdminSelectField
+                value={filters.role}
+                onChange={(value) => handleFilterChange("role", value)}
+              >
+                <option value="all">All roles</option>
+                <option value="client">Client</option>
+                <option value="provider">Provider</option>
+              </AdminSelectField>
+            </div>
+          </div>
+          <div>
+            <label className="admin-label">Approval Status</label>
+            <div className="mt-2">
+              <AdminSelectField
+                value={filters.status}
+                onChange={(value) => handleFilterChange("status", value)}
+              >
+                <option value="all">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="suspended">Suspended</option>
+                <option value="rejected">Rejected</option>
+              </AdminSelectField>
+            </div>
+          </div>
+          <div className="flex items-end text-xs text-muted-foreground">
+            {payload?.totalShown ?? 0} user(s) shown
+          </div>
+        </div>
+      </AdminPanel>
 
-                  return (
-                <span
-                      className={`admin-badge ${badgeClass}`}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {label}
-                </span>
-                  );
-                })()}
-              </td>
-              <td className="admin-cell">
+      <div className="space-y-4">
+        {items.map((user) => (
+          <article
+            key={user.id}
+            className="admin-card flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"
+          >
+            <div className="flex items-start gap-4">
+              <span className="admin-icon-wrap text-slate-500">
+                <UserRound size={16} />
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-base font-semibold text-foreground">{user.name}</h3>
+                  <span className="admin-badge admin-badge-muted">{user.role}</span>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{user.email}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <Mail size={12} />
+                    Email profile active
+                  </span>
+                  <span>Joined: {formatAdminDateTime(user.joinedAt)}</span>
+                  {user.serviceType ? <span>Service: {user.serviceType}</span> : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 xl:items-end">
+              <AdminStatusBadge value={user.approvalStatus === "approved" ? user.status : user.approvalStatus} />
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => toggleUserStatus(user._id, resolveUserStatus(user))}
-                  className={`admin-pill-button ${
-                    resolveUserStatus(user) === "active"
-                      ? "admin-pill-button-warning"
-                      : "admin-pill-button-success"
-                  }`}
+                  onClick={() => handleAction(user.id, "approved")}
+                  disabled={actionId === `${user.id}:approved`}
+                  className="admin-button-success"
                 >
-                  {resolveUserStatus(user) === "active" ? "Suspend" : "Activate"}
+                  Approve
                 </button>
-              </td>
-            </tr>
-          )}
-        />
-
-        <AdminPagination
-          page={pagination.page || 1}
-          pages={pagination.pages || 1}
-          onPageChange={(page) => fetchUsers(page)}
-        />
-      </article>
-    </section>
+                <button
+                  type="button"
+                  onClick={() => handleAction(user.id, "suspended")}
+                  disabled={actionId === `${user.id}:suspended`}
+                  className="admin-button-secondary"
+                >
+                  Suspend
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAction(user.id, "rejected")}
+                  disabled={actionId === `${user.id}:rejected`}
+                  className="admin-button-danger"
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          </article>
+        ))}
+        {!items.length ? (
+          <AdminPanel>
+            <p className="admin-empty-state">No users matched the current filters.</p>
+          </AdminPanel>
+        ) : null}
+      </div>
+    </AdminPageShell>
   );
 }
-
-export default AdminUsers;

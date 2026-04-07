@@ -1,78 +1,87 @@
 import api from "./api";
 
-// Small helper to build query strings from objects
 const buildQuery = (params = {}) => {
   const search = new URLSearchParams();
+
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
       search.append(key, value);
     }
   });
+
   const query = search.toString();
   return query ? `?${query}` : "";
 };
 
-// 1️⃣ Service Catalog
-export const fetchServices = (params) =>
-  api.get(`/api/admin/services${buildQuery(params)}`);
+export const fetchAdminDashboard = () => api.get("/api/admin/dashboard");
 
-export const createService = (payload) =>
-  api.post("/api/admin/services", payload);
+export const fetchAdminUsers = (params = {}) =>
+  api.get(`/api/admin/users${buildQuery(params)}`);
 
-export const updateService = (id, payload) =>
-  api.put(`/api/admin/services/${id}`, payload);
+export const updateAdminUserStatus = (id, payload) =>
+  api.patch(`/api/admin/users/${id}/status`, payload);
 
-export const deleteService = (id) =>
-  api.delete(`/api/admin/services/${id}`);
+export const fetchAdminBookings = (params = {}) =>
+  api.get(`/api/admin/bookings${buildQuery(params)}`);
 
-export const toggleServiceStatus = (id) =>
-  api.post(`/api/admin/services/${id}/toggle`);
+export const fetchAdminBookingsSummary = () =>
+  api.get("/api/admin/bookings/summary");
 
-export const assignProviderToService = (id, providerId) =>
-  api.post(`/api/admin/services/${id}/assign-provider`, { providerId });
-
-// 2️⃣ Transactions
-export const fetchTransactions = (params) =>
+export const fetchAdminTransactions = (params = {}) =>
   api.get(`/api/admin/transactions${buildQuery(params)}`);
 
-// 3️⃣ Payouts
-export const fetchPayouts = (params) =>
-  api.get(`/api/admin/payouts${buildQuery(params)}`);
+export const fetchAdminTransactionsSummary = () =>
+  api.get("/api/admin/transactions/summary");
 
-export const markPayoutPaid = (id) =>
-  api.post(`/api/admin/payouts/${id}/mark-paid`);
-
-// 4️⃣ Ratings & Reviews
-export const fetchReviews = (params) =>
-  api.get(`/api/admin/reviews${buildQuery(params)}`);
-
-export const deleteReview = (id) =>
-  api.delete(`/api/admin/reviews/${id}`);
-
-export const flagReview = (id, flaggedReason) =>
-  api.post(`/api/admin/reviews/${id}/flag`, { flaggedReason });
-
-// 5️⃣ Disputes
-export const fetchDisputes = (params) =>
+export const fetchAdminDisputes = (params = {}) =>
   api.get(`/api/admin/disputes${buildQuery(params)}`);
 
-export const createDispute = (payload) =>
-  api.post("/api/admin/disputes", payload);
+export const fetchAdminDisputesSummary = () =>
+  api.get("/api/admin/disputes/summary");
 
-export const updateDisputeStatus = (id, payload) =>
-  api.put(`/api/admin/disputes/${id}/status`, payload);
+export const updateAdminDisputeStatus = (id, payload) =>
+  api.patch(`/api/admin/disputes/${id}/status`, payload);
 
-// 6️⃣ Platform Settings
-export const fetchPlatformSettings = () =>
-  api.get("/api/admin/settings");
+export const fetchAdminContactMessages = (params = {}) =>
+  api.get(`/api/admin/contact-messages${buildQuery(params)}`);
 
-export const updatePlatformSettings = (payload) =>
+export const fetchAdminSettings = () => api.get("/api/admin/settings");
+
+export const updateAdminSettings = (payload) =>
   api.put("/api/admin/settings", payload);
 
-// 7️⃣ Security
-export const fetchLoginHistory = (params) =>
-  api.get(`/api/admin/security/login-history${buildQuery(params)}`);
+export const fetchPlatformSettings = fetchAdminSettings;
 
-export const fetchActivityLogs = (params) =>
-  api.get(`/api/admin/security/activity-logs${buildQuery(params)}`);
+export const updatePlatformSettings = updateAdminSettings;
 
+export const fetchAdminAdvancedSettings = () =>
+  api.get("/api/admin/settings/advanced");
+
+export const updateAdminAdvancedSettings = (payload) =>
+  api.put("/api/admin/settings/advanced", payload);
+
+export const fetchAdminCacheSettings = () =>
+  api.get("/api/admin/settings/cache");
+
+export const refreshAdminCache = () =>
+  api.post("/api/admin/settings/cache/refresh");
+
+export const clearAdminCache = () =>
+  api.post("/api/admin/settings/cache/clear");
+
+export const fetchAdminExportSettings = () =>
+  api.get("/api/admin/settings/export");
+
+export const downloadAdminExport = (payload) =>
+  api.post("/api/admin/settings/export", payload, {
+    responseType: "blob",
+  });
+
+export const fetchAdminSecuritySettings = () =>
+  api.get("/api/admin/settings/security");
+
+export const runAdminSecurityAudit = () =>
+  api.post("/api/admin/settings/security/audit-snapshot");
+
+export const submitContactMessage = (payload) =>
+  api.post("/api/contact-messages", payload);

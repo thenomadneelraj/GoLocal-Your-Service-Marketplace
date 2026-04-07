@@ -7,6 +7,8 @@ const DEFAULT_STATUS = {
   maintenanceMode: false,
   platformName: "GoLocal",
   supportEmail: "support@golocal.com",
+  maintenanceMessage:
+    "Website is currently under maintenance. Please check back soon.",
 };
 
 export const useMaintenance = () => {
@@ -35,6 +37,8 @@ export const MaintenanceProvider = ({ children }) => {
         maintenanceMode: Boolean(nextStatus.maintenanceMode),
         platformName: nextStatus.platformName || DEFAULT_STATUS.platformName,
         supportEmail: nextStatus.supportEmail || DEFAULT_STATUS.supportEmail,
+        maintenanceMessage:
+          nextStatus.maintenanceMessage || DEFAULT_STATUS.maintenanceMessage,
       });
       hasLoggedConnectionIssueRef.current = false;
     } catch (error) {
@@ -42,6 +46,8 @@ export const MaintenanceProvider = ({ children }) => {
         maintenanceMode: Boolean(current?.maintenanceMode),
         platformName: current?.platformName || DEFAULT_STATUS.platformName,
         supportEmail: current?.supportEmail || DEFAULT_STATUS.supportEmail,
+        maintenanceMessage:
+          current?.maintenanceMessage || DEFAULT_STATUS.maintenanceMessage,
       }));
 
       if (!hasLoggedConnectionIssueRef.current) {

@@ -4,12 +4,11 @@ const activityLogSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // Can also be Admin
-      required: true,
+      ref: "User",
     },
     role: {
       type: String,
-      required: true, // "client", "provider", "admin"
+      trim: true,
     },
     action: {
       type: String,
@@ -18,16 +17,41 @@ const activityLogSchema = new mongoose.Schema(
     },
     module: {
       type: String,
-      required: true, // "booking", "payment", etc.
+      default: "admin",
       trim: true,
     },
     description: {
       type: String,
-      required: true,
+      default: "",
+      trim: true,
     },
     ipAddress: {
       type: String,
       trim: true,
+    },
+    actor: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: "actorModel",
+    },
+    actorModel: {
+      type: String,
+      enum: ["User", "Admin"],
+    },
+    actorRole: {
+      type: String,
+      trim: true,
+    },
+    targetType: {
+      type: String,
+      trim: true,
+    },
+    targetId: {
+      type: String,
+      trim: true,
+    },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
   },
   { timestamps: true }

@@ -30,6 +30,16 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    notes: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    requirements: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     address: {
       type: String,
       trim: true,
@@ -52,6 +62,11 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       enum: ["pending", "paid", "failed"],
       default: "pending",
+    },
+    paymentMethod: {
+      type: String,
+      enum: ["upi", "cod", "card", "cash"],
+      default: "upi",
     },
   },
   { timestamps: true }

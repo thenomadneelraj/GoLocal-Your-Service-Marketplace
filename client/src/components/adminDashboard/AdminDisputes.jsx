@@ -1,174 +1,146 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
-import { fetchDisputes, updateDisputeStatus } from "@/lib/adminApi";
-import { AdminTable } from "./AdminTable";
-import { AdminPagination } from "./AdminPagination";
+import { AlertTriangle, CheckCircle2, CircleDashed, Search, ShieldAlert } from "lucide-react";
+import { toast } from "sonner";
+import {
+  fetchAdminDisputes,
+  fetchAdminDisputesSummary,
+  updateAdminDisputeStatus,
+} from "@/lib/adminApi";
+import {
+  AdminLoadingState,
+  AdminPageShell,
+  AdminPanel,
+  AdminSearchField,
+  AdminSelectField,
+  AdminStatCard,
+  AdminStatusBadge,
+} from "./AdminWorkspaceCommon";
 
 export default function AdminDisputes() {
-  const [disputes, setDisputes] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, pages: 1 });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [filters, setFilters] = useState({ search: "", status: "all" });
+  const [summary, setSummary] = useState(null);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState("");
 
-  const loadDisputes = async (page = 1) => {
+  const loadDisputes = async (nextFilters = filters) => {
     try {
       setLoading(true);
-      setError("");
-      const res = await fetchDisputes({
-        page,
-        limit: 10,
-        status: statusFilter || undefined,
-      });
-      const payload = res.data?.data || {};
-      setDisputes(payload.items || []);
-      setPagination(payload.pagination || { page, pages: 1 });
-    } catch (err) {
-      console.error(err);
-      setError("Failed to load disputes.");
+      const [summaryResponse, disputesResponse] = await Promise.all([
+        fetchAdminDisputesSummary(),
+        fetchAdminDisputes(nextFilters),
+      ]);
+      setSummary(summaryResponse.data?.data || null);
+      setItems(disputesResponse.data?.data?.items || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load disputes.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadDisputes(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+    loadDisputes();
+  }, []);
 
-  const handleUpdateStatus = async (id, status) => {
+  const handleFilterChange = (key, value) => {
+    const nextFilters = { ...filters, [key]: value };
+    setFilters(nextFilters);
+    loadDisputes(nextFilters);
+  };
+
+  const handleStatusChange = async (disputeId, status) => {
     try {
-      setLoading(true);
-      setError("");
-      await updateDisputeStatus(id, { status });
-      await loadDisputes(pagination.page || 1);
-    } catch (err) {
-      console.error(err);
-      setError("Failed to update dispute status.");
+      setSavingId(disputeId);
+      const response = await updateAdminDisputeStatus(disputeId, { status });
+      toast.success(response.data?.message || "Dispute updated successfully.");
+      await loadDisputes();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to update dispute.");
     } finally {
-      setLoading(false);
+      setSavingId("");
     }
   };
 
-  const getStatusClassName = (status) => {
-    if (status?.toLowerCase() === "open") return "admin-badge-warning";
-    if (status?.toLowerCase() === "resolved") return "admin-badge-success";
-    return "admin-badge-danger";
-  };
+  if (loading && !summary) {
+    return <AdminLoadingState label="Loading dispute management..." />;
+  }
 
   return (
-    <section className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="admin-page-kicker">Trust &amp; Safety</p>
-          <h2 className="admin-page-title">Disputes</h2>
-          <p className="admin-page-description">
-            Review disputes between customers and providers.
-          </p>
-        </div>
-      </header>
+    <AdminPageShell
+      title="Dispute Management"
+      description="Review and resolve disputes between clients and providers. Target response time stays aligned with the backend escalation window."
+    >
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AdminStatCard icon={CircleDashed} title="Open" value={summary?.open ?? 0} />
+        <AdminStatCard icon={ShieldAlert} title="Under review" value={summary?.underReview ?? 0} tone="text-blue-600" />
+        <AdminStatCard icon={AlertTriangle} title="High priority" value={summary?.highPriority ?? 0} tone="text-rose-600" />
+        <AdminStatCard icon={CheckCircle2} title="Resolved" value={summary?.resolved ?? 0} tone="text-emerald-600" />
+      </div>
 
-      <article className="admin-card space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3 text-[11px]">
-          <div className="admin-chip">
-            <AlertTriangle size={14} className="text-primary" />
-            <span className="admin-chip-label">
-              Open {statusFilter || "All"} disputes
-            </span>
-          </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="admin-select h-10 w-auto min-w-[140px] px-3 text-[11px]"
+      <AdminPanel>
+        <div className="grid gap-3 md:grid-cols-[1fr_220px]">
+          <AdminSearchField
+            value={filters.search}
+            onChange={(value) => handleFilterChange("search", value)}
+            placeholder="Search disputes..."
+          />
+          <AdminSelectField
+            value={filters.status}
+            onChange={(value) => handleFilterChange("status", value)}
           >
-            <option value="">All statuses</option>
-            <option value="OPEN">Open</option>
-            <option value="RESOLVED">Resolved</option>
-            <option value="REJECTED">Rejected</option>
-          </select>
+            <option value="all">All statuses</option>
+            <option value="open">Open</option>
+            <option value="under_review">Under review</option>
+            <option value="resolved">Resolved</option>
+            <option value="rejected">Rejected</option>
+          </AdminSelectField>
         </div>
+      </AdminPanel>
 
-        <AdminTable
-          columns={[
-            { key: "booking", label: "Booking" },
-            { key: "user", label: "User" },
-            { key: "provider", label: "Provider" },
-            { key: "reason", label: "Reason" },
-            { key: "status", label: "Status" },
-            { key: "createdAt", label: "Created" },
-            { key: "actions", label: "Actions" },
-          ]}
-          data={disputes}
-          loading={loading}
-          error={error}
-          renderRow={(dispute) => (
-            <tr
-              key={dispute._id}
-              className="admin-table-row"
-            >
-              <td className="admin-cell admin-cell-muted">
-                {dispute.bookingId || "-"}
-              </td>
-              <td className="admin-cell admin-cell-strong">
-                {dispute.clientId?.name || "-"}
-              </td>
-              <td className="admin-cell admin-cell-strong">
-                {dispute.providerId?.name || "-"}
-              </td>
-              <td className="admin-cell max-w-xs">
-                <p className="line-clamp-2">{dispute.reason}</p>
-              </td>
-              <td className="admin-cell">
-                <span
-                  className={`admin-badge ${getStatusClassName(dispute.status)}`}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                  {dispute.status}
-                </span>
-              </td>
-              <td className="admin-cell admin-cell-muted">
-                {dispute.createdAt
-                  ? new Date(dispute.createdAt).toLocaleString()
-                  : "-"}
-              </td>
-              <td className="admin-cell">
-                {dispute.status?.toLowerCase() === "open" ? (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateStatus(dispute._id, "RESOLVED")}
-                      className="admin-pill-button admin-pill-button-success"
-                    >
-                      <CheckCircle2 size={12} />
-                      Resolve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateStatus(dispute._id, "REJECTED")}
-                      className="admin-pill-button admin-pill-button-danger"
-                    >
-                      <XCircle size={12} />
-                      Reject
-                    </button>
+      <AdminPanel>
+        {items.length ? (
+          <div className="space-y-3">
+            {items.map((dispute) => (
+              <article
+                key={dispute.id}
+                className="admin-card-soft flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-foreground">{dispute.reason}</p>
+                    <AdminStatusBadge value={dispute.status} />
                   </div>
-                ) : (
-                  <span className="admin-cell-muted font-medium">
-                    {dispute.status?.toLowerCase() === "resolved"
-                      ? "Resolved by admin"
-                      : "Rejected"}
-                  </span>
-                )}
-              </td>
-            </tr>
-          )}
-        />
-
-        <AdminPagination
-          page={pagination.page || 1}
-          pages={pagination.pages || 1}
-          onPageChange={(page) => loadDisputes(page)}
-        />
-      </article>
-    </section>
+                  <p className="mt-2 text-xs leading-6 text-muted-foreground">{dispute.description}</p>
+                  <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                    <span>{dispute.booking}</span>
+                    <span>Client: {dispute.client}</span>
+                    <span>Provider: {dispute.provider}</span>
+                    <span>{dispute.createdLabel}</span>
+                  </div>
+                </div>
+                <div className="w-full max-w-[220px]">
+                  <label className="admin-label">Update status</label>
+                  <div className="mt-2">
+                    <AdminSelectField
+                      value={dispute.status}
+                      onChange={(value) => handleStatusChange(dispute.id, value)}
+                      disabled={savingId === dispute.id}
+                    >
+                      <option value="open">Open</option>
+                      <option value="under_review">Under review</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="rejected">Rejected</option>
+                    </AdminSelectField>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="admin-empty-state">No disputes found.</div>
+        )}
+      </AdminPanel>
+    </AdminPageShell>
   );
 }

@@ -89,7 +89,7 @@ export default function ProviderEarnings() {
   // Real-time: listen for payment-related notifications
   useEffect(() => {
     if (!user?.id) return;
-    initiateSocketConnection(user.id);
+    initiateSocketConnection(user.id, user.role);
 
     const unsub = subscribeToNotifications((err, payload) => {
       if (err) return;

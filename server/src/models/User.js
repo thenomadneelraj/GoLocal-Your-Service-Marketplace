@@ -63,14 +63,13 @@ userSchema.pre("save", async function () {
   this.password = await bcrypt.hash(this.password, 10);
 });
 
-userSchema.pre("validate", function syncOperationalState(next) {
+userSchema.pre("validate", function syncOperationalState() {
   this.status = normalizeUserStatus(this.status, this.isActive);
   this.isActive = this.status === USER_STATUS.ACTIVE;
   this.approvalStatus = normalizeApprovalStatus(this.approvalStatus, {
     role: this.role,
     status: this.status,
   });
-  next();
 });
 
 userSchema.methods.comparePassword = async function (candidatePassword) {

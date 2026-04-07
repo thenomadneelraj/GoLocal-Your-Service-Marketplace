@@ -13,6 +13,7 @@ import {
   Loader2,
   Star,
   MessageSquare,
+  ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
@@ -86,6 +87,10 @@ export default function ClientBookings() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [disputeModal, setDisputeModal] = useState(null); // {bookingId}
+  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeDescription, setDisputeDescription] = useState("");
+  const [submittingDispute, setSubmittingDispute] = useState(false);
 
   const fetchBookings = useCallback(async () => {
     try {
@@ -110,7 +115,7 @@ export default function ClientBookings() {
   // Real-time: booking updated by provider
   useEffect(() => {
     if (!user?.id) return;
-    initiateSocketConnection(user.id);
+    initiateSocketConnection(user.id, user.role);
 
     const unsub = subscribeToBookingUpdates((err, payload) => {
       if (err || !payload?.bookingId) return;
@@ -179,6 +184,34 @@ export default function ClientBookings() {
       toast.error(err.response?.data?.message || "Could not submit review.");
     } finally {
       setSubmittingReview(false);
+    }
+  };
+
+  const openDisputeModal = (booking) => {
+    setDisputeModal({ bookingId: booking._id || booking.id });
+    setDisputeReason("");
+    setDisputeDescription("");
+  };
+
+  const submitDispute = async () => {
+    if (!disputeModal) return;
+    if (!disputeReason || !disputeDescription) {
+      toast.error("Please provide a reason and description.");
+      return;
+    }
+    try {
+      setSubmittingDispute(true);
+      await api.post("/api/disputes", {
+        bookingId: disputeModal.bookingId,
+        reason: disputeReason,
+        description: disputeDescription,
+      });
+      toast.success("Dispute filed successfully. Our team will review it.");
+      setDisputeModal(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Could not file dispute.");
+    } finally {
+      setSubmittingDispute(false);
     }
   };
 
@@ -358,17 +391,28 @@ export default function ClientBookings() {
                   {/* Actions */}
                   <div className="flex items-center gap-2">
                     {status === "completed" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-xl px-4 text-xs font-semibold gap-2 border-border/60 hover:bg-primary/10 hover:text-primary"
-                        onClick={() => openReviewModal(booking)}
-                      >
-                        <Star size={14} />
-                        {booking.review ? "Edit Review" : "Review"}
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl px-4 text-xs font-semibold gap-2 border-border/60 hover:bg-primary/10 hover:text-primary"
+                          onClick={() => openReviewModal(booking)}
+                        >
+                          <Star size={14} />
+                          {booking.review ? "Edit Review" : "Review"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl px-4 text-xs font-semibold gap-2 border-border/60 hover:bg-rose-500/10 hover:text-rose-600"
+                          onClick={() => openDisputeModal(booking)}
+                        >
+                          <ShieldAlert size={14} />
+                          File Dispute
+                        </Button>
+                      </>
                     )}
-                    {status === "accepted" && (
+                    {(status === "accepted" || status === "completed") && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -418,6 +462,73 @@ export default function ClientBookings() {
           </div>
         )}
       </div>
+
+      {/* Dispute modal */}
+      {disputeModal && (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="w-full max-w-md bg-card rounded-[2rem] border border-border/70 p-8 shadow-2xl">
+            <h2 className="text-2xl font-bold tracking-tight mb-2">
+              File a Dispute
+            </h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              Report an issue with this completed service. Our team will review and respond within 48 hours.
+            </p>
+
+            {/* Reason */}
+            <div className="mb-4">
+              <label className="text-sm font-semibold text-foreground mb-2 block">
+                Reason for Dispute <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={disputeReason}
+                onChange={(e) => setDisputeReason(e.target.value)}
+                className="w-full h-11 px-4 rounded-xl border border-border/60 bg-background focus:ring-2 focus:ring-primary/20 outline-none text-sm"
+              >
+                <option value="">Select a reason...</option>
+                <option value="service_not_received">Service Not Received</option>
+                <option value="poor_quality">Poor Quality of Service</option>
+                <option value="overcharging">Overcharging / Billing Issue</option>
+                <option value="no_show">Provider No-Show</option>
+                <option value="incomplete_work">Incomplete Work</option>
+                <option value="damaged_property">Property Damage</option>
+                <option value="unprofessional_behavior">Unprofessional Behavior</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            {/* Description */}
+            <div className="mb-6">
+              <label className="text-sm font-semibold text-foreground mb-2 block">
+                Detailed Description <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                value={disputeDescription}
+                onChange={(e) => setDisputeDescription(e.target.value)}
+                placeholder="Please describe what went wrong with the service..."
+                rows={4}
+                className="w-full rounded-xl border border-border/60 bg-muted/30 focus:bg-background focus:ring-2 focus:ring-primary/20 outline-none p-4 text-sm resize-none"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl"
+                onClick={() => setDisputeModal(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 rounded-xl"
+                onClick={submitDispute}
+                disabled={submittingDispute || !disputeReason || !disputeDescription}
+              >
+                {submittingDispute ? "Submitting..." : "Submit Dispute"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Review modal */}
       {reviewModal && (

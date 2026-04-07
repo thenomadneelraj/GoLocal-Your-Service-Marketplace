@@ -132,7 +132,7 @@ export default function ProviderChat() {
   // Socket subscriptions
   useEffect(() => {
     if (!user?.id) return;
-    initiateSocketConnection(user.id);
+    initiateSocketConnection(user.id, user.role);
 
     const unsubMsg = subscribeToNewMessages((err, payload) => {
       if (err || !payload?.message) return;

@@ -1,4 +1,5 @@
 export const BOOKING_STATUS = {
+  PENDING_PAYMENT: "pending_payment",
   PENDING: "pending",
   ACCEPTED: "accepted",
   REJECTED: "rejected",
@@ -19,7 +20,11 @@ export const isAcceptedBooking = (value = "") =>
   normalizeBookingStatus(value) === BOOKING_STATUS.ACCEPTED;
 
 export const isOpenBooking = (value = "") =>
-  [BOOKING_STATUS.PENDING, BOOKING_STATUS.ACCEPTED].includes(
+  [
+    BOOKING_STATUS.PENDING_PAYMENT,
+    BOOKING_STATUS.PENDING,
+    BOOKING_STATUS.ACCEPTED,
+  ].includes(
     normalizeBookingStatus(value)
   );
 
@@ -27,6 +32,9 @@ export const getBookingStatusLabel = (value = "") => {
   const normalized = normalizeBookingStatus(value);
   if (!normalized) {
     return "unknown";
+  }
+  if (normalized === BOOKING_STATUS.PENDING_PAYMENT) {
+    return "Pending Payment";
   }
   return normalized.replace(/^\w/, (letter) => letter.toUpperCase());
 };

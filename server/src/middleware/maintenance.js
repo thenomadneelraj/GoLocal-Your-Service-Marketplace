@@ -5,13 +5,16 @@ const DEFAULT_SUPPORT_EMAIL = "support@golocal.com";
 
 const getPlatformStatus = async () => {
   const settings = await PlatformSetting.findOne()
-    .select("maintenanceMode platformName supportEmail")
+    .select("maintenanceMode platformName supportEmail maintenanceMessage")
     .lean();
 
   return {
     maintenanceMode: Boolean(settings?.maintenanceMode),
     platformName: settings?.platformName || DEFAULT_PLATFORM_NAME,
     supportEmail: settings?.supportEmail || DEFAULT_SUPPORT_EMAIL,
+    maintenanceMessage:
+      settings?.maintenanceMessage ||
+      "Website is currently under maintenance. Please check back soon.",
   };
 };
 
@@ -23,6 +26,9 @@ const buildMaintenanceResponse = (status = {}) => ({
     maintenanceMode: true,
     platformName: status.platformName || DEFAULT_PLATFORM_NAME,
     supportEmail: status.supportEmail || DEFAULT_SUPPORT_EMAIL,
+    maintenanceMessage:
+      status.maintenanceMessage ||
+      "Website is currently under maintenance. Please check back soon.",
   },
 });
 

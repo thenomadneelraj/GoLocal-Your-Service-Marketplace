@@ -1,4 +1,5 @@
 const BOOKING_STATUS = {
+  PENDING_PAYMENT: "pending_payment",
   PENDING: "pending",
   ACCEPTED: "accepted",
   REJECTED: "rejected",
@@ -27,6 +28,9 @@ const toBookingPersistenceStatus = (value = "") => {
 const isPendingBooking = (value = "") =>
   normalizeBookingStatus(value) === BOOKING_STATUS.PENDING;
 
+const isPendingPaymentBooking = (value = "") =>
+  normalizeBookingStatus(value) === BOOKING_STATUS.PENDING_PAYMENT;
+
 const isAcceptedBooking = (value = "") =>
   normalizeBookingStatus(value) === BOOKING_STATUS.ACCEPTED;
 
@@ -40,7 +44,11 @@ const isCancelledBooking = (value = "") =>
   normalizeBookingStatus(value) === BOOKING_STATUS.CANCELLED;
 
 const isOpenBooking = (value = "") =>
-  [BOOKING_STATUS.PENDING, BOOKING_STATUS.ACCEPTED].includes(
+  [
+    BOOKING_STATUS.PENDING_PAYMENT,
+    BOOKING_STATUS.PENDING,
+    BOOKING_STATUS.ACCEPTED,
+  ].includes(
     normalizeBookingStatus(value)
   );
 
@@ -51,6 +59,7 @@ module.exports = {
   normalizeBookingStatus,
   toBookingPersistenceStatus,
   isPendingBooking,
+  isPendingPaymentBooking,
   isAcceptedBooking,
   isRejectedBooking,
   isCompletedBooking,

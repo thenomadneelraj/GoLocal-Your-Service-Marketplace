@@ -5,6 +5,10 @@ const Booking = require("../models/Booking");
 const Client = require("../models/Client");
 const Review = require("../models/Review");
 const {
+  SOCKET_EVENTS,
+  emitSocketEvent,
+} = require("../utils/socketEvents");
+const {
   APPROVAL_STATUS,
   isProviderApproved,
   buildPersistedAccountState,
@@ -133,12 +137,25 @@ const buildAvailabilitySummary = async (provider, req) => {
 // Create provider profile (Admin or similar manually doing this)
 const createProvider = async (req, res) => {
   try {
-    const { userId, name, phone, serviceType, bio, hourlyRate, experience, location, address, profileImage } = req.body;
+    const {
+      userId,
+      name,
+      phone,
+      upiId,
+      serviceType,
+      bio,
+      hourlyRate,
+      experience,
+      location,
+      address,
+      profileImage,
+    } = req.body;
 
     const provider = await Provider.create({
       userId,
       name,
       phone,
+      upiId: upiId || (phone ? `${phone}@golocal` : ""),
       profileImage: profileImage || "",
       serviceType,
       bio,
@@ -420,10 +437,24 @@ const updateProviderMe = async (req, res) => {
       return res.status(404).json({ success: false, message: "Provider profile not found." });
     }
     
-    const { name, phone, serviceType, bio, hourlyRate, location, address, availability, experience, profileImage, profilePhoto } = req.body;
+    const {
+      name,
+      phone,
+      upiId,
+      serviceType,
+      bio,
+      hourlyRate,
+      location,
+      address,
+      availability,
+      experience,
+      profileImage,
+      profilePhoto,
+    } = req.body;
       
     if (name !== undefined) provider.name = name;
     if (phone !== undefined) provider.phone = phone;
+    if (upiId !== undefined) provider.upiId = String(upiId || "").trim();
     if (profileImage !== undefined || profilePhoto !== undefined) {
       provider.profileImage = profileImage ?? profilePhoto ?? "";
     }
@@ -436,6 +467,15 @@ const updateProviderMe = async (req, res) => {
     if (experience !== undefined) provider.experience = experience;
 
     await provider.save();
+
+    emitSocketEvent({
+      userIds: [req.user._id],
+      eventName: SOCKET_EVENTS.USER_UPDATED,
+      payload: {
+        userId: req.user._id.toString(),
+        message: "Provider profile updated successfully.",
+      },
+    });
 
     res.json({
       success: true,

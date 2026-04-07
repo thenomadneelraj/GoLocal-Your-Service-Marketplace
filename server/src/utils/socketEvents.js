@@ -3,8 +3,10 @@ const SOCKET_EVENTS = {
   BOOKING_UPDATED: "booking_updated",
   MESSAGE_SENT: "message_sent",
   MESSAGE_READ: "message_read",
+  TRANSACTION_CREATED: "transaction_created",
   PAYMENT_COMPLETED: "payment_completed",
   DISPUTE_CREATED: "dispute_created",
+  USER_UPDATED: "user_updated",
   USER_STATUS_UPDATED: "user_status_updated",
   NOTIFICATION_CREATED: "notification_created",
   NOTIFICATION_READ: "notification_read",
@@ -14,6 +16,7 @@ const LEGACY_EVENT_ALIASES = {
   [SOCKET_EVENTS.BOOKING_UPDATED]: ["bookingStatusUpdate"],
   [SOCKET_EVENTS.MESSAGE_SENT]: ["message:new"],
   [SOCKET_EVENTS.MESSAGE_READ]: ["message:read"],
+  [SOCKET_EVENTS.USER_UPDATED]: [SOCKET_EVENTS.USER_STATUS_UPDATED],
   [SOCKET_EVENTS.NOTIFICATION_CREATED]: ["notification:new"],
   [SOCKET_EVENTS.NOTIFICATION_READ]: ["notification:read"],
 };

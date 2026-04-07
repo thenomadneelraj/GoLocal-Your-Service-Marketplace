@@ -1,11 +1,11 @@
 {
-  "name": "golocal-web-socket",
+  "name": "websocket-server",
   "version": "1.0.0",
   "description": "Standalone Socket.IO service for GoLocal",
-  "main": "src/server.js",
+  "main": "server.js",
   "scripts": {
-    "server": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "server": "nodemon server.js",
+    "start": "node server.js"
   },
   "keywords": [
     "socket.io",

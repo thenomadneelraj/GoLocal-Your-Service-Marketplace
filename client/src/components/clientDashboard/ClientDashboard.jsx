@@ -175,7 +175,7 @@ export default function ClientDashboard() {
 
     const startRealtime = async () => {
       if (user?.id) {
-        initiateSocketConnection(user.id);
+        initiateSocketConnection(user.id, user.role);
         unsubscribe = subscribeToBookingUpdates((err, data) => {
           if (!err && active) {
             toast.success(data.message);

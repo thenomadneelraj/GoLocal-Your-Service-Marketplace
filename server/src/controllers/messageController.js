@@ -12,6 +12,10 @@ const {
   SOCKET_EVENTS,
   emitSocketEvent,
 } = require("../utils/socketEvents");
+const {
+  findConversationByParticipants,
+  findOrCreateConversation,
+} = require("../services/conversationService");
 
 const isValidObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(String(value || ""));
@@ -142,48 +146,21 @@ const buildConversationKey = (userIds = []) =>
     .sort()
     .join(":");
 
-const findConversationByParticipants = async (userIds = []) => {
-  const uniqueIds = [...new Set(userIds.map(toObjectIdString).filter(Boolean))];
-
-  if (uniqueIds.length !== 2) {
-    return null;
-  }
-
-  return Conversation.findOne({
-    participants: {
-      $all: uniqueIds.map((id) => new mongoose.Types.ObjectId(id)),
-      $size: uniqueIds.length,
-    },
-  }).lean();
-};
-
-const findOrCreateConversation = async (userIds = []) => {
-  const uniqueIds = [...new Set(userIds.map(toObjectIdString).filter(Boolean))];
-
-  if (uniqueIds.length !== 2) {
-    return null;
-  }
-
-  const existingConversation = await findConversationByParticipants(uniqueIds);
-  if (existingConversation) {
-    return existingConversation;
-  }
-
-  const conversation = await Conversation.create({
-    participants: uniqueIds,
-  });
-
-  return conversation.toObject ? conversation.toObject() : conversation;
-};
-
 const listConversations = async (req, res) => {
   try {
     const currentUserId = req.user._id;
-    const messages = await Message.find({
-      $or: [{ sender: currentUserId }, { receiver: currentUserId }],
-    })
-      .sort({ createdAt: -1 })
-      .lean();
+    const [messages, seededConversations] = await Promise.all([
+      Message.find({
+        $or: [{ sender: currentUserId }, { receiver: currentUserId }],
+      })
+        .sort({ createdAt: -1 })
+        .lean(),
+      Conversation.find({
+        participants: currentUserId,
+      })
+        .sort({ updatedAt: -1, createdAt: -1 })
+        .lean(),
+    ]);
 
     const summaries = new Map();
 
@@ -216,6 +193,33 @@ const listConversations = async (req, res) => {
       }
     });
 
+    seededConversations.forEach((conversation) => {
+      const counterpartId = conversation.participants
+        ?.map(toObjectIdString)
+        .find((participantId) => participantId !== toObjectIdString(currentUserId));
+
+      if (!counterpartId) {
+        return;
+      }
+
+      if (!summaries.has(counterpartId)) {
+        summaries.set(counterpartId, {
+          counterpartId,
+          conversationId: conversation._id,
+          lastMessage: null,
+          unreadCount: 0,
+          lastMessageAt: conversation.updatedAt || conversation.createdAt,
+        });
+        return;
+      }
+
+      const current = summaries.get(counterpartId);
+      current.conversationId = current.conversationId || conversation._id;
+      if (!current.lastMessageAt) {
+        current.lastMessageAt = conversation.updatedAt || conversation.createdAt;
+      }
+    });
+
     const participants = await buildParticipantDirectory([...summaries.keys()]);
 
     const conversations = [...summaries.values()]
@@ -237,7 +241,10 @@ const listConversations = async (req, res) => {
         lastMessage: summary.lastMessage,
         lastMessageAt: summary.lastMessageAt,
       }))
-      .sort((left, right) => new Date(right.lastMessageAt) - new Date(left.lastMessageAt));
+      .sort(
+        (left, right) =>
+          new Date(right.lastMessageAt || 0) - new Date(left.lastMessageAt || 0)
+      );
 
     res.json({
       success: true,
@@ -431,8 +438,8 @@ const sendMessage = async (req, res) => {
     const senderProfile = participants.get(toObjectIdString(senderId));
     const receiverRoute =
       String(receiver.role || "").toLowerCase() === "provider"
-        ? "/provider/messages"
-        : "/messages";
+        ? "/provider/chat"
+        : "/client/chat";
 
     await createNotification({
       userId: receiverId,

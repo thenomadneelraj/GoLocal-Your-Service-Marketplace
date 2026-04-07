@@ -167,7 +167,7 @@ export default function MessagesWorkspace() {
   useEffect(() => {
     if (!user?.id) return undefined;
 
-    initiateSocketConnection(user.id);
+    initiateSocketConnection(user.id, user.role);
     return () => {
       disconnectSocket();
     };
