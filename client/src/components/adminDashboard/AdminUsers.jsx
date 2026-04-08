@@ -110,7 +110,7 @@ export default function AdminUsers() {
                 value={filters.status}
                 onChange={(value) => handleFilterChange("status", value)}
               >
-                <option value="all">All statuses</option>
+                <option value="all">All status</option>
                 <option value="pending">Pending</option>
                 <option value="approved">Approved</option>
                 <option value="suspended">Suspended</option>
@@ -158,7 +158,7 @@ export default function AdminUsers() {
                   type="button"
                   onClick={() => handleAction(user.id, "approved")}
                   disabled={actionId === `${user.id}:approved`}
-                  className="admin-button-success"
+                  className="admin-button-success hover:bg-green-600 transition-colors"
                 >
                   Approve
                 </button>
@@ -166,7 +166,7 @@ export default function AdminUsers() {
                   type="button"
                   onClick={() => handleAction(user.id, "suspended")}
                   disabled={actionId === `${user.id}:suspended`}
-                  className="admin-button-secondary"
+                  className="admin-button-secondary hover:bg-yellow-500 transition-colors"
                 >
                   Suspend
                 </button>
@@ -174,7 +174,7 @@ export default function AdminUsers() {
                   type="button"
                   onClick={() => handleAction(user.id, "rejected")}
                   disabled={actionId === `${user.id}:rejected`}
-                  className="admin-button-danger"
+                  className="admin-button-danger hover:bg-red-600 transition-colors"
                 >
                   Reject
                 </button>

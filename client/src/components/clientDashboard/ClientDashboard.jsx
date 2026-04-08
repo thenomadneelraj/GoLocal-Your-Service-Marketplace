@@ -36,6 +36,7 @@ import {
   getBookingStatusLabel,
   normalizeBookingStatus,
 } from "@/lib/bookingStatus";
+import DashboardLayout from "@/components/layouts/DashboardLayout";
 
 const EMPTY_DASHBOARD = {
   summary: {

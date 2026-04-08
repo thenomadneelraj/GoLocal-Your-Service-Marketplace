@@ -1,0 +1,19 @@
+{
+  "admins": [],
+  "clients": [],
+  "providers": [],
+  "users": [],
+  "services": [],
+  "bookings": [],
+  "conversations": [],
+  "messages": [],
+  "transactions": [],
+  "disputes": [],
+  "notifications": [],
+  "reviews": [],
+  "loginHistory": [],
+  "activityLog": [],
+  "contactMessages": [],
+  "payouts": [],
+  "platformSettings": []
+}

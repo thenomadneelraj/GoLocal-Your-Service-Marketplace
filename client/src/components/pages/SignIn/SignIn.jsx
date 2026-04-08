@@ -17,7 +17,8 @@ import { styled } from "@mui/material/styles";
 import ForgotPassword from "./Components/ForgotPassword";
 import AppTheme from "../../shared/AppTheme";
 import ColorModeSelect from "../../shared/custom/ColorModeSelect";
-import { Link as RouterLink, useLocation } from "react-router-dom";
+import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "@/components/contexts/AuthContext";
 import {
   GoogleIcon,
   FacebookIcon,
@@ -68,11 +69,14 @@ const SignInContainer = styled(Stack)(({ theme }) => ({
 
 export default function SignIn(props) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { login } = useAuth();
   const [emailError, setEmailError] = React.useState(false);
   const [emailErrorMessage, setEmailErrorMessage] = React.useState("");
   const [passwordError, setPasswordError] = React.useState(false);
   const [passwordErrorMessage, setPasswordErrorMessage] = React.useState("");
   const [open, setOpen] = React.useState(false);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   // Get message and redirect from location state
   const message = location.state?.message;
@@ -86,8 +90,18 @@ export default function SignIn(props) {
     setOpen(false);
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (!validateInputs()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setEmailError(false);
+    setEmailErrorMessage("");
+    setPasswordError(false);
+    setPasswordErrorMessage("");
 
     const data = new FormData(event.currentTarget);
 
@@ -97,7 +111,34 @@ export default function SignIn(props) {
       role: data.get("role"),
     };
 
-    console.log(payload);
+    try {
+      const result = await login(payload.email, payload.password, payload.role);
+      
+      if (result.success) {
+        // Handle successful login
+        if (redirectTo) {
+          navigate(redirectTo);
+        } else {
+          // Navigate based on role
+          if (payload.role === "admin") {
+            navigate("/admin-dashboard");
+          } else if (payload.role === "provider") {
+            navigate("/provider-dashboard");
+          } else {
+            navigate("/");
+          }
+        }
+      } else {
+        // Handle login error
+        setEmailError(true);
+        setEmailErrorMessage(result.message || "Invalid email or password");
+      }
+    } catch (error) {
+      setEmailError(true);
+      setEmailErrorMessage("Login failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const validateInputs = () => {
@@ -164,16 +205,16 @@ export default function SignIn(props) {
               <TextField
                 select
                 name="role"
-                defaultValue="CLIENT"
+                defaultValue="client"
                 slotProps={{
                   select: {
                     native: true,
                   },
                 }}
               >
-                <option value="CLIENT">Client</option>
-                <option value="PROVIDER">Service Provider</option>
-                <option value="ADMIN">Admin</option>
+                <option value="client">Client</option>
+                <option value="provider">Service Provider</option>
+                <option value="admin">Admin</option>
               </TextField>
             </FormControl>
 
@@ -220,9 +261,10 @@ export default function SignIn(props) {
               type="submit"
               fullWidth
               variant="contained"
-              onClick={validateInputs}
+              disabled={isSubmitting}
+              sx={{ minHeight: 56 }}
             >
-              Sign in
+              {isSubmitting ? "Signing in..." : "Sign in"}
             </Button>
             <Link
               component="button"

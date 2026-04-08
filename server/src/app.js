@@ -12,6 +12,7 @@ const disputeRoutes = require("./routes/dispute");
 const messageRoutes = require("./routes/message");
 const notificationRoutes = require("./routes/notification");
 const transactionRoutes = require("./routes/transaction");
+const newRoutes = require("./routes/newRoutes");
 
 const app = express();
 
@@ -55,6 +56,9 @@ app.use("/api/notifications", notificationRoutes);
 
 // Transaction routes
 app.use("/api/transactions", transactionRoutes);
+
+// New consolidated API routes
+app.use("/api", newRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

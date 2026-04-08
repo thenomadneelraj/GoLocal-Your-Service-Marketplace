@@ -29,6 +29,12 @@ import AdminExportSettings from "./components/adminDashboard/AdminExportSettings
 import AdminSecurity from "./components/adminDashboard/AdminSecurity";
 import ProviderDashboard from "./components/providerDashboard/ProviderDashboard";
 import ProviderReviews from "./components/providerDashboard/ProviderReviews";
+import ProviderBookings from "./components/providerDashboard/ProviderBookings";
+import ProviderEarnings from "./components/providerDashboard/ProviderEarnings";
+import ProviderServices from "./components/providerDashboard/ProviderServices";
+import ProviderQuickActions from "./components/providerDashboard/ProviderQuickActions";
+import ProviderProfileSettings from "./components/providerDashboard/ProviderProfileSettings";
+import ProviderIntegrationTest from "./components/providerDashboard/ProviderIntegrationTest";
 
 // Client Dashboard (New High-Fidelity)
 import ClientDashboard from "./components/clientDashboard/ClientDashboard";
@@ -220,6 +226,18 @@ function AppRoutes() {
           <Route
             path="/provider/services"
             element={<ProviderServices />}
+          />
+          <Route
+            path="/provider/quick-actions"
+            element={<ProviderQuickActions />}
+          />
+          <Route
+            path="/provider/profile"
+            element={<ProviderProfileSettings />}
+          />
+          <Route
+            path="/provider/integration-test"
+            element={<ProviderIntegrationTest />}
           />
           <Route
             path="/provider/reputation"
