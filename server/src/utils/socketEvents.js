@@ -6,6 +6,7 @@ const SOCKET_EVENTS = {
   TRANSACTION_CREATED: "transaction_created",
   PAYMENT_COMPLETED: "payment_completed",
   DISPUTE_CREATED: "dispute_created",
+  DISPUTE_UPDATED: "dispute_updated",
   USER_UPDATED: "user_updated",
   USER_STATUS_UPDATED: "user_status_updated",
   NOTIFICATION_CREATED: "notification_created",
@@ -81,6 +82,9 @@ const postSocketEvent = async (body) => {
 const emitSocketEvent = ({
   userIds = [],
   conversationIds = [],
+  bookingIds = [],
+  room = "",
+  rooms = [],
   eventName,
   payload,
   includeLegacyAliases = true,
@@ -92,6 +96,9 @@ const emitSocketEvent = ({
   const requestBody = {
     userIds: [...new Set(userIds.map(toIdString).filter(Boolean))],
     conversationIds: [...new Set(conversationIds.map(toIdString).filter(Boolean))],
+    bookingIds: [...new Set(bookingIds.map(toIdString).filter(Boolean))],
+    room,
+    rooms,
     eventName,
     payload,
     includeLegacyAliases,

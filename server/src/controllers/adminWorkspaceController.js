@@ -1,16 +1,16 @@
-const Admin = require("../models/Admin");
-const ActivityLog = require("../models/ActivityLog");
 const Booking = require("../models/Booking");
-const Client = require("../models/Client");
+const Notification = require("../models/Notification");
 const Dispute = require("../models/Dispute");
-const PlatformSetting = require("../models/PlatformSetting");
-const Provider = require("../models/Provider");
 const Service = require("../models/Service");
 const Transaction = require("../models/Transaction");
 const User = require("../models/User");
-const LoginHistory = require("../models/LoginHistory");
-const ContactMessage = require("../models/ContactMessage");
 const adminService = require("../services/adminService");
+const {
+  DEFAULT_PLATFORM_SETTINGS,
+  getPlatformSettings,
+  getPrimaryAdmin,
+  updatePlatformSettings,
+} = require("../services/platformSettingsService");
 const {
   APPROVAL_STATUS,
   USER_STATUS,
@@ -24,17 +24,30 @@ const {
   isCompletedBooking,
   isPendingBooking,
 } = require("../utils/bookingStatus");
-const { buildCsvBuffer, buildPdfBuffer } = require("../utils/adminExport");
-
-const DEFAULT_PLATFORM_SETTINGS = {
-  commissionPercentage: 10,
-  commissionRate: 10,
-  currency: "INR",
-  platformName: "GoLocal",
-  supportEmail: "support@golocal.com",
-  maintenanceMessage:
-    "Website is currently under maintenance. Please check back soon.",
-};
+const {
+  normalizeTransactionStatus,
+  isPaidTransaction,
+  isPendingTransaction,
+} = require("../utils/transactionStatus");
+const {
+  buildCsvBuffer,
+  buildPdfBuffer,
+  buildXlsxBuffer,
+} = require("../utils/adminExport");
+const {
+  getMockAdminExportRows,
+  mergeLayeredExportRows,
+} = require("../utils/mockAdminExportData");
+const {
+  VERIFICATION_STATUS,
+  normalizeVerificationStatus,
+  getRequiredVerificationDocumentKinds,
+  VERIFICATION_DOCUMENT_LABELS,
+  serializeVerificationDocument,
+} = require("../utils/verification");
+const { createNotification } = require("../services/notificationService");
+const { emitSocketEvent, SOCKET_EVENTS } = require("../utils/socketEvents");
+const { deleteVerificationDocuments } = require("../utils/verificationFiles");
 
 const EXPORT_PACKAGES = {
   users: {
@@ -47,6 +60,7 @@ const EXPORT_PACKAGES = {
       { header: "Status", key: "status" },
       { header: "Approval Status", key: "approvalStatus" },
       { header: "Joined At", key: "joinedAt" },
+      { header: "Type", key: "type" },
     ],
   },
   bookings: {
@@ -60,6 +74,21 @@ const EXPORT_PACKAGES = {
       { header: "Status", key: "status" },
       { header: "Payment", key: "payment" },
       { header: "Amount", key: "amount" },
+      { header: "Type", key: "type" },
+    ],
+  },
+  transactions: {
+    title: "Transactions Export",
+    filename: "transaction-center",
+    columns: [
+      { header: "Reference", key: "reference" },
+      { header: "Provider", key: "provider" },
+      { header: "Service", key: "service" },
+      { header: "Client Paid", key: "clientPaid" },
+      { header: "Platform Fee", key: "platformFee" },
+      { header: "Status", key: "status" },
+      { header: "Created At", key: "createdAt" },
+      { header: "Type", key: "type" },
     ],
   },
   disputes: {
@@ -72,6 +101,7 @@ const EXPORT_PACKAGES = {
       { header: "Reason", key: "reason" },
       { header: "Status", key: "status" },
       { header: "Created At", key: "createdAt" },
+      { header: "Type", key: "type" },
     ],
   },
   compliance: {
@@ -80,23 +110,15 @@ const EXPORT_PACKAGES = {
     columns: [
       { header: "Metric", key: "metric" },
       { header: "Value", key: "value" },
+      { header: "Type", key: "type" },
     ],
   },
 };
 
 const buildRegex = (value = "") =>
-  value ? new RegExp(String(value).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
-
-const formatDate = (value) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-};
+  value
+    ? new RegExp(String(value).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+    : null;
 
 const formatDateTime = (value) => {
   if (!value) return "";
@@ -126,8 +148,6 @@ const getMonthLabels = (months = 6) => {
     labels.push({
       key: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
       label: date.toLocaleDateString("en-US", { month: "short" }),
-      year: date.getFullYear(),
-      month: date.getMonth(),
     });
   }
   return labels;
@@ -139,62 +159,15 @@ const toMonthKey = (value) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 };
 
-const ensurePlatformSettings = async () => {
-  let settings = await PlatformSetting.findOne();
-  if (!settings) {
-    settings = await PlatformSetting.create(DEFAULT_PLATFORM_SETTINGS);
-  }
-  return settings;
-};
-
-const recordAdminActivity = async (
-  req,
-  {
-    action,
-    description = "",
-    module = "admin",
-    targetType = "",
-    targetId = "",
-    metadata = {},
-  }
-) => {
-  if (!req.user?._id) return;
-
-  try {
-    await ActivityLog.create({
-      userId: req.auth?.accountType === "ADMIN" ? undefined : req.user._id,
-      role: String(req.user?.role || "").toLowerCase(),
-      action,
-      module,
-      description,
-      ipAddress: req.ip,
-      actor: req.user._id,
-      actorModel: req.auth?.accountType === "ADMIN" ? "Admin" : "User",
-      actorRole: String(req.user?.role || "").toLowerCase(),
-      targetType,
-      targetId: targetId ? String(targetId) : "",
-      metadata,
-    });
-  } catch (error) {
-    console.error("Failed to record admin activity:", error.message);
-  }
-};
-
-const buildUserRow = ({ user, clientProfile, providerProfile }) => {
+const buildUserRow = (user) => {
   const role = String(user?.role || "").toLowerCase();
   const status = normalizeUserStatus(user?.status, user?.isActive);
   const approvalStatus = normalizeApprovalStatus(user?.approvalStatus, {
     role,
     status,
-    isApproved: providerProfile?.isApproved,
   });
 
-  const name =
-    clientProfile?.name ||
-    providerProfile?.name ||
-    user?.name ||
-    user?.email?.split("@")?.[0] ||
-    "Unnamed User";
+  const name = user?.name || user?.email?.split("@")?.[0] || "Unnamed User";
 
   return {
     id: String(user._id),
@@ -204,52 +177,132 @@ const buildUserRow = ({ user, clientProfile, providerProfile }) => {
     status,
     approvalStatus,
     isApproved: approvalStatus === APPROVAL_STATUS.APPROVED,
-    phone: clientProfile?.phone || providerProfile?.phone || "",
-    address: clientProfile?.address || providerProfile?.address || "",
-    serviceType: providerProfile?.serviceType || "",
-    providerProfileId: providerProfile?._id ? String(providerProfile._id) : "",
+    phone: user?.phone || "",
+    address: user?.address || "",
+    serviceType: role === "provider" ? user?.serviceType || "" : "",
+    providerProfileId: role === "provider" ? String(user._id) : "",
+    isVerified: Boolean(user?.isVerified),
+    verificationStatus: normalizeVerificationStatus(
+      user?.verification?.status,
+      user?.isVerified
+    ),
+    verificationDocumentsCount: Array.isArray(user?.verification?.documents)
+      ? user.verification.documents.length
+      : 0,
+    verificationSubmittedAt: user?.verification?.submittedAt || null,
+    verificationSubmittedLabel: user?.verification?.submittedAt
+      ? formatDateTime(user.verification.submittedAt)
+      : "",
+    verificationReviewedAt: user?.verification?.reviewedAt || null,
+    verificationReviewedLabel: user?.verification?.reviewedAt
+      ? formatDateTime(user.verification.reviewedAt)
+      : "",
+    verificationRejectionReason: user?.verification?.rejectionReason || "",
     joinedAt: user.createdAt,
     joinedLabel: formatDateTime(user.createdAt),
-    avatar: clientProfile?.profileImage || providerProfile?.profileImage || "",
+    avatar: user?.profileImage || "",
   };
 };
 
-const buildBookingRow = (booking) => {
+const buildVerificationDocuments = (user) =>
+  Array.isArray(user?.verification?.documents)
+    ? user.verification.documents.map((document) =>
+        serializeVerificationDocument(document)
+      )
+    : [];
+
+const buildVerificationRequestRow = (user) => ({
+  ...buildUserRow(user),
+  requiredDocuments: getRequiredVerificationDocumentKinds(user?.role).map((kind) => ({
+    kind,
+    label: VERIFICATION_DOCUMENT_LABELS[kind] || "Document",
+  })),
+  verificationDocuments: buildVerificationDocuments(user),
+});
+
+const buildBookingRow = (booking, currency = "USD") => {
   const status = normalizeBookingStatus(booking.status);
   return {
     id: String(booking._id),
     service: booking.serviceId?.title || "Service",
     category: booking.serviceId?.category || "General",
     client: booking.clientId?.name || "Client",
-    clientEmail: booking.clientId?.userId?.email || "",
+    clientEmail: booking.clientId?.email || "",
     provider: booking.providerId?.name || "Provider",
-    providerEmail: booking.providerId?.userId?.email || "",
+    providerEmail: booking.providerId?.email || "",
     schedule: formatDateTime(booking.bookingDate),
     timeSlot: booking.timeSlot,
     status,
     paymentStatus: String(booking.paymentStatus || "pending").toLowerCase(),
     amount: booking.price || 0,
-    amountLabel: formatCurrency(booking.price || 0),
+    amountLabel: formatCurrency(booking.price || 0, currency),
   };
 };
 
-const buildDisputeRow = (dispute) => ({
-  id: String(dispute._id),
-  booking: dispute.bookingId?._id ? `#${String(dispute.bookingId._id).slice(-6)}` : "Booking",
-  client: dispute.clientId?.name || "Client",
-  provider: dispute.providerId?.name || "Provider",
-  reason: dispute.reason,
-  description: dispute.description,
-  status: String(dispute.status || "open").toLowerCase(),
-  resolutionNote: dispute.resolutionNote || "",
-  createdAt: dispute.createdAt,
-  createdLabel: formatDateTime(dispute.createdAt),
-});
+const buildDisputeThreadTitle = (dispute) => {
+  if (String(dispute.targetType || "").toLowerCase() === "platform") {
+    return `${dispute.reporterId?.name || "User"} - Website support`;
+  }
 
-const buildTransactionRow = (transaction, commissionPercentage = 10) => {
-  const amount = Number(transaction.amount || 0);
-  const platformFee = (amount * Number(commissionPercentage || 10)) / 100;
-  const status = String(transaction.status || "pending").toLowerCase();
+  return (
+    dispute.targetUserId?.name ||
+    dispute.providerId?.name ||
+    dispute.clientId?.name ||
+    "Dispute thread"
+  );
+};
+
+const serializeAdminDispute = (dispute) => {
+  const bookingId = dispute.bookingId?._id || dispute.bookingId || null;
+
+  return {
+    id: String(dispute._id),
+    threadKey: dispute.threadKey || `dispute:${String(dispute._id)}`,
+    threadTitle: buildDisputeThreadTitle(dispute),
+    booking: bookingId ? `#${String(bookingId).slice(-6)}` : "Platform",
+    bookingLabel: bookingId ? `#${String(bookingId).slice(-6)}` : "Platform",
+    bookingId,
+    client: dispute.clientId?.name || "Client",
+    provider: dispute.providerId?.name || "Provider",
+    reporterName:
+      dispute.reporterId?.name ||
+      dispute.clientId?.name ||
+      dispute.providerId?.name ||
+      "User",
+    reporterRole: String(dispute.reporterId?.role || "").toLowerCase() || "user",
+    targetUserName:
+      dispute.targetUserId?.name ||
+      (String(dispute.targetType || "").toLowerCase() === "platform"
+        ? "Platform"
+        : dispute.providerId?.name || dispute.clientId?.name || "User"),
+    targetUserRole:
+      String(dispute.targetUserId?.role || "").toLowerCase() ||
+      (String(dispute.targetType || "").toLowerCase() === "platform"
+        ? "platform"
+        : "user"),
+    targetType: String(dispute.targetType || "provider").toLowerCase(),
+    subject: dispute.subject || dispute.reason || "Dispute",
+    reason: dispute.reason,
+    description: dispute.description,
+    status: String(dispute.status || "open").toLowerCase(),
+    resolutionNote: dispute.resolutionNote || "",
+    createdAt: dispute.createdAt,
+    createdLabel: formatDateTime(dispute.createdAt),
+  };
+};
+
+const buildDisputeRow = (dispute) => serializeAdminDispute(dispute);
+
+const buildTransactionRow = (transaction, commissionPercentage = 10, currency = "USD") => {
+  const baseAmount = Number(transaction.baseAmount || transaction.amount || 0);
+  const clientPaid = Number(transaction.totalPaidByClient || transaction.amount || 0);
+  const platformFee =
+    Number(transaction.platformRevenue || 0) ||
+    Number(transaction.clientPlatformFee || 0) +
+      Number(transaction.providerPlatformFee || 0) ||
+    (baseAmount * Number(commissionPercentage || 10) * 2) / 100;
+  const status = normalizeTransactionStatus(transaction.status);
+  const settled = isPaidTransaction(status);
 
   return {
     id: String(transaction._id),
@@ -257,53 +310,143 @@ const buildTransactionRow = (transaction, commissionPercentage = 10) => {
       transaction.transactionId ||
       `TX-${String(transaction._id).slice(-5).toUpperCase()}`,
     provider:
+      transaction.providerId?.name ||
       transaction.bookingId?.providerId?.name ||
-      transaction.bookingId?.providerId?.serviceType ||
       "Provider",
-    service: transaction.bookingId?.serviceId?.title || "Service",
-    amount,
-    amountLabel: formatCurrency(amount),
+    service:
+      transaction.serviceSnapshot?.services
+        ?.map((service) => service.title)
+        .filter(Boolean)
+        .join(", ") ||
+      transaction.serviceSnapshot?.title ||
+      transaction.bookingId?.serviceId?.title ||
+      transaction.bookingId?.serviceId?.name ||
+      "Service",
+    amount: clientPaid,
+    amountLabel: formatCurrency(clientPaid, currency),
+    baseAmount,
+    baseAmountLabel: formatCurrency(baseAmount, currency),
     platformFee,
-    platformFeeLabel: formatCurrency(platformFee),
+    platformFeeLabel: formatCurrency(platformFee, currency),
+    clientUpiId: transaction.clientPaymentSnapshot?.upiId || "",
+    clientBankName: transaction.clientPaymentSnapshot?.bankName || "",
+    providerUpiId: transaction.providerPaymentSnapshot?.upiId || "",
+    providerBankName: transaction.providerPaymentSnapshot?.bankName || "",
     status,
-    statusLabel:
-      status === "success"
-        ? "settled"
-        : status === "failed"
-          ? "refund review"
-          : "pending payout",
+    statusLabel: settled
+      ? "settled"
+      : isPendingTransaction(status)
+        ? "pending hold"
+        : status,
     createdAt: transaction.createdAt,
     createdLabel: formatDateTime(transaction.createdAt),
   };
 };
 
+const buildSettingsResponse = ({ user, settings }) => ({
+  profile: {
+    name: user?.name || "",
+    email: user?.email || "",
+    phone: user?.phone || "",
+    address: user?.address || "",
+    profileImage: user?.profileImage || "",
+  },
+  platform: {
+    platformName: settings.platformName || DEFAULT_PLATFORM_SETTINGS.platformName,
+    supportEmail: settings.supportEmail || DEFAULT_PLATFORM_SETTINGS.supportEmail,
+    currency: settings.currency || DEFAULT_PLATFORM_SETTINGS.currency,
+    maintenanceMode: Boolean(settings.maintenanceMode),
+    maintenanceMessage:
+      settings.maintenanceMessage || DEFAULT_PLATFORM_SETTINGS.maintenanceMessage,
+    commissionPercentage: Number(
+      settings.commissionPercentage ?? DEFAULT_PLATFORM_SETTINGS.commissionPercentage
+    ),
+  },
+  systemStatus: {
+    database: "Connected",
+    apiStatus: "Healthy",
+    websocketMonitoring: Boolean(settings.websocketMonitoring),
+  },
+});
+
+const buildAdvancedSettingsResponse = (settings) => ({
+  controlDepth: settings.controlDepth || DEFAULT_PLATFORM_SETTINGS.controlDepth,
+  automationProfile:
+    settings.automationProfile || DEFAULT_PLATFORM_SETTINGS.automationProfile,
+  reminderWindowLabel:
+    settings.reminderWindowLabel ||
+    `${Number(settings.bookingReminderHours || DEFAULT_PLATFORM_SETTINGS.bookingReminderHours)}h`,
+  exportRetentionDays: Number(
+    settings.exportRetentionDays || DEFAULT_PLATFORM_SETTINGS.exportRetentionDays
+  ),
+  manualProviderReview:
+    settings.manualProviderReview ?? DEFAULT_PLATFORM_SETTINGS.manualProviderReview,
+  disputeEscalationHours: Number(
+    settings.disputeEscalationHours || DEFAULT_PLATFORM_SETTINGS.disputeEscalationHours
+  ),
+  bookingReminderHours: Number(
+    settings.bookingReminderHours || DEFAULT_PLATFORM_SETTINGS.bookingReminderHours
+  ),
+  websocketMonitoring:
+    settings.websocketMonitoring ?? DEFAULT_PLATFORM_SETTINGS.websocketMonitoring,
+  guardrails: [
+    {
+      id: "manual-provider-review",
+      title: "Manual provider review",
+      value: Boolean(settings.manualProviderReview ?? DEFAULT_PLATFORM_SETTINGS.manualProviderReview),
+      label:
+        settings.manualProviderReview ?? DEFAULT_PLATFORM_SETTINGS.manualProviderReview
+          ? "Enabled"
+          : "Disabled",
+    },
+    {
+      id: "admin-digest-notifications",
+      title: "Admin digest notifications",
+      value: true,
+      label: "Enabled",
+    },
+    {
+      id: "websocket-monitoring",
+      title: "Websocket monitoring",
+      value: Boolean(settings.websocketMonitoring ?? DEFAULT_PLATFORM_SETTINGS.websocketMonitoring),
+      label:
+        settings.websocketMonitoring ?? DEFAULT_PLATFORM_SETTINGS.websocketMonitoring
+          ? "Monitored"
+          : "Disabled",
+    },
+  ],
+});
+
 const getDashboard = async (req, res) => {
   try {
-    const settings = await ensurePlatformSettings();
+    const settings = await getPlatformSettings();
+    const currency = settings.currency || "USD";
     const [
-      totalUsers,
-      totalAdmins,
-      pendingProviders,
+      users,
       bookings,
       transactions,
       services,
-      disputes,
+      openDisputes,
     ] = await Promise.all([
-      User.countDocuments(),
-      Admin.countDocuments(),
-      User.countDocuments({ role: "provider", approvalStatus: "pending" }),
+      User.find().select("role approvalStatus createdAt"),
       Booking.find().sort({ createdAt: 1 }).select("status price createdAt"),
-      Transaction.find().sort({ createdAt: 1 }).select("status amount createdAt"),
+      Transaction.find()
+        .sort({ createdAt: 1 })
+        .select("status amount platformRevenue createdAt"),
       Service.find().select("category"),
-      Dispute.countDocuments({ status: { $in: ["open", "under_review"] } }),
+      Dispute.countDocuments({ status: { $in: ["open", "under_review", "escalated"] } }),
     ]);
 
     const totalRevenue = transactions
-      .filter((transaction) => String(transaction.status).toLowerCase() === "success")
-      .reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
+      .filter((transaction) => isPaidTransaction(transaction.status))
+      .reduce(
+        (sum, transaction) =>
+          sum + Number(transaction.platformRevenue || 0),
+        0
+      );
 
     const monthLabels = getMonthLabels(6);
-    const userSeries = monthLabels.map((month) => ({
+    const growth = monthLabels.map((month) => ({
       month: month.label,
       users: 0,
       revenue: 0,
@@ -312,25 +455,24 @@ const getDashboard = async (req, res) => {
 
     const monthIndex = new Map(monthLabels.map((month, index) => [month.key, index]));
 
-    const users = await User.find().select("createdAt");
     users.forEach((user) => {
       const index = monthIndex.get(toMonthKey(user.createdAt));
       if (index !== undefined) {
-        userSeries[index].users += 1;
+        growth[index].users += 1;
       }
     });
 
     transactions.forEach((transaction) => {
       const index = monthIndex.get(toMonthKey(transaction.createdAt));
-      if (index !== undefined && String(transaction.status).toLowerCase() === "success") {
-        userSeries[index].revenue += Number(transaction.amount || 0);
+      if (index !== undefined && isPaidTransaction(transaction.status)) {
+        growth[index].revenue += Number(transaction.platformRevenue || 0);
       }
     });
 
     bookings.forEach((booking) => {
       const index = monthIndex.get(toMonthKey(booking.createdAt));
       if (index !== undefined) {
-        userSeries[index].bookings += 1;
+        growth[index].bookings += 1;
       }
     });
 
@@ -344,18 +486,20 @@ const getDashboard = async (req, res) => {
       success: true,
       data: {
         summary: {
-          totalUsers: totalUsers + totalAdmins,
-          pendingProviders,
+          totalUsers: users.length,
+          pendingProviders: users.filter(
+            (user) =>
+              String(user.role || "").toLowerCase() === "provider" &&
+              String(user.approvalStatus || "").toLowerCase() === APPROVAL_STATUS.PENDING
+          ).length,
           revenue: totalRevenue,
           bookingsTracked: bookings.length,
-          openDisputes: disputes,
+          openDisputes,
         },
         charts: {
-          growth: userSeries.map((item) => ({
-            month: item.month,
-            users: item.users,
+          growth: growth.map((item) => ({
+            ...item,
             revenue: Number(item.revenue.toFixed(2)),
-            bookings: item.bookings,
           })),
           categoryDistribution: Object.entries(categoryCounts).map(([name, value]) => ({
             name,
@@ -363,7 +507,7 @@ const getDashboard = async (req, res) => {
           })),
         },
         meta: {
-          currency: settings.currency || "INR",
+          currency,
         },
       },
     });
@@ -375,22 +519,8 @@ const getDashboard = async (req, res) => {
 const getUsers = async (req, res) => {
   try {
     const { search = "", role = "", status = "" } = req.query || {};
-    const [users, clients, providers] = await Promise.all([
-      User.find().select("-password").sort({ createdAt: -1 }),
-      Client.find(),
-      Provider.find(),
-    ]);
-
-    const clientMap = new Map(clients.map((client) => [String(client.userId), client]));
-    const providerMap = new Map(providers.map((provider) => [String(provider.userId), provider]));
-
-    const rows = users.map((user) =>
-      buildUserRow({
-        user,
-        clientProfile: clientMap.get(String(user._id)),
-        providerProfile: providerMap.get(String(user._id)),
-      })
-    );
+    const users = await User.find({ role: { $ne: "admin" } }).select("-password").sort({ createdAt: -1 });
+    const rows = users.map((user) => buildUserRow(user));
 
     const regex = buildRegex(search);
     const normalizedRole = String(role || "").trim().toLowerCase();
@@ -402,21 +532,16 @@ const getUsers = async (req, res) => {
       }
 
       if (normalizedStatus && normalizedStatus !== "all") {
-        if (
-          ![item.status, item.approvalStatus].includes(normalizedStatus)
-        ) {
+        if (![item.status, item.approvalStatus].includes(normalizedStatus)) {
           return false;
         }
       }
 
       if (
         regex &&
-        ![
-          item.name,
-          item.email,
-          item.phone,
-          item.serviceType,
-        ].some((value) => regex.test(String(value || "")))
+        ![item.name, item.email, item.phone, item.serviceType]
+          .filter(Boolean)
+          .some((value) => regex.test(String(value)))
       ) {
         return false;
       }
@@ -428,11 +553,15 @@ const getUsers = async (req, res) => {
       success: true,
       data: {
         summary: {
-          totalUsers: rows.length,
-          pendingApproval: rows.filter((item) => item.approvalStatus === APPROVAL_STATUS.PENDING).length,
-          approved: rows.filter((item) => item.approvalStatus === APPROVAL_STATUS.APPROVED).length,
-          rejected: rows.filter((item) => item.approvalStatus === APPROVAL_STATUS.REJECTED || item.status === USER_STATUS.REJECTED).length,
-          suspended: rows.filter((item) => item.status === USER_STATUS.SUSPENDED).length,
+          totalUsers: filteredItems.length,
+          pendingApproval: filteredItems.filter((item) => item.approvalStatus === APPROVAL_STATUS.PENDING).length,
+          approved: filteredItems.filter((item) => item.approvalStatus === APPROVAL_STATUS.APPROVED).length,
+          rejected: filteredItems.filter(
+            (item) =>
+              item.approvalStatus === APPROVAL_STATUS.REJECTED ||
+              item.status === USER_STATUS.REJECTED
+          ).length,
+          suspended: filteredItems.filter((item) => item.status === USER_STATUS.SUSPENDED).length,
         },
         items: filteredItems,
         totalShown: filteredItems.length,
@@ -440,6 +569,98 @@ const getUsers = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getVerificationRequests = async (req, res) => {
+  try {
+    const { search = "", role = "", status = "" } = req.query || {};
+    const users = await User.find({
+      role: { $ne: "admin" },
+      "verification.documents.0": { $exists: true },
+    })
+      .select("-password")
+      .sort({ "verification.submittedAt": -1, createdAt: -1 });
+
+    const rows = users.map((user) => buildVerificationRequestRow(user));
+    const regex = buildRegex(search);
+    const normalizedRole = String(role || "").trim().toLowerCase();
+    const normalizedStatus = String(status || "").trim().toLowerCase();
+
+    const filteredItems = rows.filter((item) => {
+      if (normalizedRole && normalizedRole !== "all" && item.role !== normalizedRole) {
+        return false;
+      }
+
+      if (
+        normalizedStatus &&
+        normalizedStatus !== "all" &&
+        item.verificationStatus !== normalizedStatus
+      ) {
+        return false;
+      }
+
+      if (
+        regex &&
+        ![item.name, item.email, item.phone, item.serviceType]
+          .filter(Boolean)
+          .some((value) => regex.test(String(value)))
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalRequests: rows.length,
+          underReview: rows.filter(
+            (item) => item.verificationStatus === VERIFICATION_STATUS.UNDER_REVIEW
+          ).length,
+          verified: rows.filter(
+            (item) => item.verificationStatus === VERIFICATION_STATUS.VERIFIED
+          ).length,
+          rejected: rows.filter(
+            (item) => item.verificationStatus === VERIFICATION_STATUS.REJECTED
+          ).length,
+        },
+        items: filteredItems,
+        totalShown: filteredItems.length,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getVerificationRequestById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findOne({
+      _id: id,
+      role: { $ne: "admin" },
+      "verification.documents.0": { $exists: true },
+    }).select("-password");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Verification request not found.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: buildVerificationRequestRow(user),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
@@ -467,55 +688,122 @@ const updateUserStatus = async (req, res) => {
       });
     }
 
+    // Prevent admins from rejecting/deleting themselves
+    if (
+      requestedStatus === "rejected" &&
+      String(existingUser._id) === String(req.user._id)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You cannot reject your own account.",
+      });
+    }
+
+    // "Rejected" means permanent removal — delete the user and associated data
+    if (requestedStatus === "rejected") {
+      const userName = existingUser.name || existingUser.email;
+      const userRole = existingUser.role;
+      const verificationDocuments = Array.isArray(existingUser.verification?.documents)
+        ? existingUser.verification.documents
+        : [];
+
+      // Clean up related data
+      await Promise.allSettled([
+        Notification.deleteMany({ user: id }),
+        Booking.deleteMany({
+          $or: [{ clientId: id }, { providerId: id }],
+        }),
+      ]);
+      await deleteVerificationDocuments(verificationDocuments);
+
+      await User.findByIdAndDelete(id);
+
+      return res.json({
+        success: true,
+        message: `User "${userName}" (${userRole}) has been permanently removed.`,
+        data: null,
+      });
+    }
+
     let nextUser = null;
 
     if (
       String(existingUser.role || "").toLowerCase() === "provider" &&
-      ["approved", "rejected", "pending"].includes(requestedStatus)
+      ["approved", "pending"].includes(requestedStatus)
     ) {
-      const provider = await Provider.findOne({ userId: id });
-      if (!provider) {
-        return res.status(404).json({
-          success: false,
-          message: "Provider profile not found.",
-        });
-      }
-
-      await adminService.updateProviderStatus(provider._id, requestedStatus);
-      nextUser = await User.findById(id).select("-password");
+      nextUser = await adminService.updateProviderStatus(id, requestedStatus);
     } else {
-      const normalizedStatus =
-        requestedStatus === "approved" ? USER_STATUS.ACTIVE : requestedStatus;
-      nextUser = await adminService.updateUserStatus(id, normalizedStatus);
+      nextUser = await adminService.updateUserStatus(id, {
+        status: requestedStatus === "approved" ? USER_STATUS.ACTIVE : requestedStatus,
+        approvalStatus:
+          requestedStatus === "approved"
+            ? APPROVAL_STATUS.APPROVED
+            : existingUser.approvalStatus,
+      });
     }
-
-    const [clientProfile, providerProfile] = await Promise.all([
-      Client.findOne({ userId: id }),
-      Provider.findOne({ userId: id }),
-    ]);
-
-    await recordAdminActivity(req, {
-      action: "ADMIN_USER_STATUS_UPDATED",
-      description: `Admin updated ${nextUser.email} to ${requestedStatus}.`,
-      module: "users",
-      targetType: "User",
-      targetId: id,
-      metadata: { requestedStatus },
-    });
 
     res.json({
       success: true,
       message: "User status updated successfully.",
-      data: buildUserRow({
-        user: nextUser,
-        clientProfile,
-        providerProfile,
-      }),
+      data: buildUserRow(nextUser),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+const updateVerificationRequestStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const requestedStatus = String(req.body?.verificationStatus || "")
+      .trim()
+      .toLowerCase();
+
+    if (!requestedStatus) {
+      return res.status(400).json({
+        success: false,
+        message: "verificationStatus is required.",
+      });
+    }
+
+    if (
+      ![
+        VERIFICATION_STATUS.UNDER_REVIEW,
+        VERIFICATION_STATUS.VERIFIED,
+        VERIFICATION_STATUS.REJECTED,
+      ].includes(requestedStatus)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid verification status.",
+      });
+    }
+
+    const nextUser = await adminService.updateUserVerificationStatus(
+      id,
+      requestedStatus,
+      req.body?.rejectionReason || "",
+      req.user?._id || null
+    );
+
+    res.json({
+      success: true,
+      message:
+        requestedStatus === VERIFICATION_STATUS.VERIFIED
+          ? "User documents are successfully verified."
+          : "Verification updated successfully.",
+      data: buildVerificationRequestRow(nextUser),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const updateUserVerificationStatus = async (req, res) =>
+  updateVerificationRequestStatus(req, res);
 
 const getBookingsSummary = async (req, res) => {
   try {
@@ -538,24 +826,19 @@ const getBookingsSummary = async (req, res) => {
 const getBookings = async (req, res) => {
   try {
     const { search = "", status = "" } = req.query || {};
+    const settings = await getPlatformSettings();
+    const currency = settings.currency || "USD";
+
     const bookings = await Booking.find()
-      .populate({
-        path: "clientId",
-        select: "name userId",
-        populate: { path: "userId", select: "email" },
-      })
-      .populate({
-        path: "providerId",
-        select: "name userId serviceType",
-        populate: { path: "userId", select: "email" },
-      })
+      .populate("clientId", "name email")
+      .populate("providerId", "name email serviceType")
       .populate("serviceId", "title category")
       .sort({ createdAt: -1 });
 
     const regex = buildRegex(search);
     const normalizedStatus = String(status || "").trim().toLowerCase();
     const items = bookings
-      .map(buildBookingRow)
+      .map((booking) => buildBookingRow(booking, currency))
       .filter((booking) => {
         if (normalizedStatus && normalizedStatus !== "all" && booking.status !== normalizedStatus) {
           return false;
@@ -570,7 +853,9 @@ const getBookings = async (req, res) => {
             booking.clientEmail,
             booking.provider,
             booking.providerEmail,
-          ].some((value) => regex.test(String(value || "")))
+          ]
+            .filter(Boolean)
+            .some((value) => regex.test(String(value)))
         ) {
           return false;
         }
@@ -590,29 +875,77 @@ const getBookings = async (req, res) => {
   }
 };
 
+const buildFinanceAlerts = ({ transactions = [], disputes = [] }) => {
+  const pendingHolds = transactions.filter((transaction) =>
+    isPendingTransaction(transaction.status)
+  ).length;
+  const failedPayments = transactions.filter(
+    (transaction) => normalizeTransactionStatus(transaction.status) === "failed"
+  ).length;
+  const openDisputes = disputes.filter((dispute) =>
+    ["open", "under_review", "escalated"].includes(String(dispute.status || "").toLowerCase())
+  ).length;
+
+  const alerts = [];
+
+  if (pendingHolds > 0) {
+    alerts.push({
+      id: "pending-holds",
+      title: "Pending payment holds",
+      description: `${pendingHolds} transaction${pendingHolds === 1 ? "" : "s"} still waiting for settlement.`,
+      severity: "watchlist",
+    });
+  }
+
+  if (failedPayments > 0) {
+    alerts.push({
+      id: "failed-payments",
+      title: "Failed payment follow-up",
+      description: `${failedPayments} payment${failedPayments === 1 ? "" : "s"} need finance review.`,
+      severity: "investigate",
+    });
+  }
+
+  if (openDisputes > 0) {
+    alerts.push({
+      id: "dispute-impact",
+      title: "Dispute-linked revenue risk",
+      description: `${openDisputes} open dispute${openDisputes === 1 ? "" : "s"} may affect settlements.`,
+      severity: "elevated",
+    });
+  }
+
+  return alerts;
+};
+
 const getTransactionsSummary = async (req, res) => {
   try {
-    const settings = await ensurePlatformSettings();
-    const transactions = await Transaction.find().select("amount status");
-    const commissionPercentage =
-      Number(settings.commissionPercentage ?? settings.commissionRate ?? 10) || 10;
+    const settings = await getPlatformSettings();
+    const transactions = await Transaction.find().select(
+      "amount totalPaidByClient platformRevenue status"
+    );
 
     const grossVolume = transactions.reduce(
-      (sum, transaction) => sum + Number(transaction.amount || 0),
+      (sum, transaction) =>
+        sum + Number(transaction.totalPaidByClient || transaction.amount || 0),
       0
     );
     const platformFees = transactions
-      .filter((transaction) => String(transaction.status).toLowerCase() === "success")
+      .filter((transaction) => isPaidTransaction(transaction.status))
       .reduce(
         (sum, transaction) =>
-          sum + (Number(transaction.amount || 0) * commissionPercentage) / 100,
+          sum + Number(transaction.platformRevenue || 0),
         0
       );
     const pendingHolds = transactions
-      .filter((transaction) => String(transaction.status).toLowerCase() === "pending")
-      .reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
+      .filter((transaction) => isPendingTransaction(transaction.status))
+      .reduce(
+        (sum, transaction) =>
+          sum + Number(transaction.totalPaidByClient || transaction.amount || 0),
+        0
+      );
     const failedCount = transactions.filter(
-      (transaction) => String(transaction.status).toLowerCase() === "failed"
+      (transaction) => normalizeTransactionStatus(transaction.status) === "failed"
     ).length;
 
     res.json({
@@ -624,7 +957,7 @@ const getTransactionsSummary = async (req, res) => {
         chargebackRate: transactions.length
           ? Number(((failedCount / transactions.length) * 100).toFixed(1))
           : 0,
-        currency: settings.currency || "INR",
+        currency: settings.currency || "USD",
       },
     });
   } catch (error) {
@@ -635,25 +968,31 @@ const getTransactionsSummary = async (req, res) => {
 const getTransactions = async (req, res) => {
   try {
     const { search = "", status = "" } = req.query || {};
-    const settings = await ensurePlatformSettings();
-    const commissionPercentage =
-      Number(settings.commissionPercentage ?? settings.commissionRate ?? 10) || 10;
+    const settings = await getPlatformSettings();
+    const commissionPercentage = Number(settings.commissionPercentage || 10);
+    const currency = settings.currency || "USD";
 
-    const transactions = await Transaction.find()
-      .populate({
-        path: "bookingId",
-        select: "providerId serviceId",
-        populate: [
-          { path: "providerId", select: "name serviceType" },
-          { path: "serviceId", select: "title" },
-        ],
-      })
-      .sort({ createdAt: -1 });
+    const [transactions, disputes] = await Promise.all([
+      Transaction.find()
+        .populate("providerId", "name serviceType")
+        .populate({
+          path: "bookingId",
+          select: "providerId serviceId",
+          populate: [
+            { path: "providerId", select: "name serviceType" },
+            { path: "serviceId", select: "title" },
+          ],
+        })
+        .sort({ createdAt: -1 }),
+      Dispute.find().select("status"),
+    ]);
 
     const regex = buildRegex(search);
     const normalizedStatus = String(status || "").trim().toLowerCase();
     const items = transactions
-      .map((transaction) => buildTransactionRow(transaction, commissionPercentage))
+      .map((transaction) =>
+        buildTransactionRow(transaction, commissionPercentage, currency)
+      )
       .filter((transaction) => {
         if (normalizedStatus && normalizedStatus !== "all" && transaction.status !== normalizedStatus) {
           return false;
@@ -666,7 +1005,9 @@ const getTransactions = async (req, res) => {
             transaction.provider,
             transaction.service,
             transaction.statusLabel,
-          ].some((value) => regex.test(String(value || "")))
+          ]
+            .filter(Boolean)
+            .some((value) => regex.test(String(value)))
         ) {
           return false;
         }
@@ -674,33 +1015,12 @@ const getTransactions = async (req, res) => {
         return true;
       });
 
-    const financeAlerts = [
-      {
-        id: "refund-review",
-        title: "Refund request exceeds average",
-        description: "Failed transactions should be reviewed for payout reversals and follow-up.",
-        severity: "review",
-      },
-      {
-        id: "payout-drift",
-        title: "Payout timing drift",
-        description: "Pending transactions indicate funds are still waiting for finance review.",
-        severity: "watch",
-      },
-      {
-        id: "revenue-mix",
-        title: "Revenue mix update",
-        description: "Platform fee trends are generated directly from current transaction history.",
-        severity: "insight",
-      },
-    ];
-
     res.json({
       success: true,
       data: {
         items,
-        financeAlerts,
         totalShown: items.length,
+        financeAlerts: buildFinanceAlerts({ transactions, disputes }),
       },
     });
   } catch (error) {
@@ -708,24 +1028,103 @@ const getTransactions = async (req, res) => {
   }
 };
 
+const downloadTransactionInvoice = async (req, res) => {
+  try {
+    const format = String(req.query?.format || "pdf").trim().toLowerCase();
+    const settings = await getPlatformSettings();
+    const currency = settings.currency || "USD";
+    const transaction = await Transaction.findById(req.params.id)
+      .populate("providerId", "name")
+      .populate({
+        path: "bookingId",
+        select: "serviceId",
+        populate: { path: "serviceId", select: "title" },
+      });
+
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: "Transaction not found.",
+      });
+    }
+
+    const row = buildTransactionRow(transaction, settings.commissionPercentage, currency);
+    const columns = [
+      { header: "Transaction", key: "reference" },
+      { header: "Provider", key: "provider" },
+      { header: "Work", key: "service" },
+      { header: "Client Paid", key: "amountLabel" },
+      { header: "Base Amount", key: "baseAmountLabel" },
+      { header: "Platform Revenue", key: "platformFeeLabel" },
+      { header: "Client UPI ID", key: "clientUpiId" },
+      { header: "Client Bank Name", key: "clientBankName" },
+      { header: "Provider UPI ID", key: "providerUpiId" },
+      { header: "Provider Bank Name", key: "providerBankName" },
+      { header: "Status", key: "statusLabel" },
+      { header: "Created At", key: "createdLabel" },
+    ];
+
+    let buffer;
+    let contentType = "application/pdf";
+    let extension = "pdf";
+
+    if (format === "xlsx") {
+      buffer = buildXlsxBuffer({
+        columns,
+        rows: [row],
+        sheetName: "Transaction Invoice",
+      });
+      contentType =
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      extension = "xlsx";
+    } else if (format === "csv") {
+      buffer = buildCsvBuffer({ columns, rows: [row] });
+      contentType = "text/csv; charset=utf-8";
+      extension = "csv";
+    } else {
+      buffer = buildPdfBuffer({
+        title: `Admin Invoice ${row.reference}`,
+        lines: [
+          `Provider: ${row.provider}`,
+          `Work: ${row.service}`,
+          `Client Paid: ${row.amountLabel}`,
+          `Base Amount: ${row.baseAmountLabel}`,
+          `Platform Revenue: ${row.platformFeeLabel}`,
+          `Client UPI ID: ${row.clientUpiId || "Not available"}`,
+          `Client Bank Name: ${row.clientBankName || "Not available"}`,
+          `Provider UPI ID: ${row.providerUpiId || "Not available"}`,
+          `Provider Bank Name: ${row.providerBankName || "Not available"}`,
+          `Status: ${row.statusLabel}`,
+          `Created At: ${row.createdLabel}`,
+        ],
+      });
+    }
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="admin-transaction-${row.reference}.${extension}"`
+    );
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const getDisputesSummary = async (req, res) => {
   try {
-    const settings = await ensurePlatformSettings();
-    const escalationHours = Number(settings.disputeEscalationHours || 4);
-    const threshold = Date.now() - escalationHours * 60 * 60 * 1000;
-    const disputes = await Dispute.find().select("status createdAt");
+    const disputes = await Dispute.find().select("status reason");
+    const underReviewCount = disputes.filter((dispute) =>
+      ["under_review", "escalated"].includes(String(dispute.status || "").toLowerCase())
+    ).length;
 
     res.json({
       success: true,
       data: {
-        open: disputes.filter((dispute) => String(dispute.status).toLowerCase() === "open").length,
-        underReview: disputes.filter((dispute) => String(dispute.status).toLowerCase() === "under_review").length,
-        highPriority: disputes.filter(
-          (dispute) =>
-            ["open", "under_review"].includes(String(dispute.status).toLowerCase()) &&
-            new Date(dispute.createdAt).getTime() <= threshold
-        ).length,
-        resolved: disputes.filter((dispute) => String(dispute.status).toLowerCase() === "resolved").length,
+        open: disputes.filter((dispute) => String(dispute.status || "").toLowerCase() === "open").length,
+        underReview: underReviewCount,
+        highPriority: underReviewCount,
+        resolved: disputes.filter((dispute) => String(dispute.status || "").toLowerCase() === "resolved").length,
       },
     });
   } catch (error) {
@@ -735,17 +1134,21 @@ const getDisputesSummary = async (req, res) => {
 
 const getDisputes = async (req, res) => {
   try {
-    const { search = "", status = "" } = req.query || {};
+    const { search = "", status = "", view = "items" } = req.query || {};
+
     const disputes = await Dispute.find()
       .populate("bookingId", "_id")
-      .populate("clientId", "name")
-      .populate("providerId", "name")
+      .populate("clientId", "name role")
+      .populate("providerId", "name role")
+      .populate("reporterId", "name role")
+      .populate("targetUserId", "name role")
       .sort({ createdAt: -1 });
 
     const regex = buildRegex(search);
     const normalizedStatus = String(status || "").trim().toLowerCase();
+    const normalizedView = String(view || "items").trim().toLowerCase();
     const items = disputes
-      .map(buildDisputeRow)
+      .map(serializeAdminDispute)
       .filter((dispute) => {
         if (normalizedStatus && normalizedStatus !== "all" && dispute.status !== normalizedStatus) {
           return false;
@@ -754,18 +1157,63 @@ const getDisputes = async (req, res) => {
         if (
           regex &&
           ![
+            dispute.subject,
             dispute.booking,
             dispute.client,
             dispute.provider,
+            dispute.reporterName,
+            dispute.targetUserName,
+            dispute.targetType,
             dispute.reason,
             dispute.description,
-          ].some((value) => regex.test(String(value || "")))
+          ]
+            .filter(Boolean)
+            .some((value) => regex.test(String(value)))
         ) {
           return false;
         }
 
-        return true;
+          return true;
+        });
+
+    if (normalizedView === "threads") {
+      const threads = [...items.reduce((accumulator, item) => {
+        const existing = accumulator.get(item.threadKey) || {
+          id: item.threadKey,
+          threadKey: item.threadKey,
+          threadTitle: item.threadTitle,
+          targetType: item.targetType,
+          status: item.status,
+          latestAt: item.createdAt,
+          latestLabel: item.createdLabel,
+          reporterName: item.reporterName,
+          targetUserName: item.targetUserName,
+          items: [],
+        };
+
+        existing.items.push(item);
+
+        if (new Date(item.createdAt) >= new Date(existing.latestAt || 0)) {
+          existing.latestAt = item.createdAt;
+          existing.latestLabel = item.createdLabel;
+          existing.status = item.status;
+        }
+
+        accumulator.set(item.threadKey, existing);
+        return accumulator;
+      }, new Map()).values()].sort(
+        (left, right) => new Date(right.latestAt || 0) - new Date(left.latestAt || 0)
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          threads,
+          totalShown: threads.length,
+          totalItems: items.length,
+        },
       });
+    }
 
     res.json({
       success: true,
@@ -782,28 +1230,14 @@ const getDisputes = async (req, res) => {
 const updateDisputeStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, resolutionNote = "" } = req.body || {};
-
+    const { status, resolutionNote } = req.body || {};
     const normalizedStatus = String(status || "").trim().toLowerCase();
-    if (!["open", "under_review", "resolved", "rejected"].includes(normalizedStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid dispute status.",
-      });
-    }
 
-    const dispute = await Dispute.findByIdAndUpdate(
-      id,
-      {
-        status: normalizedStatus,
-        resolutionNote: String(resolutionNote || "").trim(),
-      },
-      { new: true }
-    )
-      .populate("bookingId", "_id")
+    const dispute = await Dispute.findById(id)
+      .populate("reporterId", "name role")
+      .populate("targetUserId", "name role")
       .populate("clientId", "name")
       .populate("providerId", "name");
-
     if (!dispute) {
       return res.status(404).json({
         success: false,
@@ -811,13 +1245,41 @@ const updateDisputeStatus = async (req, res) => {
       });
     }
 
-    await recordAdminActivity(req, {
-      action: "ADMIN_DISPUTE_STATUS_UPDATED",
-      description: `Dispute ${id} moved to ${normalizedStatus}.`,
-      module: "disputes",
-      targetType: "Dispute",
-      targetId: id,
-      metadata: { status: normalizedStatus },
+    dispute.status = normalizedStatus || dispute.status;
+    if (resolutionNote !== undefined) {
+      dispute.resolutionNote = String(resolutionNote || "").trim();
+    }
+    dispute.resolvedAt = normalizedStatus === "resolved" ? new Date() : dispute.resolvedAt;
+    await dispute.save();
+
+    const recipientIds = [
+      dispute.clientId?._id,
+      dispute.providerId?._id,
+    ].filter(Boolean);
+
+    await Promise.all(
+      recipientIds.map((userId) =>
+        createNotification({
+          userId,
+          title: "Dispute updated",
+          message: `A dispute is now ${normalizedStatus || dispute.status}.`,
+          type: "dispute",
+          actionUrl: String(userId) === String(dispute.clientId?._id) ? "/client/disputes" : "/provider/disputes",
+          metadata: {
+            disputeId: dispute._id.toString(),
+            status: dispute.status,
+          },
+        })
+      )
+    );
+
+    emitSocketEvent({
+      userIds: recipientIds,
+      eventName: SOCKET_EVENTS.DISPUTE_UPDATED,
+      payload: {
+        disputeId: dispute._id,
+        status: dispute.status,
+      },
     });
 
     res.json({
@@ -832,49 +1294,10 @@ const updateDisputeStatus = async (req, res) => {
 
 const getContactMessages = async (req, res) => {
   try {
-    const { search = "", status = "" } = req.query || {};
-    const regex = buildRegex(search);
-    const normalizedStatus = String(status || "").trim().toLowerCase();
-
-    const messages = await ContactMessage.find().sort({ createdAt: -1 });
-    const items = messages
-      .map((message) => ({
-        id: String(message._id),
-        name: message.name,
-        email: message.email,
-        subject: message.subject,
-        message: message.message,
-        category: message.category,
-        status: message.status,
-        createdAt: message.createdAt,
-        createdLabel: formatDateTime(message.createdAt),
-      }))
-      .filter((message) => {
-        if (normalizedStatus && normalizedStatus !== "all" && message.status !== normalizedStatus) {
-          return false;
-        }
-
-        if (
-          regex &&
-          ![
-            message.name,
-            message.email,
-            message.subject,
-            message.message,
-            message.category,
-          ].some((value) => regex.test(String(value || "")))
-        ) {
-          return false;
-        }
-
-        return true;
-      });
-
     res.json({
       success: true,
       data: {
-        items,
-        totalShown: items.length,
+        items: [],
       },
     });
   } catch (error) {
@@ -882,41 +1305,38 @@ const getContactMessages = async (req, res) => {
   }
 };
 
-const buildSettingsResponse = ({ admin, settings }) => ({
-  profile: {
-    id: String(admin._id),
-    name: admin.name || "",
-    email: admin.email || "",
-    phone: admin.phone || "",
-    address: admin.address || "",
-    profileImage: admin.profileImage || "",
-  },
-  platform: {
-    platformName: settings.platformName || "GoLocal",
-    supportEmail: settings.supportEmail || "support@golocal.com",
-    currency: settings.currency || "INR",
-    maintenanceMode: Boolean(settings.maintenanceMode),
-    maintenanceMessage: settings.maintenanceMessage || DEFAULT_PLATFORM_SETTINGS.maintenanceMessage,
-    commissionPercentage:
-      Number(settings.commissionPercentage ?? settings.commissionRate ?? 10) || 10,
-  },
-  systemStatus: {
-    database: "Connected",
-    apiStatus: "Healthy",
-    websocketMonitoring: Boolean(settings.websocketMonitoring),
-  },
-});
-
 const getSettings = async (req, res) => {
   try {
-    const [settings, admin] = await Promise.all([
-      ensurePlatformSettings(),
-      Admin.findById(req.user._id).select("-password"),
+    const [user, settings] = await Promise.all([
+      User.findById(req.user._id).select("-password"),
+      getPlatformSettings(),
     ]);
 
     res.json({
       success: true,
-      data: buildSettingsResponse({ admin, settings }),
+      data: buildSettingsResponse({ user, settings }),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getPublicSettings = async (req, res) => {
+  try {
+    const settings = await getPlatformSettings();
+
+    res.json({
+      success: true,
+      data: {
+        platformName: settings.platformName || DEFAULT_PLATFORM_SETTINGS.platformName,
+        currency: settings.currency || DEFAULT_PLATFORM_SETTINGS.currency,
+        commissionPercentage: Number(
+          settings.commissionPercentage ?? DEFAULT_PLATFORM_SETTINGS.commissionPercentage
+        ),
+        maintenanceMode: Boolean(settings.maintenanceMode),
+        maintenanceMessage:
+          settings.maintenanceMessage || DEFAULT_PLATFORM_SETTINGS.maintenanceMessage,
+      },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -947,7 +1367,7 @@ const updateSettings = async (req, res) => {
     if (profileImage !== undefined) adminUpdates.profileImage = String(profileImage).trim();
 
     const platformUpdates = {};
-    if (platformName !== undefined) platformUpdates.platformName = String(platformName).trim() || "GoLocal";
+    if (platformName !== undefined) platformUpdates.platformName = String(platformName).trim() || DEFAULT_PLATFORM_SETTINGS.platformName;
     if (supportEmail !== undefined) platformUpdates.supportEmail = String(supportEmail).trim().toLowerCase();
     if (currency !== undefined) platformUpdates.currency = String(currency).trim().toUpperCase();
     if (maintenanceMode !== undefined) platformUpdates.maintenanceMode = Boolean(maintenanceMode);
@@ -956,82 +1376,41 @@ const updateSettings = async (req, res) => {
         String(maintenanceMessage).trim() || DEFAULT_PLATFORM_SETTINGS.maintenanceMessage;
     }
     if (commissionPercentage !== undefined) {
-      platformUpdates.commissionPercentage = Number(commissionPercentage);
-      platformUpdates.commissionRate = Number(commissionPercentage);
+      const commissionValue = Number(commissionPercentage);
+      // Ensure the value is a valid number between 0 and 100
+      if (isNaN(commissionValue) || commissionValue < 0 || commissionValue > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "Commission percentage must be a number between 0 and 100.",
+        });
+      }
+      // Ensure we always save a number, not a string
+      platformUpdates.commissionPercentage = Number(commissionValue.toFixed(2));
     }
 
-    const [admin, settings] = await Promise.all([
+    const [user, settings] = await Promise.all([
       Object.keys(adminUpdates).length
-        ? Admin.findByIdAndUpdate(req.user._id, adminUpdates, {
+        ? User.findByIdAndUpdate(req.user._id, adminUpdates, {
             new: true,
             runValidators: true,
           }).select("-password")
-        : Admin.findById(req.user._id).select("-password"),
-      PlatformSetting.findOneAndUpdate({}, platformUpdates, {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-        runValidators: true,
-      }),
+        : User.findById(req.user._id).select("-password"),
+      updatePlatformSettings(platformUpdates, req.user._id),
     ]);
-
-    await recordAdminActivity(req, {
-      action: "ADMIN_SETTINGS_UPDATED",
-      description: "Admin workspace settings were updated.",
-      module: "settings",
-      targetType: "PlatformSetting",
-      targetId: settings._id,
-      metadata: {
-        platformUpdated: Object.keys(platformUpdates),
-        profileUpdated: Object.keys(adminUpdates),
-      },
-    });
 
     res.json({
       success: true,
       message: "Settings saved successfully.",
-      data: buildSettingsResponse({ admin, settings }),
+      data: buildSettingsResponse({ user, settings }),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-const buildAdvancedSettingsResponse = (settings) => ({
-  controlDepth: settings.controlDepth || "High",
-  automationProfile: settings.automationProfile || "Managed",
-  reminderWindowLabel:
-    settings.reminderWindowLabel || `${Number(settings.bookingReminderHours || 24)}h`,
-  exportRetentionDays: Number(settings.exportRetentionDays || 30),
-  manualProviderReview: Boolean(settings.manualProviderReview),
-  disputeEscalationHours: Number(settings.disputeEscalationHours || 4),
-  bookingReminderHours: Number(settings.bookingReminderHours || 24),
-  websocketMonitoring: Boolean(settings.websocketMonitoring),
-  guardrails: [
-    {
-      id: "manual-provider-review",
-      title: "Manual provider review",
-      value: Boolean(settings.manualProviderReview),
-      label: Boolean(settings.manualProviderReview) ? "Enabled" : "Disabled",
-    },
-    {
-      id: "admin-digest-notifications",
-      title: "Admin digest notifications",
-      value: true,
-      label: "Enabled",
-    },
-    {
-      id: "websocket-monitoring",
-      title: "Websocket monitoring",
-      value: Boolean(settings.websocketMonitoring),
-      label: Boolean(settings.websocketMonitoring) ? "Monitored" : "Disabled",
-    },
-  ],
-});
-
 const getAdvancedSettings = async (req, res) => {
   try {
-    const settings = await ensurePlatformSettings();
+    const settings = await getPlatformSettings();
     res.json({
       success: true,
       data: buildAdvancedSettingsResponse(settings),
@@ -1065,21 +1444,7 @@ const updateAdvancedSettings = async (req, res) => {
     }
     if (websocketMonitoring !== undefined) updates.websocketMonitoring = Boolean(websocketMonitoring);
 
-    const settings = await PlatformSetting.findOneAndUpdate({}, updates, {
-      new: true,
-      upsert: true,
-      runValidators: true,
-      setDefaultsOnInsert: true,
-    });
-
-    await recordAdminActivity(req, {
-      action: "ADMIN_ADVANCED_SETTINGS_UPDATED",
-      description: "Advanced admin settings were updated.",
-      module: "settings",
-      targetType: "PlatformSetting",
-      targetId: settings._id,
-      metadata: updates,
-    });
+    const settings = await updatePlatformSettings(updates, req.user._id);
 
     res.json({
       success: true,
@@ -1093,19 +1458,14 @@ const updateAdvancedSettings = async (req, res) => {
 
 const getCacheSettings = async (req, res) => {
   try {
-    const settings = await ensurePlatformSettings();
-    const recentActivity = await ActivityLog.find({
-      action: { $in: ["ADMIN_CACHE_REFRESHED", "ADMIN_CACHE_CLEARED"] },
-    })
-      .sort({ createdAt: -1 })
-      .limit(5);
+    const settings = await getPlatformSettings();
 
     res.json({
       success: true,
       data: {
         summary: {
           cacheLayersTracked: 4,
-          cacheStore: "FILE",
+          cacheStore: "MEMORY",
           compiledViews: 0,
           lastClearedAt: settings.lastCacheClearedAt,
           lastClearedLabel: settings.lastCacheClearedAt
@@ -1122,7 +1482,7 @@ const getCacheSettings = async (req, res) => {
           {
             id: "configuration-cache",
             title: "Configuration Cache",
-            description: "Environment and platform configuration snapshot.",
+            description: "Environment and embedded admin platform settings.",
             status: "Live",
           },
           {
@@ -1138,13 +1498,7 @@ const getCacheSettings = async (req, res) => {
             status: "Clean",
           },
         ],
-        recentActivity: recentActivity.map((entry) => ({
-          id: String(entry._id),
-          action: entry.action,
-          description: entry.description,
-          createdAt: entry.createdAt,
-          createdLabel: formatDateTime(entry.createdAt),
-        })),
+        recentActivity: [],
       },
     });
   } catch (error) {
@@ -1154,14 +1508,6 @@ const getCacheSettings = async (req, res) => {
 
 const refreshCache = async (req, res) => {
   try {
-    await recordAdminActivity(req, {
-      action: "ADMIN_CACHE_REFRESHED",
-      description: "Admin refreshed the cache overview.",
-      module: "cache",
-      targetType: "PlatformSetting",
-      metadata: { refreshedAt: new Date().toISOString() },
-    });
-
     res.json({
       success: true,
       message: "Cache overview refreshed successfully.",
@@ -1176,24 +1522,10 @@ const refreshCache = async (req, res) => {
 
 const clearCache = async (req, res) => {
   try {
-    const settings = await PlatformSetting.findOneAndUpdate(
-      {},
+    const settings = await updatePlatformSettings(
       { lastCacheClearedAt: new Date() },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-      }
+      req.user._id
     );
-
-    await recordAdminActivity(req, {
-      action: "ADMIN_CACHE_CLEARED",
-      description: "Admin cleared cached workspace data.",
-      module: "cache",
-      targetType: "PlatformSetting",
-      targetId: settings._id,
-      metadata: { lastCacheClearedAt: settings.lastCacheClearedAt },
-    });
 
     res.json({
       success: true,
@@ -1209,19 +1541,9 @@ const clearCache = async (req, res) => {
 
 const buildExportRows = async (packageType) => {
   if (packageType === "users") {
-    const [users, clients, providers] = await Promise.all([
-      User.find().select("-password").sort({ createdAt: -1 }),
-      Client.find(),
-      Provider.find(),
-    ]);
-    const clientMap = new Map(clients.map((client) => [String(client.userId), client]));
-    const providerMap = new Map(providers.map((provider) => [String(provider.userId), provider]));
-    return users.map((user) => {
-      const row = buildUserRow({
-        user,
-        clientProfile: clientMap.get(String(user._id)),
-        providerProfile: providerMap.get(String(user._id)),
-      });
+    const users = await User.find().select("-password").sort({ createdAt: -1 });
+    const realRows = users.map((user) => {
+      const row = buildUserRow(user);
       return {
         name: row.name,
         email: row.email,
@@ -1229,27 +1551,25 @@ const buildExportRows = async (packageType) => {
         status: row.status,
         approvalStatus: row.approvalStatus,
         joinedAt: row.joinedLabel,
+        type: "real",
+        activityAt: row.joinedAt,
       };
     });
+
+    return mergeLayeredExportRows(realRows, getMockAdminExportRows(packageType));
   }
 
   if (packageType === "bookings") {
+    const settings = await getPlatformSettings();
+    const currency = settings.currency || "USD";
     const bookings = await Booking.find()
-      .populate({
-        path: "clientId",
-        select: "name userId",
-        populate: { path: "userId", select: "email" },
-      })
-      .populate({
-        path: "providerId",
-        select: "name userId",
-        populate: { path: "userId", select: "email" },
-      })
+      .populate("clientId", "name email")
+      .populate("providerId", "name email")
       .populate("serviceId", "title category")
       .sort({ createdAt: -1 });
 
-    return bookings.map((booking) => {
-      const row = buildBookingRow(booking);
+    const realRows = bookings.map((booking) => {
+      const row = buildBookingRow(booking, currency);
       return {
         service: row.service,
         client: row.client,
@@ -1258,8 +1578,46 @@ const buildExportRows = async (packageType) => {
         status: row.status,
         payment: row.paymentStatus,
         amount: row.amountLabel,
+        type: "real",
+        activityAt: booking.createdAt,
       };
     });
+
+    return mergeLayeredExportRows(realRows, getMockAdminExportRows(packageType));
+  }
+
+  if (packageType === "transactions") {
+    const settings = await getPlatformSettings();
+    const commissionPercentage = Number(settings.commissionPercentage || 10);
+    const currency = settings.currency || "USD";
+    const transactions = await Transaction.find()
+      .populate("providerId", "name serviceType")
+      .populate({
+        path: "bookingId",
+        select: "providerId serviceId",
+        populate: [
+          { path: "providerId", select: "name serviceType" },
+          { path: "serviceId", select: "title" },
+        ],
+      })
+      .sort({ createdAt: -1 });
+
+    const realRows = transactions.map((transaction) => {
+      const row = buildTransactionRow(transaction, commissionPercentage, currency);
+      return {
+        reference: row.reference,
+        provider: row.provider,
+        service: row.service,
+        clientPaid: row.amountLabel,
+        platformFee: row.platformFeeLabel,
+        status: row.statusLabel,
+        createdAt: row.createdLabel,
+        type: "real",
+        activityAt: transaction.createdAt,
+      };
+    });
+
+    return mergeLayeredExportRows(realRows, getMockAdminExportRows(packageType));
   }
 
   if (packageType === "disputes") {
@@ -1269,7 +1627,7 @@ const buildExportRows = async (packageType) => {
       .populate("providerId", "name")
       .sort({ createdAt: -1 });
 
-    return disputes.map((dispute) => {
+    const realRows = disputes.map((dispute) => {
       const row = buildDisputeRow(dispute);
       return {
         booking: row.booking,
@@ -1278,46 +1636,51 @@ const buildExportRows = async (packageType) => {
         reason: row.reason,
         status: row.status,
         createdAt: row.createdLabel,
+        type: "real",
+        activityAt: dispute.createdAt,
       };
     });
+
+    return mergeLayeredExportRows(realRows, getMockAdminExportRows(packageType));
   }
 
-  const [settings, totalUsers, totalBookings, totalTransactions, openDisputes] =
+  const settings = await getPlatformSettings();
+  const [totalUsers, totalBookings, totalTransactions, openDisputes] =
     await Promise.all([
-      ensurePlatformSettings(),
       User.countDocuments(),
       Booking.countDocuments(),
       Transaction.countDocuments(),
-      Dispute.countDocuments({ status: { $in: ["open", "under_review"] } }),
+      Dispute.countDocuments({ status: { $in: ["open", "under_review", "escalated"] } }),
     ]);
 
-  return [
-    { metric: "Platform Name", value: settings.platformName || "GoLocal" },
+  const realRows = [
+    { metric: "Platform Name", value: settings.platformName || DEFAULT_PLATFORM_SETTINGS.platformName },
     { metric: "Maintenance Mode", value: settings.maintenanceMode ? "Enabled" : "Disabled" },
     { metric: "Manual Provider Review", value: settings.manualProviderReview ? "Enabled" : "Disabled" },
-    { metric: "Export Retention Days", value: Number(settings.exportRetentionDays || 30) },
+    { metric: "Export Retention Days", value: Number(settings.exportRetentionDays || DEFAULT_PLATFORM_SETTINGS.exportRetentionDays) },
     { metric: "Total Users", value: totalUsers },
     { metric: "Total Bookings", value: totalBookings },
     { metric: "Total Transactions", value: totalTransactions },
     { metric: "Open Disputes", value: openDisputes },
-  ];
+  ].map((row, index) => ({
+    ...row,
+    type: "real",
+    activityAt: new Date(Date.now() - index * 60000).toISOString(),
+  }));
+
+  return mergeLayeredExportRows(realRows, getMockAdminExportRows(packageType));
 };
 
 const getExportSettings = async (req, res) => {
   try {
-    const settings = await ensurePlatformSettings();
-    const activity = await ActivityLog.find({
-      action: "ADMIN_EXPORT_GENERATED",
-    })
-      .sort({ createdAt: -1 })
-      .limit(8);
+    const settings = await getPlatformSettings();
 
     res.json({
       success: true,
       data: {
         summary: {
           exportBundles: Object.keys(EXPORT_PACKAGES).length,
-          availableFormats: ["pdf", "csv"],
+          availableFormats: ["pdf", "csv", "xlsx"],
           lastExportedAt: settings.lastExportedAt,
           lastExportedLabel: settings.lastExportedAt
             ? formatDateTime(settings.lastExportedAt)
@@ -1328,16 +1691,9 @@ const getExportSettings = async (req, res) => {
           id: key,
           title: config.title,
           filename: config.filename,
-          supportedFormats: ["pdf", "csv"],
+          supportedFormats: ["pdf", "csv", "xlsx"],
         })),
-        recentActivity: activity.map((entry) => ({
-          id: String(entry._id),
-          title: entry.metadata?.title || "Admin export",
-          format: String(entry.metadata?.format || "").toUpperCase(),
-          fileName: entry.metadata?.fileName || "",
-          createdAt: entry.createdAt,
-          createdLabel: formatDateTime(entry.createdAt),
-        })),
+        recentActivity: [],
       },
     });
   } catch (error) {
@@ -1358,10 +1714,10 @@ const createExport = async (req, res) => {
       });
     }
 
-    if (!["pdf", "csv"].includes(format)) {
+    if (!["pdf", "csv", "xlsx"].includes(format)) {
       return res.status(400).json({
         success: false,
-        message: "Only PDF and CSV exports are supported.",
+        message: "Only PDF, CSV, and XLSX exports are supported.",
       });
     }
 
@@ -1369,7 +1725,13 @@ const createExport = async (req, res) => {
     const buffer =
       format === "csv"
         ? buildCsvBuffer({ columns: exportConfig.columns, rows })
-        : buildPdfBuffer({
+        : format === "xlsx"
+          ? buildXlsxBuffer({
+              columns: exportConfig.columns,
+              rows,
+              sheetName: exportConfig.title,
+            })
+          : buildPdfBuffer({
             title: exportConfig.title,
             lines: rows.map((row) =>
               exportConfig.columns
@@ -1378,34 +1740,17 @@ const createExport = async (req, res) => {
             ),
           });
 
-    const extension = format === "csv" ? "csv" : "pdf";
+    const extension =
+      format === "csv" ? "csv" : format === "xlsx" ? "xlsx" : "pdf";
     const fileName = `${exportConfig.filename}-${Date.now()}.${extension}`;
-    const contentType = format === "csv" ? "text/csv; charset=utf-8" : "application/pdf";
+    const contentType =
+      format === "csv"
+        ? "text/csv; charset=utf-8"
+        : format === "xlsx"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : "application/pdf";
 
-    const settings = await PlatformSetting.findOneAndUpdate(
-      {},
-      { lastExportedAt: new Date() },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-      }
-    );
-
-    await recordAdminActivity(req, {
-      action: "ADMIN_EXPORT_GENERATED",
-      description: `${exportConfig.title} generated as ${format.toUpperCase()}.`,
-      module: "export",
-      targetType: "PlatformSetting",
-      targetId: settings._id,
-      metadata: {
-        packageType,
-        title: exportConfig.title,
-        format,
-        fileName,
-        rows: rows.length,
-      },
-    });
+    await updatePlatformSettings({ lastExportedAt: new Date() }, req.user._id);
 
     res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
@@ -1418,15 +1763,24 @@ const createExport = async (req, res) => {
 
 const getSecuritySettings = async (req, res) => {
   try {
-    const settings = await ensurePlatformSettings();
-    const [adminAccounts, pendingApprovals, openDisputes, suspendedUsers, recentLogins] =
-      await Promise.all([
-        Admin.countDocuments(),
-        User.countDocuments({ role: "provider", approvalStatus: "pending" }),
-        Dispute.countDocuments({ status: { $in: ["open", "under_review"] } }),
-        User.countDocuments({ status: "suspended" }),
-        LoginHistory.find().sort({ loginTime: -1, createdAt: -1 }).limit(6),
-      ]);
+    const settings = await getPlatformSettings();
+    const [users, disputes] = await Promise.all([
+      User.find().select("role approvalStatus status totalLogins lastLogin"),
+      Dispute.find().select("status"),
+    ]);
+
+    const adminAccounts = users.filter((user) => String(user.role || "").toLowerCase() === "admin").length;
+    const pendingApprovals = users.filter(
+      (user) =>
+        String(user.role || "").toLowerCase() === "provider" &&
+        String(user.approvalStatus || "").toLowerCase() === APPROVAL_STATUS.PENDING
+    ).length;
+    const openDisputes = disputes.filter((dispute) =>
+      ["open", "under_review", "escalated"].includes(String(dispute.status || "").toLowerCase())
+    ).length;
+    const suspendedUsers = users.filter(
+      (user) => String(user.status || "").toLowerCase() === USER_STATUS.SUSPENDED
+    ).length;
 
     res.json({
       success: true,
@@ -1463,18 +1817,10 @@ const getSecuritySettings = async (req, res) => {
           {
             id: "failed-payment-monitoring",
             title: "Failed payment monitoring",
-            description: "Review failed logins and operational events from the security stream.",
+            description: "Review suspended users and unresolved payment issues from the core collections.",
             status: suspendedUsers > 0 ? "Investigate" : "Stable",
           },
         ],
-        recentLogins: recentLogins.map((entry) => ({
-          id: String(entry._id),
-          account: entry.account,
-          role: entry.role,
-          success: Boolean(entry.success),
-          loginTime: entry.loginTime,
-          loginLabel: formatDateTime(entry.loginTime),
-        })),
       },
     });
   } catch (error) {
@@ -1484,24 +1830,10 @@ const getSecuritySettings = async (req, res) => {
 
 const runSecurityAuditSnapshot = async (req, res) => {
   try {
-    const settings = await PlatformSetting.findOneAndUpdate(
-      {},
+    const settings = await updatePlatformSettings(
       { lastSecurityAuditAt: new Date() },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true,
-      }
+      req.user._id
     );
-
-    await recordAdminActivity(req, {
-      action: "ADMIN_SECURITY_AUDIT_SNAPSHOT",
-      description: "Admin ran a security audit snapshot.",
-      module: "security",
-      targetType: "PlatformSetting",
-      targetId: settings._id,
-      metadata: { lastSecurityAuditAt: settings.lastSecurityAuditAt },
-    });
 
     res.json({
       success: true,
@@ -1518,11 +1850,16 @@ const runSecurityAuditSnapshot = async (req, res) => {
 module.exports = {
   getDashboard,
   getUsers,
+  getVerificationRequests,
+  getVerificationRequestById,
   updateUserStatus,
+  updateVerificationRequestStatus,
+  updateUserVerificationStatus,
   getBookings,
   getBookingsSummary,
   getTransactions,
   getTransactionsSummary,
+  downloadTransactionInvoice,
   getDisputes,
   getDisputesSummary,
   updateDisputeStatus,
@@ -1538,4 +1875,5 @@ module.exports = {
   createExport,
   getSecuritySettings,
   runSecurityAuditSnapshot,
+  getPublicSettings,
 };

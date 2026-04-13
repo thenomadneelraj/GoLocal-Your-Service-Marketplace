@@ -495,7 +495,7 @@ export default function ClientProviders() {
                         View Provider
                       </Link>
                       <Link
-                        to={`/messages?contact=${group.latestBooking?.providerId?.userId || ""}`}
+                        to={`/client/chat?contact=${group.latestBooking?.providerId?.userId || ""}`}
                         className="inline-flex items-center rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
                       >
                         Message

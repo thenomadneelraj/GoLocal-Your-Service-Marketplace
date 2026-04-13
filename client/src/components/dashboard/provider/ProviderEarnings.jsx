@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   IndianRupee,
   ArrowUpRight,
@@ -26,6 +26,9 @@ import {
   disconnectSocket,
 } from "@/lib/socket";
 import { useAuth } from "@/components/contexts/AuthContext";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockProviderPayouts } from "@/lib/mockWorkspaceData";
 
 const formatCurrency = (amount) =>
   `₹${Number(amount || 0).toLocaleString("en-IN")}`;
@@ -56,6 +59,7 @@ export default function ProviderEarnings() {
   const [totalCount, setTotalCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
+  const [downloadFormat, setDownloadFormat] = useState("csv");
   const LIMIT = 10;
 
   const fetchPayouts = useCallback(
@@ -105,14 +109,57 @@ export default function ProviderEarnings() {
   }, [user?.id, fetchPayouts]);
 
   const handleRequestPayout = () => {
-    toast.info("Payout request feature coming soon. Please contact support.");
+    toast.info("Provider earnings are released automatically once COD bookings are completed.");
   };
 
-  const handleExport = () => {
-    toast.info("CSV export coming soon.");
+  const handleExport = async () => {
+    try {
+      const response = await api.get(
+        `/api/providers/stats/payouts/export?format=${downloadFormat}`,
+        { responseType: "blob" }
+      );
+      const contentType =
+        downloadFormat === "pdf"
+          ? "application/pdf"
+          : downloadFormat === "xlsx"
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : "text/csv;charset=utf-8;";
+      const extension = downloadFormat === "xlsx" ? "xlsx" : downloadFormat;
+      const blob = new Blob([response.data], { type: contentType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `provider-earnings-${Date.now()}.${extension}`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success("Earnings export downloaded successfully.");
+    } catch (error) {
+      toast.error("Could not download the earnings export.");
+    }
   };
 
-  const filteredPayouts = payouts.filter((p) => {
+  const layeredPayouts = useMemo(
+    () =>
+      mergeLayeredCollections(payouts, mockProviderPayouts, {
+        getId: (payout) => payout.id,
+      }),
+    [payouts]
+  );
+  const fallbackTotalEarnings = layeredPayouts
+    .filter((payout) => payout.status === "paid")
+    .reduce((sum, payout) => sum + Number(payout.netAmount || 0), 0);
+  const fallbackPendingAmount = layeredPayouts
+    .filter((payout) => payout.status === "pending")
+    .reduce((sum, payout) => sum + Number(payout.netAmount || 0), 0);
+  const resolvedTotalEarnings = totalEarnings || fallbackTotalEarnings;
+  const resolvedPendingAmount = pendingAmount || fallbackPendingAmount;
+  const resolvedLastPaidAmount =
+    lastPaidAmount ||
+    layeredPayouts.find((payout) => payout.status === "paid")?.netAmount ||
+    0;
+  const filteredPayouts = layeredPayouts.filter((p) => {
     const matchesTab = activeTab === "all" || p.status === activeTab;
     const matchesSearch =
       !searchQuery ||
@@ -141,19 +188,35 @@ export default function ProviderEarnings() {
                   <div className="h-14 w-48 animate-pulse bg-muted/40 rounded-2xl" />
                 ) : (
                   <>
-                    <h1 className="text-5xl font-black tracking-tight text-foreground italic">
-                      {formatCurrency(totalEarnings)}
-                    </h1>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h1 className="text-5xl font-black tracking-tight text-foreground italic">
+                        {formatCurrency(resolvedTotalEarnings)}
+                      </h1>
+                      <DataOriginBadge
+                        origin={totalEarnings > 0 ? "real" : "mock"}
+                        liveLabel="Live"
+                        sampleLabel="Sample"
+                      />
+                    </div>
                     <p className="text-muted-foreground mt-2 text-[10px] font-bold flex items-center gap-2 uppercase tracking-widest leading-none">
                       <TrendingUp size={14} className="text-emerald-500" />
-                      {totalCount} payout record{totalCount !== 1 ? "s" : ""}
+                      {layeredPayouts.length} payout record{layeredPayouts.length !== 1 ? "s" : ""}
                     </p>
                   </>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 min-w-[160px]">
+          <div className="flex flex-col gap-2 min-w-[160px]">
+              <select
+                value={downloadFormat}
+                onChange={(event) => setDownloadFormat(event.target.value)}
+                className="h-11 rounded-xl border border-border/60 bg-card px-3 text-xs font-semibold"
+              >
+                <option value="csv">CSV</option>
+                <option value="xlsx">XLSX</option>
+                <option value="pdf">PDF</option>
+              </select>
               <Button
                 size="lg"
                 className="rounded-xl h-11 text-xs font-black uppercase tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-md gap-2"
@@ -169,7 +232,7 @@ export default function ProviderEarnings() {
                 onClick={handleExport}
               >
                 <Download size={16} />
-                Export CSV
+                Export
               </Button>
             </div>
           </div>
@@ -191,7 +254,7 @@ export default function ProviderEarnings() {
               <div className="h-8 w-24 animate-pulse bg-muted/40 rounded-xl" />
             ) : (
               <p className="text-2xl font-black leading-none italic">
-                {formatCurrency(pendingAmount)}
+                {formatCurrency(resolvedPendingAmount)}
               </p>
             )}
           </div>
@@ -209,7 +272,7 @@ export default function ProviderEarnings() {
               <div className="h-8 w-24 animate-pulse bg-muted/40 rounded-xl" />
             ) : (
               <p className="text-2xl font-black leading-none italic">
-                {formatCurrency(lastPaidAmount)}
+                {formatCurrency(resolvedLastPaidAmount)}
               </p>
             )}
           </div>
@@ -343,9 +406,12 @@ export default function ProviderEarnings() {
                             )}
                           </div>
                           <div>
-                            <p className="text-xs font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight line-clamp-1">
-                              {p.serviceTitle || "Service Booking"}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-xs font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight line-clamp-1">
+                                {p.serviceTitle || "Service Booking"}
+                              </p>
+                              <DataOriginBadge origin={p.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                            </div>
                             <p className="text-[9px] text-muted-foreground mt-0.5 font-bold tracking-widest opacity-60">
                               #{String(p.id).slice(-8).toUpperCase()}
                             </p>
@@ -385,16 +451,45 @@ export default function ProviderEarnings() {
                         </div>
                       </td>
                       <td className="px-8 py-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="rounded-lg h-8 w-8 hover:bg-emerald-500/10 hover:text-emerald-600"
-                        >
-                          <MoreVertical
-                            size={14}
-                            className="text-muted-foreground"
-                          />
-                        </Button>
+                        {p.dataOrigin === "mock" ? (
+                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                            Sample only
+                          </span>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="rounded-lg h-8 px-3 hover:bg-emerald-500/10 hover:text-emerald-600"
+                            onClick={async () => {
+                              try {
+                                const response = await api.get(
+                                  `/api/providers/stats/payouts/${p.id}/invoice?format=${downloadFormat}`,
+                                  { responseType: "blob" }
+                                );
+                                const extension =
+                                  downloadFormat === "xlsx" ? "xlsx" : downloadFormat;
+                                const blob = new Blob([response.data]);
+                                const url = URL.createObjectURL(blob);
+                                const link = document.createElement("a");
+                                link.href = url;
+                                link.setAttribute(
+                                  "download",
+                                  `provider-invoice-${p.id}.${extension}`
+                                );
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                URL.revokeObjectURL(url);
+                                toast.success("Invoice downloaded successfully.");
+                              } catch (error) {
+                                toast.error("Could not download the invoice.");
+                              }
+                            }}
+                          >
+                            <Download size={14} className="mr-2" />
+                            Invoice
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}

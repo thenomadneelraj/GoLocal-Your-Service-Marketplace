@@ -1,190 +1,411 @@
-import React, { useState } from "react";
-import { 
-  CheckCircle2, 
-  Clock, 
-  AlertCircle, 
-  Search, 
-  Filter, 
-  MoreVertical, 
-  Calendar,
-  FileText,
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  AlertCircle,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  CreditCard,
+  Loader2,
+  MessageSquareWarning,
   ShieldCheck,
-  Zap,
-  ChevronRight
+  Sparkles,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import api from "@/lib/api";
+import {
+  BOOKING_STATUS,
+  normalizeBookingStatus,
+} from "@/lib/bookingStatus";
 
-const MOCK_TASKS = [
-  {
-    id: "TSK-201",
-    title: "Complete KYC Verification",
-    description: "Upload your ID and address proof to unlock all platform features and book high-value services.",
-    priority: "high",
-    deadline: "2024-04-05",
-    category: "Account",
-    status: "pending"
-  },
-  {
-    id: "TSK-202",
-    title: "Review Plumbing Service",
-    description: "Please share your feedback for Arjun Sharma's plumbing repair service completed on March 25th.",
-    priority: "medium",
-    deadline: "2024-03-31",
-    category: "Review",
-    status: "in-progress"
-  },
-  {
-    id: "TSK-203",
-    title: "Approve Cleaning Quote",
-    description: "Priya Patel sent a revised quote for the deep cleaning session scheduled next Monday.",
-    priority: "high",
-    deadline: "2024-03-29",
-    category: "Booking",
-    status: "pending"
-  },
-  {
-    id: "TSK-198",
-    title: "Email Verification",
-    description: "Your account is secure, but verify your email to receive real-time booking updates.",
-    priority: "low",
-    deadline: "2024-04-10",
-    category: "System",
-    status: "completed"
-  }
-];
-
-const PRIORITY_MAP = {
-  high: "bg-rose-500/10 text-rose-600 border-rose-200",
-  medium: "bg-amber-500/10 text-amber-600 border-amber-200",
-  low: "bg-emerald-500/10 text-emerald-600 border-emerald-200",
+const PRIORITY_STYLES = {
+  high: "bg-rose-500/10 text-rose-700 border-rose-300/40",
+  medium: "bg-amber-500/10 text-amber-700 border-amber-300/40",
+  low: "bg-emerald-500/10 text-emerald-700 border-emerald-300/40",
 };
 
+const formatDate = (value) => {
+  if (!value) return "Schedule pending";
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const getServiceLabel = (booking = {}) => {
+  if (Array.isArray(booking.selectedServices) && booking.selectedServices.length) {
+    return booking.selectedServices.map((service) => service.title).filter(Boolean).join(", ");
+  }
+
+  return booking.serviceId?.title || booking.serviceId?.name || "Service";
+};
+
+function TaskCard({ task, onOpen }) {
+  return (
+    <article className="group relative overflow-hidden rounded-[2rem] border border-border/60 bg-card/40 p-6 transition-all hover:bg-card/60 hover:shadow-xl hover:shadow-primary/5">
+      <div className="flex items-center gap-2">
+        <span
+          className={`rounded-lg border px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.16em] ${PRIORITY_STYLES[task.priority]}`}
+        >
+          {task.priority} priority
+        </span>
+        <span className="rounded-lg bg-muted/50 px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+          {task.category}
+        </span>
+      </div>
+
+      <h3 className="mt-4 text-lg font-semibold tracking-tight text-foreground group-hover:text-primary">
+        {task.title}
+      </h3>
+      <p className="mt-2 text-sm leading-7 text-muted-foreground">{task.description}</p>
+
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <CalendarDays size={14} className="text-primary/70" />
+          <span>{task.meta}</span>
+        </div>
+        <Button
+          size="sm"
+          className="h-9 rounded-xl px-4 text-xs font-semibold"
+          onClick={() => onOpen(task)}
+        >
+          {task.actionLabel}
+          <ChevronRight size={14} className="ml-1" />
+        </Button>
+      </div>
+    </article>
+  );
+}
+
+function EmptyColumn({ title }) {
+  return (
+    <div className="rounded-[2rem] border border-dashed border-border/70 bg-muted/10 px-5 py-10 text-center">
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        New items will appear here as your bookings and disputes change.
+      </p>
+    </div>
+  );
+}
+
 export default function ClientTasks() {
-  const [filter, setFilter] = useState("all");
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [bookings, setBookings] = useState([]);
+  const [disputes, setDisputes] = useState([]);
+
+  const loadWorkspace = async () => {
+    try {
+      setLoading(true);
+      const [bookingsResponse, disputesResponse] = await Promise.all([
+        api.get("/api/bookings", {
+          params: { limit: 100 },
+        }),
+        api.get("/api/disputes", {
+          params: { view: "items" },
+        }),
+      ]);
+
+      setBookings(bookingsResponse.data?.data?.items || []);
+      setDisputes(disputesResponse.data?.data?.items || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not load your task center.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadWorkspace();
+  }, []);
+
+  const taskBuckets = useMemo(() => {
+    const actionRequired = [];
+    const inProgress = [];
+    const completed = [];
+
+    bookings.forEach((booking) => {
+      const status = normalizeBookingStatus(booking.status);
+      const serviceLabel = getServiceLabel(booking);
+      const providerName = booking.providerId?.name || "provider";
+      const scheduleLabel = `${formatDate(booking.bookingDate)}${
+        booking.timeSlot ? ` at ${booking.timeSlot}` : ""
+      }`;
+
+      if (status === BOOKING_STATUS.PENDING_PAYMENT) {
+        actionRequired.push({
+          id: `booking:${booking._id}:payment`,
+          title: `Complete payment for ${serviceLabel}`,
+          description: `Finish the payment step so your request can be sent to ${providerName}.`,
+          priority: "high",
+          category: "Payment",
+          meta: scheduleLabel,
+          actionLabel: "Pay now",
+          targetPath: `/bookings/${booking._id}/payment`,
+        });
+        return;
+      }
+
+      if (status === BOOKING_STATUS.COMPLETED && !booking.review) {
+        actionRequired.push({
+          id: `booking:${booking._id}:review`,
+          title: `Review ${providerName}`,
+          description: `Share feedback for ${serviceLabel} so the provider profile and your history stay complete.`,
+          priority: "medium",
+          category: "Review",
+          meta: scheduleLabel,
+          actionLabel: "Open bookings",
+          targetPath: "/client/bookings",
+        });
+        return;
+      }
+
+      if (status === BOOKING_STATUS.PENDING) {
+        inProgress.push({
+          id: `booking:${booking._id}:pending`,
+          title: `Waiting for provider response`,
+          description: `${providerName} has not accepted ${serviceLabel} yet. Keep an eye on the request status.`,
+          priority: "medium",
+          category: "Approval",
+          meta: scheduleLabel,
+          actionLabel: "View request",
+          targetPath: "/client/bookings",
+        });
+        return;
+      }
+
+      if (status === BOOKING_STATUS.ACCEPTED) {
+        inProgress.push({
+          id: `booking:${booking._id}:accepted`,
+          title: `Prepare for upcoming service`,
+          description: `${providerName} accepted ${serviceLabel}. Review the date, time, and address before the visit.`,
+          priority: "low",
+          category: "Upcoming",
+          meta: scheduleLabel,
+          actionLabel: "View booking",
+          targetPath: "/client/bookings",
+        });
+        return;
+      }
+
+      if (status === BOOKING_STATUS.COMPLETED && booking.review) {
+        completed.push({
+          id: `booking:${booking._id}:done`,
+          title: `Booking closed with review`,
+          description: `${serviceLabel} with ${providerName} has been completed and reviewed.`,
+          priority: "low",
+          category: "Completed",
+          meta: scheduleLabel,
+          actionLabel: "History",
+          targetPath: "/client/bookings",
+        });
+      }
+    });
+
+    disputes.forEach((dispute) => {
+      const normalizedStatus = String(dispute.status || "").toLowerCase();
+      const targetType = dispute.targetType === "platform" ? "platform" : "service";
+      const titlePrefix =
+        targetType === "platform" ? "Website issue" : dispute.targetUserName || "Dispute";
+
+      const task = {
+        id: `dispute:${dispute.id}`,
+        title: `${titlePrefix}: ${dispute.subject || dispute.reason || "Dispute"}`,
+        description: dispute.description || "A dispute has been filed and is now being tracked.",
+        priority: normalizedStatus === "resolved" ? "low" : "medium",
+        category: targetType === "platform" ? "Platform" : "Dispute",
+        meta: dispute.createdLabel || "Recently updated",
+        actionLabel: "Open disputes",
+        targetPath: "/client/disputes",
+      };
+
+      if (["open", "under_review", "escalated"].includes(normalizedStatus)) {
+        inProgress.push(task);
+      } else {
+        completed.push(task);
+      }
+    });
+
+    const byPriority = { high: 0, medium: 1, low: 2 };
+    const sorter = (left, right) => byPriority[left.priority] - byPriority[right.priority];
+
+    return {
+      actionRequired: actionRequired.sort(sorter),
+      inProgress: inProgress.sort(sorter),
+      completed: completed.sort(sorter),
+    };
+  }, [bookings, disputes]);
+
+  const nextAction =
+    taskBuckets.actionRequired[0] ||
+    taskBuckets.inProgress[0] ||
+    taskBuckets.completed[0] ||
+    null;
+
+  const openTask = (task) => {
+    if (!task?.targetPath) {
+      toast.info("No linked workflow was found for this task yet.");
+      return;
+    }
+    navigate(task.targetPath);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[340px] items-center justify-center rounded-[2rem] border border-border/70 bg-card/80">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 size={18} className="animate-spin text-primary" />
+          Loading task center...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-10">
-      {/* Header */}
-      <div className="bg-card/50 p-8 rounded-[2rem] border border-border/60 backdrop-blur-xl relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-transparent pointer-events-none" />
-        <div className="relative">
-          <h1 className="text-3xl font-semibold tracking-tight">Pending Tasks</h1>
-          <p className="text-muted-foreground mt-2 max-w-md">Keep track of actions required from your end to complete bookings and maintain your account.</p>
-        </div>
-        <div className="flex items-center gap-3 bg-white/5 border border-border/40 p-4 rounded-2xl backdrop-blur-md">
-          <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
-            <Zap size={24} />
-          </div>
+      <section className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-card/50 p-8 backdrop-blur-xl">
+        <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-transparent to-transparent" />
+        <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-sm font-bold text-foreground">Next Action</p>
-            <p className="text-xs text-muted-foreground">Complete KYC Verification</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80">
+              Client Task Center
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
+              Workflow actions that actually matter
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+              This page now derives live actions from your bookings and disputes,
+              so payment, review, approval, and support work all show up in one place.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-[1.5rem] border border-border/50 bg-background/70 p-4 shadow-sm">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Sparkles size={22} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Next action</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {nextAction?.title || "No urgent action right now"}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Kanban/List View */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Pending Column */}
-        <section className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-3">
+        <section className="space-y-5">
           <div className="flex items-center justify-between px-2">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]" />
-              <h2 className="font-bold text-sm uppercase tracking-widest text-foreground/80">Action Required</h2>
+              <CreditCard size={16} className="text-rose-500" />
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-foreground/80">
+                Action Required
+              </h2>
             </div>
-            <span className="text-xs font-bold text-muted-foreground bg-muted/40 px-2.5 py-1 rounded-lg">
-              {MOCK_TASKS.filter(t => t.status === "pending").length}
+            <span className="rounded-lg bg-muted/40 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+              {taskBuckets.actionRequired.length}
             </span>
           </div>
-          
+
           <div className="space-y-4">
-            {MOCK_TASKS.filter(t => t.status === "pending").map((task) => (
-              <div key={task.id} className="bg-card/40 border border-border/60 rounded-[2rem] p-6 hover:shadow-xl hover:shadow-primary/5 hover:bg-card/60 transition-all group group relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <MoreVertical size={18} className="text-muted-foreground" />
-                </div>
-                <div className="flex gap-2 items-center mb-4">
-                  <span className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold uppercase tracking-[0.15em] border ${PRIORITY_MAP[task.priority]}`}>
-                    {task.priority} Priority
-                  </span>
-                  <span className="text-[10px] font-bold text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-md italic">{task.category}</span>
-                </div>
-                <h3 className="font-bold text-lg mb-2 group-hover:text-primary transition-colors">{task.title}</h3>
-                <p className="text-sm text-muted-foreground line-clamp-2 italic leading-relaxed mb-6">{task.description}</p>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
-                    <Calendar size={14} className="text-primary/60" />
-                    Due by {new Date(task.deadline).toLocaleDateString()}
-                  </div>
-                  <Button size="sm" className="rounded-xl h-9 px-4 gap-2 text-xs font-semibold group/btn">
-                    Complete
-                    <ChevronRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+            {taskBuckets.actionRequired.length ? (
+              taskBuckets.actionRequired.map((task) => (
+                <TaskCard key={task.id} task={task} onOpen={openTask} />
+              ))
+            ) : (
+              <EmptyColumn title="No urgent actions" />
+            )}
           </div>
         </section>
 
-        {/* In Progress Column */}
-        <section className="space-y-6">
+        <section className="space-y-5">
           <div className="flex items-center justify-between px-2">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.6)]" />
-              <h2 className="font-bold text-sm uppercase tracking-widest text-foreground/80">Processing</h2>
+              <AlertCircle size={16} className="text-amber-500" />
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-foreground/80">
+                In Progress
+              </h2>
             </div>
-            <span className="text-xs font-bold text-muted-foreground bg-muted/40 px-2.5 py-1 rounded-lg">
-              {MOCK_TASKS.filter(t => t.status === "in-progress").length}
+            <span className="rounded-lg bg-muted/40 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+              {taskBuckets.inProgress.length}
             </span>
           </div>
 
           <div className="space-y-4">
-            {MOCK_TASKS.filter(t => t.status === "in-progress").map((task) => (
-              <div key={task.id} className="bg-card/40 border border-border/60 border-t-primary/30 rounded-[2rem] p-6 opacity-80 hover:opacity-100 transition-all">
-                <div className="flex gap-2 items-center mb-4">
-                  <span className={`px-2 py-0.5 rounded-lg text-[9px] font-extrabold uppercase tracking-[0.15em] border ${PRIORITY_MAP[task.priority]}`}>
-                    {task.priority} Priority
-                  </span>
-                </div>
-                <h3 className="font-bold text-lg mb-2 text-foreground">{task.title}</h3>
-                <p className="text-sm text-muted-foreground mb-6 italic leading-relaxed">{task.description}</p>
-                <div className="bg-primary/5 h-2 w-full rounded-full overflow-hidden border border-primary/10">
-                  <div className="bg-primary h-full w-[65%] rounded-full shadow-[0_0_10px_rgba(var(--primary),0.4)]" />
-                </div>
-                <p className="text-[10px] text-right mt-2 font-bold text-primary italic leading-relaxed uppercase tracking-widest">65% Reviewed</p>
-              </div>
-            ))}
+            {taskBuckets.inProgress.length ? (
+              taskBuckets.inProgress.map((task) => (
+                <TaskCard key={task.id} task={task} onOpen={openTask} />
+              ))
+            ) : (
+              <EmptyColumn title="Nothing in progress" />
+            )}
           </div>
         </section>
 
-        {/* Completed Column */}
-        <section className="space-y-6">
+        <section className="space-y-5">
           <div className="flex items-center justify-between px-2">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-              <h2 className="font-bold text-sm uppercase tracking-widest text-foreground/80">Completed</h2>
+              <ShieldCheck size={16} className="text-emerald-500" />
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-foreground/80">
+                Completed
+              </h2>
             </div>
-            <span className="text-xs font-bold text-muted-foreground bg-muted/40 px-2.5 py-1 rounded-lg">
-              {MOCK_TASKS.filter(t => t.status === "completed").length}
+            <span className="rounded-lg bg-muted/40 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+              {taskBuckets.completed.length}
             </span>
           </div>
 
           <div className="space-y-4">
-            {MOCK_TASKS.filter(t => t.status === "completed").map((task) => (
-              <div key={task.id} className="bg-muted/10 border border-border/40 rounded-[2rem] p-6 grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition-all relative">
-                <div className="absolute top-4 right-4 text-emerald-500">
-                  <CheckCircle2 size={24} />
-                </div>
-                <h3 className="font-bold text-lg mb-2 line-through decoration-muted-foreground/40">{task.title}</h3>
-                <p className="text-sm text-muted-foreground mb-4 italic leading-relaxed line-clamp-2">{task.description}</p>
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 italic leading-relaxed">
-                  <ShieldCheck size={14} />
-                  Safe and Verified
-                </div>
-              </div>
-            ))}
+            {taskBuckets.completed.length ? (
+              taskBuckets.completed.map((task) => (
+                <TaskCard key={task.id} task={task} onOpen={openTask} />
+              ))
+            ) : (
+              <EmptyColumn title="No completed workflow items yet" />
+            )}
           </div>
         </section>
       </div>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        {[
+          {
+            icon: CreditCard,
+            title: "Pending payment bookings",
+            value: taskBuckets.actionRequired.filter((task) => task.category === "Payment").length,
+          },
+          {
+            icon: MessageSquareWarning,
+            title: "Open disputes",
+            value: taskBuckets.inProgress.filter((task) => task.category === "Dispute" || task.category === "Platform").length,
+          },
+          {
+            icon: CheckCircle2,
+            title: "Reviewed completions",
+            value: taskBuckets.completed.filter((task) => task.category === "Completed").length,
+          },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <div
+              key={item.title}
+              className="rounded-[2rem] border border-border/60 bg-card/40 p-6 backdrop-blur-sm"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Icon size={20} />
+                </div>
+                <span className="text-2xl font-semibold text-foreground">
+                  {item.value}
+                </span>
+              </div>
+              <p className="mt-4 text-sm font-semibold text-foreground">{item.title}</p>
+            </div>
+          );
+        })}
+      </section>
     </div>
   );
 }

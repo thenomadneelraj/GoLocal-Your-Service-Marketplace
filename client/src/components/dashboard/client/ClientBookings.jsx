@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Calendar,
   Search,
@@ -18,13 +18,12 @@ import {
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import {
-  initiateSocketConnection,
-  subscribeToBookingUpdates,
-  disconnectSocket,
-} from "@/lib/socket";
 import { useAuth } from "@/components/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockClientBookings } from "@/lib/mockWorkspaceData";
+import { useBookingUpdates, useWebSocket } from "@/components/contexts/WebSocketContext";
 
 const TABS = [
   { id: "all", label: "All", icon: Filter },
@@ -92,6 +91,33 @@ export default function ClientBookings() {
   const [disputeDescription, setDisputeDescription] = useState("");
   const [submittingDispute, setSubmittingDispute] = useState(false);
 
+  // Handle real-time booking updates via WebSocket
+  const handleBookingUpdate = useCallback((payload) => {
+    console.log("[ClientBookings] Received booking update:", payload);
+    
+    // If the update contains a full booking object, update it in the list
+    if (payload.booking) {
+      setBookings(prev => {
+        const exists = prev.find(b => b._id === payload.booking._id || b.id === payload.booking._id);
+        if (exists) {
+          // Update existing booking
+          return prev.map(b => 
+            (b._id === payload.booking._id || b.id === payload.booking._id) 
+              ? { ...payload.booking } 
+              : b
+          );
+        } else {
+          // Add new booking
+          return [payload.booking, ...prev];
+        }
+      });
+      
+      toast.success(payload.message || "Booking updated");
+    }
+  }, []);
+
+  useBookingUpdates(handleBookingUpdate);
+
   const fetchBookings = useCallback(async () => {
     try {
       setLoading(true);
@@ -112,36 +138,7 @@ export default function ClientBookings() {
     fetchBookings();
   }, [fetchBookings]);
 
-  // Real-time: booking updated by provider
-  useEffect(() => {
-    if (!user?.id) return;
-    initiateSocketConnection(user.id, user.role);
-
-    const unsub = subscribeToBookingUpdates((err, payload) => {
-      if (err || !payload?.bookingId) return;
-      setBookings((prev) =>
-        prev.map((b) => {
-          const id = b._id || b.id;
-          if (String(id) === String(payload.bookingId)) {
-            return {
-              ...b,
-              status: payload.status || b.status,
-              ...(payload.booking || {}),
-            };
-          }
-          return b;
-        })
-      );
-      if (payload.status) {
-        toast.info(`Booking ${payload.status}: ${payload.message || ""}`);
-      }
-    });
-
-    return () => {
-      unsub();
-      disconnectSocket();
-    };
-  }, [user?.id]);
+  // Note: Real-time updates are now handled by the useBookingUpdates hook above
 
   const handleCancel = async (bookingId) => {
     if (!window.confirm("Are you sure you want to cancel this booking?")) return;
@@ -215,7 +212,15 @@ export default function ClientBookings() {
     }
   };
 
-  const filteredBookings = bookings.filter((b) => {
+  const layeredBookings = useMemo(
+    () =>
+      mergeLayeredCollections(bookings, mockClientBookings, {
+        getId: (booking) => booking._id || booking.id,
+      }),
+    [bookings]
+  );
+
+  const filteredBookings = layeredBookings.filter((b) => {
     const status =
       typeof b.status === "string" ? b.status.toLowerCase() : "pending";
     const matchesTab = activeTab === "all" || status === activeTab;
@@ -317,6 +322,7 @@ export default function ClientBookings() {
               booking.serviceId?.title || booking.serviceTitle || "Service";
             const price = Number(booking.price || 0);
             const isCancelling = cancellingId === id;
+            const isMockBooking = booking.dataOrigin === "mock";
 
             return (
               <div
@@ -345,6 +351,11 @@ export default function ClientBookings() {
                         >
                           {statusStyle.label}
                         </span>
+                        <DataOriginBadge
+                          origin={booking.dataOrigin}
+                          liveLabel="Live"
+                          sampleLabel="Sample"
+                        />
                       </div>
                       <p className="text-muted-foreground text-sm mt-1">
                         {serviceTitle}
@@ -390,7 +401,12 @@ export default function ClientBookings() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2">
-                    {status === "completed" && (
+                    {isMockBooking ? (
+                      <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                        Sample booking
+                      </div>
+                    ) : null}
+                    {!isMockBooking && status === "completed" && (
                       <>
                         <Button
                           variant="outline"
@@ -412,7 +428,8 @@ export default function ClientBookings() {
                         </Button>
                       </>
                     )}
-                    {(status === "accepted" || status === "completed") && (
+                    {!isMockBooking &&
+                    (status === "accepted" || status === "completed") && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -423,7 +440,8 @@ export default function ClientBookings() {
                         Chat
                       </Button>
                     )}
-                    {(status === "pending" || status === "accepted") && (
+                    {!isMockBooking &&
+                    (status === "pending" || status === "accepted") && (
                       <Button
                         variant="ghost"
                         size="sm"

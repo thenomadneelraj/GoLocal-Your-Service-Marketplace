@@ -1,11 +1,16 @@
 import { Link } from "react-router-dom";
 import { ShieldAlert, Wrench } from "lucide-react";
+import { useAuth } from "@/components/contexts/AuthContext";
+import { useMaintenance } from "@/components/contexts/MaintenanceContext";
 
 export default function MaintenanceScreen({
   platformName = "GoLocal",
   supportEmail = "support@golocal.com",
   maintenanceMessage = "Website is currently under maintenance. Please check back soon.",
 }) {
+  const { logout } = useAuth();
+  const { refreshStatus } = useMaintenance();
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-50">
       <div className="absolute inset-0">
@@ -64,10 +69,17 @@ export default function MaintenanceScreen({
             </Link>
             <button
               type="button"
-              onClick={() => window.location.reload()}
+              onClick={() => refreshStatus()}
               className="inline-flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-6 text-sm font-bold uppercase tracking-[0.16em] text-slate-200 transition-all hover:bg-white/[0.08]"
             >
-              Refresh Status
+              Check Status Again
+            </button>
+            <button
+              type="button"
+              onClick={() => logout({ redirectTo: "/signin" })}
+              className="inline-flex h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-6 text-sm font-bold uppercase tracking-[0.16em] text-slate-200 transition-all hover:bg-white/[0.08]"
+            >
+              Logout
             </button>
           </div>
         </section>

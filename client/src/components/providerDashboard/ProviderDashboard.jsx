@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useCallback, memo } from "react";
 import {
   Area,
   AreaChart,
@@ -22,11 +22,17 @@ import api from "@/lib/api";
 import { getGreetingByTime } from "@/lib/greeting";
 import { getAccountAccessState } from "@/lib/accountAccess";
 import RestrictedAccountBanner from "@/components/shared/RestrictedAccountBanner";
-import DashboardLayout from "@/components/layouts/DashboardLayout";
 import {
   getBookingStatusLabel,
   normalizeBookingStatus,
 } from "@/lib/bookingStatus";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import {
+  fallbackToMock,
+  hasMeaningfulValue,
+  mergeLayeredCollections,
+} from "@/lib/dataLayering";
+import { mockProviderDashboard } from "@/lib/mockWorkspaceData";
 
 const EMPTY_DASHBOARD = {
   summary: {
@@ -42,6 +48,13 @@ const EMPTY_DASHBOARD = {
   topServices: [],
   currency: "INR",
 };
+
+// Memoized currency formatter to avoid recreating on every render
+const currencyFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+});
 
 const CARD_STYLES = [
   { label: "Appointments Booked", key: "appointmentsBooked", icon: CalendarCheck2, accent: "from-primary/30 to-primary/5" },
@@ -70,50 +83,23 @@ const safeCurrency = (code) => {
   }
 };
 
-const formatCurrency = (value, currency) => {
-  try {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: safeCurrency(currency),
-      maximumFractionDigits: 0,
-    }).format(Number(value || 0));
-  } catch {
-    return `₹${Number(value || 0).toLocaleString("en-IN")}`;
-  }
-};
 
-const compactAmount = (value, currency) => {
-  const amount = Number(value || 0);
-  if (amount >= 100000) return `${formatCurrency(amount / 100000, currency).replace(".0", "")}L`;
-  if (amount >= 1000) return `${formatCurrency(amount / 1000, currency).replace(".0", "")}k`;
-  return formatCurrency(amount, currency);
-};
-
-const formatDate = (value) => {
-  if (!value) return "Date not set";
-  return new Date(value).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-};
-
-function StatusBadge({ status }) {
+const StatusBadge = memo(function StatusBadge({ status }) {
   const normalized = normalizeBookingStatus(status);
   return (
     <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${STATUS_STYLES[normalized] || "bg-muted text-muted-foreground"}`}>
       {getBookingStatusLabel(normalized || "unknown")}
     </span>
   );
-}
+});
 
-function Panel({ className = "", children }) {
+export const Panel = memo(function Panel({ className = "", children }) {
   return (
     <section className={`overflow-hidden rounded-[2rem] border border-border/70 bg-card/90 shadow-[0_30px_80px_-48px_rgba(4,24,15,0.72)] backdrop-blur-xl ${className}`}>
       {children}
     </section>
   );
-}
+});
 
 export default function ProviderDashboard() {
   const { user } = useAuth();
@@ -122,37 +108,119 @@ export default function ProviderDashboard() {
   const [chartRange, setChartRange] = useState("7d");
   const [loading, setLoading] = useState(true);
   const [greeting, setGreeting] = useState(() => getGreetingByTime());
-  const accountAccess = getAccountAccessState(user);
+  const accountAccess = useMemo(() => getAccountAccessState(user), [user]);
 
-  const providerName =
-    user?.name?.split(" ")[0] || user?.email?.split("@")[0] || "Professional";
+  const providerName = useMemo(() => 
+    user?.name?.split(" ")[0] || user?.email?.split("@")[0] || "Professional"
+  , [user?.name, user?.email]);
 
-  useEffect(() => {
+  // Memoized currency and date formatters
+  const formatCurrency = useCallback((value, currency) => {
+    try {
+      const formatter = new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: safeCurrency(currency),
+        maximumFractionDigits: 0,
+      });
+      return formatter.format(Number(value || 0));
+    } catch {
+      return `₹${Number(value || 0).toLocaleString("en-IN")}`;
+    }
+  }, []);
+
+  const formatDate = useCallback((value) => {
+    if (!value) return "Date not set";
+    return new Date(value).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }, []);
+
+  // Memoize dashboard data processing
+  const processedData = useMemo(() => {
+    const memoizedCurrency = dashboard.currency || "INR";
+    const hasSeriesData = (items = []) =>
+      Array.isArray(items) &&
+      items.some((item) =>
+        Object.values(item || {}).some(
+          (value) => typeof value === "number" && Number(value) > 0
+        )
+      );
+    const liveChartData =
+      chartRange === "7d" ? dashboard.earnings7d : dashboard.earnings6m;
+    const mockChartData =
+      chartRange === "7d"
+        ? mockProviderDashboard.earnings7d
+        : mockProviderDashboard.earnings6m;
+    const chartData = hasSeriesData(liveChartData) ? liveChartData : mockChartData;
+    const chartOrigin = hasSeriesData(liveChartData) ? "real" : "mock";
+
+    return {
+      currency: memoizedCurrency,
+      chartData,
+      chartOrigin,
+      liveChartData,
+      mockChartData
+    };
+  }, [dashboard, chartRange]);
+
+  // Extract chartOrigin and chartData for use in JSX
+  const { chartOrigin, chartData } = processedData;
+
+  const layeredTodaySchedule = useMemo(
+    () =>
+      mergeLayeredCollections(
+        dashboard.todaySchedule,
+        mockProviderDashboard.todaySchedule
+      ),
+    [dashboard.todaySchedule]
+  );
+
+  const layeredRecentAppointments = useMemo(
+    () =>
+      mergeLayeredCollections(
+        dashboard.recentAppointments,
+        mockProviderDashboard.recentAppointments
+      ),
+    [dashboard.recentAppointments]
+  );
+
+  const layeredTopServices = useMemo(
+    () =>
+      mergeLayeredCollections(
+        dashboard.topServices,
+        mockProviderDashboard.topServices,
+        {
+          getId: (service) => service.serviceId,
+        }
+      ),
+    [dashboard.topServices]
+  );
+
+  const loadDashboard = useCallback(async () => {
     if (accountAccess.restricted) {
       setLoading(false);
-      return undefined;
+      return;
     }
 
-    let active = true;
-
-    const loadDashboard = async () => {
-      try {
-        const response = await api.get("/api/provider/dashboard");
-        if (active && response.data) {
-          setDashboard({ ...EMPTY_DASHBOARD, ...response.data });
-        }
-      } catch (error) {
-        console.error("Failed to load provider dashboard:", error);
-      } finally {
-        if (active) setLoading(false);
+    try {
+      const response = await api.get("/api/providers/stats/dashboard");
+      if (response.data) {
+        setDashboard({ ...EMPTY_DASHBOARD, ...(response.data?.data || {}) });
       }
-    };
-
-    loadDashboard();
-    return () => {
-      active = false;
-    };
+    } catch (error) {
+      console.error("Failed to load provider dashboard:", error);
+      // Set to empty dashboard on error to prevent undefined states
+      setDashboard(EMPTY_DASHBOARD);
+    } finally {
+      setLoading(false);
+    }
   }, [accountAccess.restricted]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, []); // Empty dependency array - loadDashboard is stable due to useCallback
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -164,8 +232,6 @@ export default function ProviderDashboard() {
     };
   }, []);
 
-  const currency = dashboard.currency || "INR";
-  const chartData = chartRange === "7d" ? dashboard.earnings7d : dashboard.earnings6m;
 
   if (accountAccess.restricted) {
     return (
@@ -199,8 +265,7 @@ export default function ProviderDashboard() {
   }
 
   return (
-    <DashboardLayout>
-      <div className="space-y-6 pb-10 font-sans">
+    <div className="space-y-6 pb-10 font-sans">
         {/* Welcome Hero */}
         <div className="relative bg-card/60 p-8 rounded-[2rem] border border-border/60 backdrop-blur-xl overflow-hidden group shadow-sm">
           <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent pointer-events-none" />
@@ -235,7 +300,12 @@ export default function ProviderDashboard() {
           {CARD_STYLES.map((card) => {
             const Icon = card.icon;
             const rawValue = dashboard.summary[card.key];
-            const value = card.money ? formatCurrency(rawValue, currency) : Number(rawValue || 0).toLocaleString("en-IN");
+            const sampleValue = mockProviderDashboard.summary[card.key];
+            const source = hasMeaningfulValue(rawValue) ? "real" : "mock";
+            const resolvedValue = fallbackToMock(rawValue, sampleValue);
+            const value = card.money
+              ? formatCurrency(resolvedValue, processedData.currency)
+              : Number(resolvedValue || 0).toLocaleString("en-IN");
             
             return (
               <div key={card.key} className="bg-card/40 border border-border/60 rounded-[2rem] p-6 group hover:border-emerald-500/40 transition-all duration-300 backdrop-blur-sm shadow-xs relative overflow-hidden flex flex-col justify-center">
@@ -248,7 +318,10 @@ export default function ProviderDashboard() {
                     <BarChart3 size={14} className="text-muted-foreground opacity-30" />
                   </div>
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">{card.label}</p>
-                  <p className="text-2xl font-black leading-none italic">{value}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <p className="text-2xl font-black leading-none italic">{value}</p>
+                    <DataOriginBadge origin={source} liveLabel="Live" sampleLabel="Sample" />
+                  </div>
                 </div>
               </div>
             );
@@ -265,9 +338,10 @@ export default function ProviderDashboard() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold tracking-tight">Income</h2>
-                  <p className="text-[10px] text-muted-foreground font-medium italic opacity-70">Earnings overview.</p>
+                  <p className="text-[10px] text-muted-foreground font-medium italic opacity-70">Earnings overview with live-first data layering.</p>
                 </div>
               </div>
+              <DataOriginBadge origin={chartOrigin} />
               <div className="inline-flex rounded-xl border border-border/60 bg-muted/40 p-1">
                 {[
                   { id: "7d", label: "7D" },
@@ -340,24 +414,27 @@ export default function ProviderDashboard() {
                 </div>
               </div>
               <span className="bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-lg text-[10px] font-black border border-emerald-500/10">
-                {dashboard.todaySchedule.length}
+                {layeredTodaySchedule.length}
               </span>
             </div>
 
             <div className="space-y-3">
-              {dashboard.todaySchedule.length ? (
-                dashboard.todaySchedule.map((item) => (
+              {layeredTodaySchedule.length ? (
+                layeredTodaySchedule.map((item) => (
                   <div key={item.id} className="rounded-2xl border border-border/40 bg-card/50 p-4 hover:border-emerald-500/30 transition-colors shadow-xs group/item">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-bold text-foreground group-hover/item:text-emerald-700 transition-colors uppercase tracking-tight">{item.clientName}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-xs font-bold text-foreground group-hover/item:text-emerald-700 transition-colors uppercase tracking-tight">{item.clientName}</p>
+                          <DataOriginBadge origin={item.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                        </div>
                         <p className="mt-1 text-[10px] text-muted-foreground font-bold italic opacity-60">{item.serviceTitle}</p>
                       </div>
                       <StatusBadge status={item.status} />
                     </div>
                     <div className="mt-3 pt-3 border-t border-border/20 flex items-center justify-between">
                       <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 italic">{item.timeSlot || formatDate(item.bookingDate)}</span>
-                      <span className="text-[10px] font-black text-emerald-600 italic">{formatCurrency(item.amount, currency)}</span>
+                      <span className="text-[10px] font-black text-emerald-600 italic">{formatCurrency(item.amount, processedData.currency)}</span>
                     </div>
                   </div>
                 ))
@@ -384,7 +461,7 @@ export default function ProviderDashboard() {
               </div>
             </div>
 
-            {dashboard.recentAppointments.length ? (
+            {layeredRecentAppointments.length ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -397,14 +474,17 @@ export default function ProviderDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/20">
-                    {dashboard.recentAppointments.map((item) => (
+                    {layeredRecentAppointments.map((item) => (
                       <tr key={item.id} className="group hover:bg-emerald-500/5 transition-all">
                         <td className="px-8 py-4">
                           <div className="flex items-center gap-3">
                             <div className="h-9 w-9 bg-emerald-500/10 text-emerald-600 rounded-xl flex items-center justify-center text-[10px] font-black border border-emerald-500/20 shadow-xs">
                               {getInitials(item.clientName)}
                             </div>
-                            <span className="text-xs font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight">{item.clientName}</span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight">{item.clientName}</span>
+                              <DataOriginBadge origin={item.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                            </div>
                           </div>
                         </td>
                         <td className="px-8 py-4 text-[10px] font-bold text-muted-foreground opacity-80">{item.serviceTitle}</td>
@@ -412,7 +492,7 @@ export default function ProviderDashboard() {
                           <p className="text-[10px] font-bold text-muted-foreground italic whitespace-nowrap">{formatDate(item.bookingDate)}</p>
                         </td>
                         <td className="px-8 py-4 text-right">
-                           <p className="text-[11px] font-black italic text-emerald-600">{formatCurrency(item.amount, currency)}</p>
+                           <p className="text-[11px] font-black italic text-emerald-600">{formatCurrency(item.amount, processedData.currency)}</p>
                         </td>
                         <td className="px-8 py-4 text-right"><StatusBadge status={item.status} /></td>
                       </tr>
@@ -443,11 +523,14 @@ export default function ProviderDashboard() {
             </div>
 
             <div className="space-y-6">
-              {dashboard.topServices.length ? (
-                dashboard.topServices.map((service) => (
+              {layeredTopServices.length ? (
+                layeredTopServices.map((service) => (
                   <div key={service.serviceId} className="space-y-3">
                     <div className="flex items-end justify-between gap-3">
-                      <p className="text-[10px] font-black uppercase tracking-tight text-foreground/80">{service.serviceTitle}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-[10px] font-black uppercase tracking-tight text-foreground/80">{service.serviceTitle}</p>
+                        <DataOriginBadge origin={service.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                      </div>
                       <p className="text-[10px] font-black text-emerald-600 italic">#{service.bookings}</p>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-muted/40 ring-1 ring-border/20">
@@ -464,15 +547,14 @@ export default function ProviderDashboard() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
   );
 }
 
-function getInitials(value = "") {
+const getInitials = (value = "") => {
   return String(value)
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || "")
     .join("") || "C";
-}
+};

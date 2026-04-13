@@ -22,11 +22,7 @@ import AppTheme from "../shared/AppTheme";
 import ThemeToggle from "../shared/ThemeToggle";
 import { useMaintenance } from "@/components/contexts/MaintenanceContext";
 import { getAccountAccessState, getDashboardPathByRole } from "@/lib/accountAccess";
-import {
-  GoogleIcon,
-  FacebookIcon,
-  SitemarkIcon,
-} from "../pages/SignIn/Components/CustomIconsSI";
+import { SitemarkIcon } from "../pages/SignIn/Components/CustomIconsSI";
 
 const Card = styled(MuiCard)(({ theme }) => ({
   display: "flex",
@@ -333,36 +329,6 @@ export default function SignIn(props) {
             >
               Forgot your password?
             </Link>
-          </Box>
-          <Divider>or</Divider>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <Button
-              fullWidth
-              variant="outlined"
-              onClick={() => alert("Sign in with Google")}
-              startIcon={<GoogleIcon />}
-            >
-              Sign in with Google
-            </Button>
-            <Button
-              fullWidth
-              variant="outlined"
-              onClick={() => alert("Sign in with Facebook")}
-              startIcon={<FacebookIcon />}
-            >
-              Sign in with Facebook
-            </Button>
-            <Typography sx={{ textAlign: "center" }}>
-              Don&apos;t have an account?{" "}
-              <Link
-                component={RouterLink}
-                to="/signup"
-                variant="body2"
-                sx={{ alignSelf: "center" }}
-              >
-                Sign up
-              </Link>
-            </Typography>
           </Box>
         </Card>
       </SignInContainer>

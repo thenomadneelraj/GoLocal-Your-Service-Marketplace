@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { createBooking } from "@/lib/bookingApi";
+import { createBookingDraft } from "@/lib/bookingApi";
 import { toast } from "sonner";
+import { useAuth } from "@/components/contexts/AuthContext";
+import { getAccountAccessState } from "@/lib/accountAccess";
 
 const BOOKING_DRAFT_KEY = (providerId) => `booking-draft:${providerId}`;
 
@@ -10,15 +12,9 @@ const formatCurrency = (amount) =>
   `INR ${Number(amount || 0).toLocaleString("en-IN")}`;
 
 const formatDisplayDate = (value) => {
-  if (!value) {
-    return "-";
-  }
-
+  if (!value) return "-";
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
+  if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
@@ -28,26 +24,25 @@ const formatDisplayDate = (value) => {
 
 export default function BookingConfirmationPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const clientAccess = getAccountAccessState(user);
   const [draft, setDraft] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     try {
       const savedDraft = sessionStorage.getItem(BOOKING_DRAFT_KEY(id));
-
       if (!savedDraft) {
-        setError("Your booking draft is missing. Please select a service and time again.");
+        setError("Your booking draft is missing. Please select the works again.");
         return;
       }
-
-      const parsedDraft = JSON.parse(savedDraft);
-      setDraft(parsedDraft);
+      setDraft(JSON.parse(savedDraft));
       setError("");
-    } catch (err) {
-      console.error("Failed to read booking draft:", err);
-      setError("Your booking draft could not be loaded. Please start the booking flow again.");
+    } catch (nextError) {
+      console.error("Failed to read booking draft:", nextError);
+      setError("Your booking draft could not be loaded. Please start again.");
     }
   }, [id]);
 
@@ -55,8 +50,7 @@ export default function BookingConfirmationPage() {
     () =>
       Boolean(
         draft?.providerId &&
-          draft?.serviceId &&
-          draft?.serviceTitle &&
+          draft?.serviceIds?.length &&
           draft?.bookingDate &&
           draft?.timeSlot &&
           draft?.address &&
@@ -65,42 +59,43 @@ export default function BookingConfirmationPage() {
     [draft]
   );
 
-  const handleConfirm = async () => {
-    if (!draft || !isDraftComplete) {
-      const message =
-        "Your booking details are incomplete. Please return to the booking page and complete all fields.";
+  const handleContinueToPayment = async () => {
+    if (!clientAccess.canCreateBookings) {
+      const message = clientAccess.title || "Account approval pending.";
       setError(message);
       toast.error(message);
+      return;
+    }
+
+    if (!draft || !isDraftComplete) {
+      setError("Your booking details are incomplete.");
+      toast.error("Your booking details are incomplete.");
       return;
     }
 
     try {
       setLoading(true);
       setError("");
-      setSuccess(false);
-
-      await createBooking({
+      const response = await createBookingDraft({
         providerId: draft.providerId,
-        serviceId: draft.serviceId,
+        serviceIds: draft.serviceIds,
         bookingDate: draft.bookingDate,
         timeSlot: draft.timeSlot,
         address: draft.address,
-        notes:
-          draft.locationType === "online"
-            ? "Online booking requested by client."
-            : "Offline booking requested by client.",
-        totalAmount: draft.totalAmount,
-        paymentMethod: draft.paymentMethod,
+        notes: draft.requiresOfflineAddress
+          ? "Offline booking requested by client."
+          : "Online booking requested by client.",
       });
-
-      sessionStorage.removeItem(BOOKING_DRAFT_KEY(id));
-      setSuccess(true);
-      toast.success("Booking request submitted successfully.");
-    } catch (err) {
-      console.error(err);
+      const bookingId = response.data?.data?.booking?._id;
+      if (!bookingId) {
+        throw new Error("Booking draft was created without an id.");
+      }
+      navigate(`/bookings/${bookingId}/payment`);
+    } catch (nextError) {
       const message =
-        err.response?.data?.message ||
-        "Could not complete booking. Please try again.";
+        nextError.response?.data?.message ||
+        nextError.message ||
+        "Could not prepare the booking payment step.";
       setError(message);
       toast.error(message);
     } finally {
@@ -108,18 +103,13 @@ export default function BookingConfirmationPage() {
     }
   };
 
-  if (!draft && !success) {
+  if (!draft) {
     return (
       <section className="rounded-[2rem] border border-border/70 bg-card/92 p-8 shadow-[0_28px_80px_-48px_rgba(15,23,42,0.58)]">
-        <h1 className="mb-2 text-3xl font-semibold text-foreground">Booking Confirmation</h1>
-        <p className="mb-6 text-sm text-muted-foreground">
-          Review your booking details before the appointment is submitted.
-        </p>
-
+        <h1 className="mb-2 text-3xl font-semibold text-foreground">Booking Review</h1>
         <div className="mb-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
           {error || "Your booking draft is missing."}
         </div>
-
         <Button variant="outline" asChild>
           <Link to={`/booking/${id}`}>Back to Booking</Link>
         </Button>
@@ -129,46 +119,38 @@ export default function BookingConfirmationPage() {
 
   return (
     <section className="rounded-[2rem] border border-border/70 bg-card/92 p-8 shadow-[0_28px_80px_-48px_rgba(15,23,42,0.58)]">
-      <h1 className="mb-2 text-3xl font-semibold text-foreground">Booking Confirmation</h1>
+      <h1 className="mb-2 text-3xl font-semibold text-foreground">Review Booking</h1>
       <p className="mb-6 text-sm text-muted-foreground">
-        Review your booking details before the appointment is submitted.
+        Confirm the selected works and continue to payment.
       </p>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-3 rounded-[1.5rem] border border-border/70 bg-muted/25 p-5">
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Provider:</span> {draft?.providerName || "Provider"}
+            <span className="font-medium text-foreground">Provider:</span> {draft.providerName || "Provider"}
           </p>
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Service:</span> {draft?.serviceTitle || "-"}
+            <span className="font-medium text-foreground">Works:</span>{" "}
+            {Array.isArray(draft.serviceTitles) ? draft.serviceTitles.join(", ") : "-"}
           </p>
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Date:</span> {formatDisplayDate(draft?.bookingDate)}
+            <span className="font-medium text-foreground">Date:</span> {formatDisplayDate(draft.bookingDate)}
           </p>
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Time Slot:</span> {draft?.timeSlot || "-"}
+            <span className="font-medium text-foreground">Time Slot:</span> {draft.timeSlot || "-"}
           </p>
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Delivery Mode:</span> {draft?.locationType || "offline"}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Address / Instructions:</span> {draft?.address || "-"}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Payment Method:</span> {(draft?.paymentMethod || "-").toUpperCase()}
+            <span className="font-medium text-foreground">Address / Instructions:</span> {draft.address || "-"}
           </p>
         </div>
 
         <div className="rounded-[1.5rem] border border-border/70 bg-muted/20 p-5">
           <p className="mb-3 text-base font-semibold text-foreground">Price Summary</p>
           <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Service Price:</span> {formatCurrency(draft?.totalAmount)}
+            <span className="font-medium text-foreground">Base Total:</span> {formatCurrency(draft.totalAmount)}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Duration:</span> {draft?.duration || "As listed by provider"}
-          </p>
-          <p className="mt-4 text-lg font-semibold text-foreground">
-            Total: {formatCurrency(draft?.totalAmount)}
+            Platform fees will be added on the payment page according to the admin commission setting.
           </p>
         </div>
       </div>
@@ -179,9 +161,10 @@ export default function BookingConfirmationPage() {
         </p>
       ) : null}
 
-      {success ? (
-        <p className="mb-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-          Booking request submitted successfully. Your appointment is now waiting for the provider to accept or decline it.
+      {!clientAccess.canCreateBookings ? (
+        <p className="mb-3 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          <span className="font-semibold">{clientAccess.title || "Account approval pending."}</span>{" "}
+          {clientAccess.description}
         </p>
       ) : null}
 
@@ -189,14 +172,12 @@ export default function BookingConfirmationPage() {
         <Button variant="outline" asChild>
           <Link to={`/booking/${id}`}>Back to Booking</Link>
         </Button>
-        <Button onClick={handleConfirm} disabled={loading || success || !isDraftComplete}>
-          {loading ? "Processing..." : "Confirm & Book"}
+        <Button
+          onClick={handleContinueToPayment}
+          disabled={loading || !isDraftComplete || !clientAccess.canCreateBookings}
+        >
+          {loading ? "Preparing..." : "Continue to Payment"}
         </Button>
-        {success ? (
-          <Button variant="outline" asChild>
-            <Link to="/dashboard">Go to Dashboard</Link>
-          </Button>
-        ) : null}
       </div>
     </section>
   );

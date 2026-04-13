@@ -272,17 +272,17 @@ const ProfileSettings = () => {
                       />
                     </div>
                   </div>
+
+                  <div className="mt-6 flex justify-end">
+                    <Button
+                      type="submit"
+                      disabled={loading}
+                      className="min-w-[120px]"
+                    >
+                      {loading ? "Saving..." : "Save Changes"}
+                    </Button>
+                  </div>
                 </form>
-                
-                <div className="mt-6 flex justify-end">
-                  <Button
-                    type="submit"
-                    disabled={loading}
-                    className="min-w-[120px]"
-                  >
-                    {loading ? "Saving..." : "Save Changes"}
-                  </Button>
-                </div>
               </div>
             </Panel>
           )}
@@ -364,11 +364,10 @@ const ProfileSettings = () => {
                         <option value="false">Unavailable</option>
                       </select>
                     </div>
-                  </div>
-                  
-                  <div className="md:col-span-2">
-                    <label htmlFor="services" className="block text-sm font-medium text-foreground mb-2">
-                      Services Offered
+
+                    <div className="md:col-span-2">
+                      <label htmlFor="services" className="block text-sm font-medium text-foreground mb-2">
+                        Services Offered
                       </label>
                       <div className="border border-border rounded-lg p-4 bg-muted/20">
                         <div className="flex flex-wrap gap-2 mb-2">
@@ -377,15 +376,14 @@ const ProfileSettings = () => {
                               key={index}
                               className="inline-flex items-center gap-2 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
                             >
-                              {service}
+                              <span className="flex-1">{service}</span>
                               <button
                                 type="button"
                                 onClick={() => handleRemoveService(service)}
-                                className="text-red-500 hover:text-red-600 ml-auto"
+                                className="text-red-500 hover:text-red-600"
                               >
                                 <X className="w-3 h-3" />
                               </button>
-                              <span className="flex-1">{service}</span>
                             </span>
                           ))}
                         </div>
@@ -408,17 +406,17 @@ const ProfileSettings = () => {
                       </div>
                     </div>
                   </div>
+
+                  <div className="mt-6 flex justify-end">
+                    <Button
+                      type="submit"
+                      disabled={loading}
+                      className="min-w-[120px]"
+                    >
+                      {loading ? "Saving..." : "Save Changes"}
+                    </Button>
+                  </div>
                 </form>
-                
-                <div className="mt-6 flex justify-end">
-                  <Button
-                    type="submit"
-                    disabled={loading}
-                    className="min-w-[120px]"
-                  >
-                    {loading ? "Saving..." : "Save Changes"}
-                  </Button>
-                </div>
               </div>
             </Panel>
           )}
@@ -438,17 +436,22 @@ const ProfileSettings = () => {
                           <img
                             src={profilePhoto}
                             alt="Profile"
-                            className="w-full h-full object-cover rounded-lg border border-border"
+                            className="w-full h-full object-cover rounded-full border border-border"
                           />
                         ) : (
-                          <div className="w-full h-32 rounded-lg border border-border bg-muted/20 flex items-center justify-center">
+                          <div className="w-full h-32 rounded-full border border-border bg-muted/20 flex items-center justify-center">
                             <User className="w-16 h-16 text-muted-foreground" />
                           </div>
                         )}
+                        <label className="absolute bottom-1 right-1 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+                          <span className="text-lg font-bold leading-none pb-0.5">+</span>
+                          <input type="file" accept="image/*" className="hidden" onChange={handleProfilePhotoChange} />
+                        </label>
                       </div>
                       <p className="text-sm text-muted-foreground text-center">
                         Current profile photo
                       </p>
+                    </div>
                   </div>
                   
                   {/* Upload New Photo */}
@@ -467,11 +470,14 @@ const ProfileSettings = () => {
                   
                   <div className="mt-4 flex justify-end">
                     <Button
-                      onClick={handleProfilePhotoChange}
-                      disabled={!profilePhoto}
+                      type="button"
+                      onClick={() =>
+                        document.getElementById("profilePhotoUpload")?.click()
+                      }
+                      disabled={loading}
                       className="min-w-[120px]"
                     >
-                      Upload Photo
+                      Choose Photo
                     </Button>
                   </div>
                 </div>
@@ -540,3 +546,5 @@ const ProfileSettings = () => {
     </DashboardLayout>
   );
 }
+
+export default ProfileSettings;

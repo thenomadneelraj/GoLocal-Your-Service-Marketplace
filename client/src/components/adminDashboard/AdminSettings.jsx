@@ -109,12 +109,31 @@ export default function AdminSettings() {
         <AdminPanel title="Personal Information" description="Update your admin workspace profile details.">
           <div className="space-y-4">
             <div className="flex justify-center">
-              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-xl font-semibold text-primary">
-                {form.profileImage ? (
-                  <img src={form.profileImage} alt="Admin avatar" className="h-full w-full object-cover" />
-                ) : (
-                  form.name?.charAt(0)?.toUpperCase() || "A"
-                )}
+              <div className="relative inline-block">
+                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-xl font-semibold text-primary">
+                  {form.profileImage ? (
+                    <img src={form.profileImage} alt="Admin avatar" className="h-full w-full object-cover" />
+                  ) : (
+                    form.name?.charAt(0)?.toUpperCase() || "A"
+                  )}
+                </div>
+                <label className="absolute bottom-0 right-0 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+                  <span className="text-sm font-bold leading-none pb-0.5">+</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        handleChange("profileImage", reader.result);
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                </label>
               </div>
             </div>
             <div>
@@ -167,8 +186,17 @@ export default function AdminSettings() {
                     type="number"
                     min="0"
                     max="100"
+                    step="0.01"
                     value={form.commissionPercentage}
-                    onChange={(event) => handleChange("commissionPercentage", Number(event.target.value))}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      // Allow empty value or valid numbers
+                      if (value === "" || !isNaN(Number(value))) {
+                        // If empty, keep the current value or default to 10
+                        const newValue = value === "" ? 10 : Number(value);
+                        handleChange("commissionPercentage", newValue);
+                      }
+                    }}
                   />
                 </div>
               </div>

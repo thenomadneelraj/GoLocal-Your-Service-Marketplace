@@ -237,7 +237,7 @@ export default function ProviderBookings() {
                     variant="outline"
                     onClick={() => {
                       // Open message modal or navigate to messages
-                      window.location.href = `/messages?client=${booking.clientId?._id}`;
+                      window.location.href = `/provider/chat?client=${booking.clientId?._id}`;
                     }}
                   >
                     <MessageSquare className="w-4 h-4 mr-2" />

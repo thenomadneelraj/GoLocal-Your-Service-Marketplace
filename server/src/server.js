@@ -4,11 +4,17 @@ const app = require("./app");
 const PORT = process.env.PORT || 5000;
 const connectDB = require("./config/db");
 const { ensureSingleAdmin } = require("./services/adminBootstrapService");
+const {
+  backfillClientApprovalStatus,
+} = require("./services/accountApprovalMigrationService");
+const { ensureVerificationUploadDir } = require("./utils/verificationFiles");
 
 const startServer = async () => {
   try {
     await connectDB();
     await ensureSingleAdmin();
+    ensureVerificationUploadDir();
+    await backfillClientApprovalStatus();
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

@@ -7,8 +7,8 @@ const DashboardLayout = ({ children }) => {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="flex items-center justify-center min-h-screen">
+      <div className="h-screen overflow-hidden bg-background">
+        <div className="flex items-center justify-center h-full">
           <div className="text-center">
             <h1 className="text-2xl font-bold mb-4">Please Sign In</h1>
             <p className="text-muted-foreground">Access your workspace</p>
@@ -19,13 +19,13 @@ const DashboardLayout = ({ children }) => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="h-screen overflow-hidden bg-background flex">
       {/* Sidebar */}
       <Sidebar />
       
       {/* Main Content */}
-      <div className="flex-1 ml-64">
-        <main className="min-h-screen">
+      <div className="flex-1 ml-64 overflow-y-auto">
+        <main className="min-h-full">
           {children}
         </main>
       </div>

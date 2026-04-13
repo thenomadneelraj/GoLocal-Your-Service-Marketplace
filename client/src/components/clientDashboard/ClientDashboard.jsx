@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   Bar,
@@ -36,7 +36,13 @@ import {
   getBookingStatusLabel,
   normalizeBookingStatus,
 } from "@/lib/bookingStatus";
-import DashboardLayout from "@/components/layouts/DashboardLayout";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import {
+  fallbackToMock,
+  hasMeaningfulValue,
+  mergeLayeredCollections,
+} from "@/lib/dataLayering";
+import { mockClientDashboard } from "@/lib/mockWorkspaceData";
 
 const EMPTY_DASHBOARD = {
   summary: {
@@ -207,8 +213,52 @@ export default function ClientDashboard() {
   }, []);
 
   const currency = dashboard.currency || "INR";
-  const chartData =
+  const hasSeriesData = (items = []) =>
+    Array.isArray(items) &&
+    items.some((item) =>
+      Object.values(item || {}).some(
+        (value) => typeof value === "number" && Number(value) > 0
+      )
+    );
+
+  const liveOverviewData =
     chartRange === "monthly" ? dashboard.overview30d : dashboard.overview6m;
+  const mockOverviewData =
+    chartRange === "monthly"
+      ? mockClientDashboard.overview30d
+      : mockClientDashboard.overview6m;
+  const chartData = hasSeriesData(liveOverviewData)
+    ? liveOverviewData
+    : mockOverviewData;
+  const chartOrigin = hasSeriesData(liveOverviewData) ? "real" : "mock";
+  const activityData = hasSeriesData(dashboard.activity7d)
+    ? dashboard.activity7d
+    : mockClientDashboard.activity7d;
+  const activityOrigin = hasSeriesData(dashboard.activity7d) ? "real" : "mock";
+  const layeredTaskOverview = useMemo(
+    () =>
+      mergeLayeredCollections(
+        dashboard.taskOverview,
+        mockClientDashboard.taskOverview
+      ),
+    [dashboard.taskOverview]
+  );
+  const layeredRecentProviders = useMemo(
+    () =>
+      mergeLayeredCollections(
+        dashboard.recentProviders,
+        mockClientDashboard.recentProviders
+      ),
+    [dashboard.recentProviders]
+  );
+  const layeredUpcomingMeetings = useMemo(
+    () =>
+      mergeLayeredCollections(
+        dashboard.upcomingMeetings,
+        mockClientDashboard.upcomingMeetings
+      ),
+    [dashboard.upcomingMeetings]
+  );
 
   if (accountAccess.restricted) {
     return (
@@ -267,7 +317,7 @@ export default function ClientDashboard() {
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-medium text-primary">
             <BarChart3 size={14} />
-            Real client metrics
+            {hasMeaningfulValue(dashboard.summary) ? "Live client activity first" : "Sample-assisted client view"}
           </div>
         </div>
       </Panel>
@@ -276,7 +326,12 @@ export default function ClientDashboard() {
         {CARD_STYLES.map((card) => {
           const Icon = card.icon;
           const rawValue = dashboard.summary[card.key];
-          const value = card.money ? formatCurrency(rawValue, currency) : Number(rawValue || 0).toLocaleString("en-IN");
+          const sampleValue = mockClientDashboard.summary[card.key];
+          const source = hasMeaningfulValue(rawValue) ? "real" : "mock";
+          const resolvedValue = fallbackToMock(rawValue, sampleValue);
+          const displayValue = card.money
+            ? formatCurrency(resolvedValue, currency)
+            : Number(resolvedValue || 0).toLocaleString("en-IN");
 
           return (
             <Panel key={card.key} className="relative p-6">
@@ -291,7 +346,10 @@ export default function ClientDashboard() {
                   </span>
                 </div>
                 <div>
-                  <p className="text-3xl font-semibold tracking-tight text-foreground">{value}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-3xl font-semibold tracking-tight text-foreground">{displayValue}</p>
+                    <DataOriginBadge origin={source} liveLabel="Live" sampleLabel="Sample" />
+                  </div>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {card.key === "activeProviders"
                       ? "Providers you have booked with"
@@ -314,9 +372,10 @@ export default function ClientDashboard() {
             <div>
               <h2 className="text-xl font-semibold tracking-tight text-foreground">Client Overview</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Bookings and spending trends from real client activity.
+                Bookings and spending trends with live data first and sample fallback when activity is low.
               </p>
             </div>
+            <DataOriginBadge origin={chartOrigin} />
             <div className="inline-flex rounded-full border border-border/70 bg-muted/60 p-1">
               {[
                 { id: "monthly", label: "Monthly" },
@@ -390,17 +449,20 @@ export default function ClientDashboard() {
               <p className="mt-1 text-sm text-muted-foreground">Your next accepted or pending sessions.</p>
             </div>
             <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-              {dashboard.taskOverview.length}
+              {layeredTaskOverview.length}
             </span>
           </div>
 
           <div className="space-y-3">
-            {dashboard.taskOverview.length ? (
-              dashboard.taskOverview.map((item) => (
+            {layeredTaskOverview.length ? (
+              layeredTaskOverview.map((item) => (
                 <div key={item.id} className="rounded-[1.5rem] border border-border/60 bg-muted/30 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-foreground">{item.serviceTitle}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-foreground">{item.serviceTitle}</p>
+                        <DataOriginBadge origin={item.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                      </div>
                       <p className="mt-1 text-xs text-muted-foreground">{item.providerName}</p>
                     </div>
                     <StatusBadge status={item.status} />
@@ -423,10 +485,10 @@ export default function ClientDashboard() {
         <Panel className="overflow-hidden lg:col-span-8">
           <div className="border-b border-border/60 px-7 py-6">
             <h2 className="text-xl font-semibold tracking-tight text-foreground">Recent Providers</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Latest provider interactions based on your bookings.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Latest provider interactions with live bookings pinned above sample records.</p>
           </div>
 
-          {dashboard.recentProviders.length ? (
+          {layeredRecentProviders.length ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-left">
                 <thead className="bg-muted/20 text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
@@ -439,14 +501,17 @@ export default function ClientDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {dashboard.recentProviders.map((item) => (
+                  {layeredRecentProviders.map((item) => (
                     <tr key={item.id} className="transition-colors hover:bg-muted/15">
                       <td className="px-7 py-5">
                         <div className="flex items-center gap-3">
                           <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
                             {getInitials(item.providerName)}
                           </span>
-                          <span className="font-medium text-foreground">{item.providerName}</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-foreground">{item.providerName}</span>
+                            <DataOriginBadge origin={item.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                          </div>
                         </div>
                       </td>
                       <td className="px-7 py-5 text-sm text-foreground">{item.serviceTitle}</td>
@@ -476,17 +541,20 @@ export default function ClientDashboard() {
               <p className="mt-1 text-sm text-muted-foreground">Closest scheduled provider visits.</p>
             </div>
             <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-              {dashboard.upcomingMeetings.length}
+              {layeredUpcomingMeetings.length}
             </span>
           </div>
 
           <div className="space-y-3">
-            {dashboard.upcomingMeetings.length ? (
-              dashboard.upcomingMeetings.map((item) => (
+            {layeredUpcomingMeetings.length ? (
+              layeredUpcomingMeetings.map((item) => (
                 <div key={item.id} className="rounded-[1.5rem] border border-border/60 bg-muted/30 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-foreground">{item.providerName}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-foreground">{item.providerName}</p>
+                        <DataOriginBadge origin={item.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                      </div>
                       <p className="mt-1 text-xs text-muted-foreground">{item.serviceTitle}</p>
                     </div>
                     <StatusBadge status={item.status} />
@@ -512,11 +580,12 @@ export default function ClientDashboard() {
               <h2 className="text-xl font-semibold tracking-tight text-foreground">Recent Activity</h2>
               <p className="mt-1 text-sm text-muted-foreground">Booking activity over the last seven days.</p>
             </div>
+            <DataOriginBadge origin={activityOrigin} />
           </div>
 
           <div className="h-[230px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dashboard.activity7d}>
+              <BarChart data={activityData}>
                 <CartesianGrid vertical={false} strokeDasharray="6 6" stroke="hsl(var(--border))" opacity={0.65} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
                 <YAxis tickLine={false} axisLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />

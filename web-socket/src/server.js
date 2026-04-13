@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const http = require("http");
 const { Server } = require("socket.io");
+const { authenticateSocket } = require("./auth");
 
 const PORT = Number(process.env.PORT || 5003);
 const EMIT_AUTH_TOKEN = String(process.env.EMIT_AUTH_TOKEN || "").trim();
@@ -78,6 +79,7 @@ const io = new Server(server, {
     origin: allowRequestOrigin,
     methods: ["GET", "POST"],
   },
+  auth: false, // We'll handle authentication manually
 });
 
 const runtimeStats = {
@@ -430,6 +432,8 @@ app.post("/emit", requireEmitToken, (req, res) => {
     data: result,
   });
 });
+
+io.use(authenticateSocket);
 
 io.on("connection", (socket) => {
   runtimeStats.connectionAttempts += 1;

@@ -72,7 +72,7 @@ export default function ProviderServices() {
 
   const loadServices = async () => {
     try {
-      const response = await api.get("/services");
+      const response = await api.get(`/services?_t=${Date.now()}`);
       setServices(response.data || []);
     } catch (error) {
       toast.error("Failed to load services");

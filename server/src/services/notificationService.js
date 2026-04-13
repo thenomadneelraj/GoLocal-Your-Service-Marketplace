@@ -31,6 +31,13 @@ const createNotification = async ({
   actionUrl = "",
   metadata = {},
 }) => {
+  if (!userId) {
+    return {
+      notification: null,
+      unreadCount: 0,
+    };
+  }
+
   const notification = await Notification.create({
     user: userId,
     title,

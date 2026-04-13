@@ -1,18 +1,20 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 
 // Import routes
 const adminRoutes = require("./routes/admin");
+const publicRoutes = require("./routes/public");
 const authRoutes = require("./routes/auth");
 const providerRoutes = require("./routes/provider");
 const bookingRoutes = require("./routes/booking");
 const clientRoutes = require("./routes/client");
-const contactMessageRoutes = require("./routes/contactMessage");
 const disputeRoutes = require("./routes/dispute");
 const messageRoutes = require("./routes/message");
 const notificationRoutes = require("./routes/notification");
 const transactionRoutes = require("./routes/transaction");
-const newRoutes = require("./routes/newRoutes");
+const serviceRoutes = require("./routes/service");
+
 
 const app = express();
 
@@ -21,6 +23,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
 
 // Root Route
 app.get("/", (req, res) => {
@@ -33,17 +36,20 @@ app.use('/api/auth', authRoutes);
 // Admin Route
 app.use('/api/admin', adminRoutes);
 
+// Public routes (no authentication required)
+app.use('/api/public', publicRoutes);
+
 // Provider routes (IMPORTANT)
 app.use("/api/providers", providerRoutes);
+
+// Provider service routes
+app.use("/api/services", serviceRoutes);
 
 // Booking routes
 app.use("/api/bookings", bookingRoutes);
 
 // Client routes
 app.use("/api/clients", clientRoutes);
-
-// Public contact-message route
-app.use("/api/contact-messages", contactMessageRoutes);
 
 // Client dispute routes
 app.use("/api/disputes", disputeRoutes);
@@ -57,8 +63,7 @@ app.use("/api/notifications", notificationRoutes);
 // Transaction routes
 app.use("/api/transactions", transactionRoutes);
 
-// New consolidated API routes
-app.use("/api", newRoutes);
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {

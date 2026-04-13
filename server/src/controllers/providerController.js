@@ -1,9 +1,6 @@
-const Provider = require("../models/Provider");
 const User = require("../models/User");
 const Service = require("../models/Service");
 const Booking = require("../models/Booking");
-const Client = require("../models/Client");
-const Review = require("../models/Review");
 const {
   SOCKET_EVENTS,
   emitSocketEvent,
@@ -45,34 +42,7 @@ const doesAreaMatch = (provider, client) => {
   );
 };
 
-const mapReviewForResponse = (review) => ({
-  id: review?._id,
-  bookingId: review?.bookingId?._id || review?.bookingId || "",
-  rating: Number(review?.rating || 0),
-  comment: review?.comment || "",
-  createdAt: review?.createdAt,
-  updatedAt: review?.updatedAt,
-  serviceTitle: review?.serviceId?.title || "",
-  bookingDate: review?.bookingId?.bookingDate || null,
-  timeSlot: review?.bookingId?.timeSlot || "",
-  clientName: review?.clientId?.name || "Client",
-  clientProfileImage: review?.clientId?.profileImage || "",
-});
 
-const getProviderReviews = async (providerId, limit = 12) => {
-  const query = Review.find({ providerId })
-    .populate("clientId", "name profileImage")
-    .populate("serviceId", "title")
-    .populate("bookingId", "bookingDate timeSlot status")
-    .sort({ createdAt: -1 });
-
-  if (limit > 0) {
-    query.limit(limit);
-  }
-
-  const reviews = await query;
-  return reviews.map(mapReviewForResponse);
-};
 
 const buildAvailabilitySummary = async (provider, req) => {
   const now = new Date();
@@ -89,24 +59,24 @@ const buildAvailabilitySummary = async (provider, req) => {
   let matchesClientAddress = true;
 
   if (req.user?.role && req.user.role.toLowerCase() === "client") {
-    clientProfile = await Client.findOne({ userId: req.user._id });
+    clientProfile = await User.findOne({ _id: req.user._id, role: 'client' });
     matchesClientAddress = doesAreaMatch(provider, clientProfile);
   }
 
   let status = "available";
   let reason = "Provider is available for booking.";
   const providerUserState = buildPersistedAccountState({
-    role: provider.userId?.role || "provider",
-    status: provider.userId?.status,
-    isActive: provider.userId?.isActive,
-    approvalStatus: provider.userId?.approvalStatus,
+    role: provider.role || "provider",
+    status: provider.status,
+    isActive: provider.isActive,
+    approvalStatus: provider.approvalStatus,
     isApproved: provider.isApproved,
   });
 
-  if (!isAccountActive(provider.userId)) {
+  if (!isAccountActive(provider)) {
     status = "unavailable";
     reason = "Provider account is currently disabled by admin.";
-  } else if (!isProviderApproved({ user: provider.userId, provider })) {
+  } else if (!isProviderApproved({ user: provider, provider })) {
     status = "unavailable";
     reason =
       providerUserState.approvalStatus === APPROVAL_STATUS.REJECTED
@@ -151,10 +121,11 @@ const createProvider = async (req, res) => {
       profileImage,
     } = req.body;
 
-    const provider = await Provider.create({
-      userId,
+    const provider = await User.create({
+      _id: userId,
       name,
       phone,
+      role: 'provider',
       upiId: upiId || (phone ? `${phone}@golocal` : ""),
       profileImage: profileImage || "",
       serviceType,
@@ -202,14 +173,13 @@ const getProviders = async (req, res) => {
       query.location = { $regex: location, $options: "i" };
     }
 
-    const providers = await Provider.find(query)
-      .populate("userId", "email role status approvalStatus isActive")
+    const providers = await User.find({ ...query, role: 'provider' })
       .sort({ createdAt: -1 });
 
     const visibleProviders = providers.filter(
       (provider) =>
-        isAccountActive(provider.userId) &&
-        isProviderApproved({ user: provider.userId, provider })
+        isAccountActive(provider) &&
+        isProviderApproved({ user: provider, provider })
     );
 
     const total = visibleProviders.length;
@@ -218,18 +188,34 @@ const getProviders = async (req, res) => {
       (page - 1) * limit + limit
     );
 
-    const payload = paginatedProviders.map((provider) => ({
-      ...(provider.toObject ? provider.toObject() : provider),
-      profilePhoto: provider.profileImage || provider.profilePhoto || "",
-      available: provider.availability,
-      verified: isProviderApproved({ user: provider.userId, provider }),
-      status:
-        provider.userId?.status ||
-        (provider.userId?.isActive === false ? "suspended" : "active"),
-      approvalStatus:
-        provider.userId?.approvalStatus ||
-        (provider.isApproved ? "approved" : "pending"),
-      reviewCount: provider.totalReviews,
+    const Service = require("../models/Service");
+    const payload = await Promise.all(paginatedProviders.map(async (provider) => {
+      const providerObj = provider.toObject ? provider.toObject() : provider;
+      
+      const services = await Service.find({ 
+        providerId: provider._id, 
+        status: "active" 
+      }).select("price").lean();
+      
+      const prices = services.map(s => s.price).filter(p => p && p > 0);
+      const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+      const startingPrice = minPrice || provider.hourlyRate || 0;
+      
+      return {
+        ...providerObj,
+        profilePhoto: provider.profileImage || provider.profilePhoto || "",
+        available: provider.availability,
+        verified: isProviderApproved({ user: provider, provider }),
+        status:
+          provider.status ||
+          (provider.isActive === false ? "suspended" : "active"),
+        approvalStatus:
+          provider.approvalStatus ||
+          (provider.isApproved ? "approved" : "pending"),
+        hourlyRate: startingPrice,
+        servicePriceRange: prices.length > 1 ? `${Math.min(...prices)}-${Math.max(...prices)}` : (prices.length === 1 ? prices[0] : null),
+        serviceCount: services.length,
+      };
     }));
 
     res.json({
@@ -252,8 +238,7 @@ const getProviders = async (req, res) => {
 
 const getProviderById = async (req, res) => {
   try {
-    const provider = await Provider.findById(req.params.id)
-      .populate("userId", "email role status approvalStatus isActive");
+    const provider = await User.findOne({ _id: req.params.id, role: 'provider' });
 
     if (!provider) {
       return res.status(404).json({
@@ -265,11 +250,11 @@ const getProviderById = async (req, res) => {
     const isAdmin = String(req.user?.role || "").toUpperCase() === "ADMIN";
     const isOwner =
       req.user?._id &&
-      String(provider.userId?._id || provider.userId) === String(req.user._id);
+      String(provider._id) === String(req.user._id);
 
     if (
-      (!isProviderApproved({ user: provider.userId, provider }) ||
-        !isAccountActive(provider.userId)) &&
+      (!isProviderApproved({ user: provider, provider }) ||
+        !isAccountActive(provider)) &&
       !isAdmin &&
       !isOwner
     ) {
@@ -279,31 +264,40 @@ const getProviderById = async (req, res) => {
       });
     }
 
-    const [services, availabilitySummary, reviews, completedJobs] = await Promise.all([
-      Service.find({ providerId: provider._id }).sort({ createdAt: -1 }),
+    const [services, availabilitySummary, completedJobs] = await Promise.all([
+      Service.find({ providerId: provider._id, status: "active" }).sort({ createdAt: -1 }),
       buildAvailabilitySummary(provider, req),
-      getProviderReviews(provider._id),
       Booking.countDocuments({ providerId: provider._id, status: "completed" }),
     ]);
+
+    const prices = services.map(s => s.price).filter(p => p && p > 0);
+    const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+    const startingPrice = minPrice || provider.hourlyRate || 0;
 
     const payload = {
       ...(provider.toObject ? provider.toObject() : provider),
       services,
-      reviews,
       profilePhoto: provider.profileImage || provider.profilePhoto || "",
       available: provider.availability,
-      verified: isProviderApproved({ user: provider.userId, provider }),
+      verified: isProviderApproved({ user: provider, provider }),
       status:
-        provider.userId?.status ||
-        (provider.userId?.isActive === false ? "suspended" : "active"),
+        provider.status ||
+        (provider.isActive === false ? "suspended" : "active"),
       approvalStatus:
-        provider.userId?.approvalStatus ||
+        provider.approvalStatus ||
         (provider.isApproved ? "approved" : "pending"),
-      reviewCount: provider.totalReviews,
       yearsExperience: provider.experience,
-      email: provider.userId?.email,
+      email: provider.email,
+      bankName: provider.bankName || "",
+      upiId: provider.upiId || "",
+      workCategories: Array.isArray(provider.workCategories)
+        ? provider.workCategories
+        : [],
       availabilitySummary,
       completedJobs,
+      hourlyRate: startingPrice,
+      servicePriceRange: prices.length > 1 ? `${Math.min(...prices)}-${Math.max(...prices)}` : (prices.length === 1 ? prices[0] : null),
+      serviceCount: services.length,
     };
 
     res.json({
@@ -321,7 +315,7 @@ const getProviderById = async (req, res) => {
 
 const updateProvider = async (req, res) => {
   try {
-    const provider = await Provider.findById(req.params.id);
+    const provider = await User.findOne({ _id: req.params.id, role: 'provider' });
 
     if (!provider) {
       return res.status(404).json({
@@ -332,16 +326,16 @@ const updateProvider = async (req, res) => {
 
     // Only owner or admin can update
     const isAdmin = req.user.role === "admin" || req.user.role === "ADMIN";
-    
-    if (provider.userId.toString() !== req.user._id.toString() && !isAdmin) {
+
+    if (provider._id.toString() !== req.user._id.toString() && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: "Unauthorized"
       });
     }
 
-    const updatedProvider = await Provider.findByIdAndUpdate(
-      req.params.id,
+    const updatedProvider = await User.findOneAndUpdate(
+      { _id: req.params.id, role: 'provider' },
       req.body,
       { new: true }
     );
@@ -361,7 +355,7 @@ const updateProvider = async (req, res) => {
 
 const deleteProvider = async (req, res) => {
   try {
-    const provider = await Provider.findById(req.params.id);
+    const provider = await User.findOne({ _id: req.params.id, role: 'provider' });
 
     if (!provider) {
       return res.status(404).json({
@@ -372,14 +366,14 @@ const deleteProvider = async (req, res) => {
 
     const isAdmin = req.user.role === "admin" || req.user.role === "ADMIN";
 
-    if (provider.userId.toString() !== req.user._id.toString() && !isAdmin) {
+    if (provider._id.toString() !== req.user._id.toString() && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: "Unauthorized"
       });
     }
 
-    await Provider.deleteOne({ _id: req.params.id });
+    await User.findOneAndDelete({ _id: req.params.id, role: 'provider' });
 
     res.json({
       success: true,
@@ -396,30 +390,35 @@ const deleteProvider = async (req, res) => {
 
 const getProviderMe = async (req, res) => {
   try {
-    const provider = await Provider.findOne({ userId: req.user._id }).populate("userId", "email role status approvalStatus isActive");
+    const provider = await User.findOne({ _id: req.user._id, role: 'provider' });
     if (!provider) {
       return res.json({ success: true, data: null, message: "No provider profile found." });
     }
 
-    const [reviews, completedJobs] = await Promise.all([
-      getProviderReviews(provider._id, 25),
+    const [completedJobs] = await Promise.all([
       Booking.countDocuments({ providerId: provider._id, status: "completed" }),
     ]);
     res.json({
       success: true,
       data: {
         ...(provider.toObject ? provider.toObject() : provider),
-        reviews,
         profilePhoto: provider.profileImage || provider.profilePhoto || "",
         available: provider.availability,
-        reviewCount: provider.totalReviews,
         yearsExperience: provider.experience,
-        email: provider.userId?.email,
+        email: provider.email,
+        bankName: provider.bankName || "",
+        accountNumber: provider.accountNumber || "",
+        accountHolderName:
+          provider.accountHolderName || provider.name || "",
+        upiId: provider.upiId || "",
+        workCategories: Array.isArray(provider.workCategories)
+          ? provider.workCategories
+          : [],
         status:
-          provider.userId?.status ||
-          (provider.userId?.isActive === false ? "suspended" : "active"),
+          provider.status ||
+          (provider.isActive === false ? "suspended" : "active"),
         approvalStatus:
-          provider.userId?.approvalStatus ||
+          provider.approvalStatus ||
           (provider.isApproved ? "approved" : "pending"),
         completedJobs,
       },
@@ -431,7 +430,7 @@ const getProviderMe = async (req, res) => {
 
 const updateProviderMe = async (req, res) => {
   try {
-    let provider = await Provider.findOne({ userId: req.user._id });
+    let provider = await User.findOne({ _id: req.user._id, role: 'provider' });
     
     if (!provider) {
       return res.status(404).json({ success: false, message: "Provider profile not found." });
@@ -450,11 +449,14 @@ const updateProviderMe = async (req, res) => {
       experience,
       profileImage,
       profilePhoto,
+      bankName,
+      accountNumber,
+      accountHolderName,
+      workCategories,
     } = req.body;
       
     if (name !== undefined) provider.name = name;
     if (phone !== undefined) provider.phone = phone;
-    if (upiId !== undefined) provider.upiId = String(upiId || "").trim();
     if (profileImage !== undefined || profilePhoto !== undefined) {
       provider.profileImage = profileImage ?? profilePhoto ?? "";
     }
@@ -465,6 +467,18 @@ const updateProviderMe = async (req, res) => {
     if (address !== undefined) provider.address = address;
     if (availability !== undefined) provider.availability = availability;
     if (experience !== undefined) provider.experience = experience;
+    if (bankName !== undefined) provider.bankName = String(bankName || "").trim();
+    if (accountNumber !== undefined) {
+      provider.accountNumber = String(accountNumber || "").trim();
+    }
+    if (accountHolderName !== undefined) {
+      provider.accountHolderName = String(
+        accountHolderName || provider.name || ""
+      ).trim();
+    }
+    if (Array.isArray(workCategories)) {
+      provider.workCategories = workCategories;
+    }
 
     await provider.save();
 
@@ -483,8 +497,15 @@ const updateProviderMe = async (req, res) => {
         ...(provider.toObject ? provider.toObject() : provider),
         profilePhoto: provider.profileImage || provider.profilePhoto || "",
         available: provider.availability,
-        reviewCount: provider.totalReviews,
         yearsExperience: provider.experience,
+        bankName: provider.bankName || "",
+        accountNumber: provider.accountNumber || "",
+        accountHolderName:
+          provider.accountHolderName || provider.name || "",
+        upiId: provider.upiId || "",
+        workCategories: Array.isArray(provider.workCategories)
+          ? provider.workCategories
+          : [],
       }
     });
   } catch (error) {

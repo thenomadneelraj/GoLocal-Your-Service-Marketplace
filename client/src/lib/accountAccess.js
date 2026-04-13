@@ -12,11 +12,16 @@ const normalizeApprovalStatus = (value = "", role = "", legacyApproved = true) =
     return normalized;
   }
 
-  return String(role || "").toUpperCase() === "PROVIDER"
-    ? legacyApproved
-      ? "approved"
-      : "pending"
-    : "approved";
+  const normalizedRole = String(role || "").toUpperCase();
+  if (normalizedRole === "ADMIN") {
+    return "approved";
+  }
+
+  if (["CLIENT", "PROVIDER"].includes(normalizedRole)) {
+    return legacyApproved ? "approved" : "pending";
+  }
+
+  return "approved";
 };
 
 export const getDashboardPathByRole = (role) => {
@@ -35,13 +40,34 @@ export const getAccountAccessState = (user) => {
     user?.isApproved !== false
   );
   const isActive = status === "active";
-  const isApproved =
-    role === "PROVIDER" ? approvalStatus === "approved" : true;
+  const approvalRequired = role === "CLIENT" || role === "PROVIDER";
+  const pendingApproval = approvalRequired && approvalStatus === "pending";
+  const approvalRejected = approvalRequired && approvalStatus === "rejected";
+  const isApproved = !approvalRequired || approvalStatus === "approved";
+
+  if (role === "ADMIN") {
+    return {
+      role,
+      restricted: false,
+      pendingApproval: false,
+      approvalRejected: false,
+      isApproved: true,
+      canCreateBookings: true,
+      canRespondToBookings: true,
+      title: "",
+      description: "",
+    };
+  }
 
   if (role === "CLIENT" && !isActive) {
     return {
       role,
       restricted: true,
+      pendingApproval: false,
+      approvalRejected: false,
+      isApproved,
+      canCreateBookings: false,
+      canRespondToBookings: false,
       title: "Client account suspended",
       description:
         "Your client account is currently suspended by admin. You can access only this dashboard and should contact the admin to reactivate your account.",
@@ -52,30 +78,73 @@ export const getAccountAccessState = (user) => {
     return {
       role,
       restricted: true,
+      pendingApproval: false,
+      approvalRejected: false,
+      isApproved,
+      canCreateBookings: false,
+      canRespondToBookings: false,
       title: "Provider account disabled",
       description:
-        "Your provider account is currently disabled by admin. You can access only this dashboard and should contact the admin to restore access.",
+        "Your provider account is currently disabled by admin. You can still review your dashboard, update settings, and use the verification page while you contact the admin to restore access.",
     };
   }
 
-  if (role === "PROVIDER" && !isApproved) {
+  if (approvalRejected) {
     return {
       role,
       restricted: true,
+      pendingApproval: false,
+      approvalRejected: true,
+      isApproved: false,
+      canCreateBookings: false,
+      canRespondToBookings: false,
       title:
-        approvalStatus === "rejected"
-          ? "Provider account rejected"
-          : "Provider approval pending",
+        role === "PROVIDER" ? "Provider account rejected" : "Client account rejected",
       description:
-        approvalStatus === "rejected"
-          ? "Your provider account was rejected by admin. You can access only this dashboard and should contact the admin for next steps."
-          : "Your provider account is waiting for admin approval. You can access only this dashboard and should contact the admin for activation.",
+        role === "PROVIDER"
+          ? "Your provider account was rejected by admin. Contact the admin for next steps."
+          : "Your client account was rejected by admin. Contact the admin for next steps.",
+    };
+  }
+
+  if (role === "CLIENT" && pendingApproval) {
+    return {
+      role,
+      restricted: false,
+      pendingApproval: true,
+      approvalRejected: false,
+      isApproved: false,
+      canCreateBookings: false,
+      canRespondToBookings: false,
+      title: "Account approval pending.",
+      description:
+        "You can browse the platform, but booking providers is disabled until the admin approves your account.",
+    };
+  }
+
+  if (role === "PROVIDER" && pendingApproval) {
+    return {
+      role,
+      restricted: false,
+      pendingApproval: true,
+      approvalRejected: false,
+      isApproved: false,
+      canCreateBookings: true,
+      canRespondToBookings: false,
+      title: "Account Approval Pending",
+      description:
+        "You can access your dashboard and browse the platform, but you cannot accept client requests until the admin approves your account.",
     };
   }
 
   return {
     role,
     restricted: false,
+    pendingApproval: false,
+    approvalRejected: false,
+    isApproved,
+    canCreateBookings: role === "CLIENT" ? true : false,
+    canRespondToBookings: role === "PROVIDER" ? true : false,
     title: "",
     description: "",
   };
@@ -85,5 +154,19 @@ export const isRestrictedRouteAllowed = (user, pathname = "") => {
   const access = getAccountAccessState(user);
   if (!access.restricted) return true;
 
-  return pathname === getDashboardPathByRole(access.role);
+  const normalizedPath = String(pathname || "").trim();
+  const normalizedRole = String(access.role || "").toUpperCase();
+
+  if (normalizedRole === "PROVIDER") {
+    return [
+      "/provider-dashboard",
+      "/provider/availability",
+      "/provider/settings",
+      "/provider/profile",
+      "/provider/verification",
+      "/provider/help-support",
+    ].includes(normalizedPath);
+  }
+
+  return normalizedPath === getDashboardPathByRole(access.role);
 };

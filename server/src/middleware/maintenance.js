@@ -1,17 +1,16 @@
-const PlatformSetting = require("../models/PlatformSetting");
+const { getPlatformSettings } = require("../services/platformSettingsService");
 
 const DEFAULT_PLATFORM_NAME = "GoLocal";
 const DEFAULT_SUPPORT_EMAIL = "support@golocal.com";
 
 const getPlatformStatus = async () => {
-  const settings = await PlatformSetting.findOne()
-    .select("maintenanceMode platformName supportEmail maintenanceMessage")
-    .lean();
+  const settings = await getPlatformSettings();
 
   return {
     maintenanceMode: Boolean(settings?.maintenanceMode),
     platformName: settings?.platformName || DEFAULT_PLATFORM_NAME,
     supportEmail: settings?.supportEmail || DEFAULT_SUPPORT_EMAIL,
+    commissionPercentage: Number(settings?.commissionPercentage || 5),
     maintenanceMessage:
       settings?.maintenanceMessage ||
       "Website is currently under maintenance. Please check back soon.",
@@ -22,13 +21,14 @@ const buildMaintenanceResponse = (status = {}) => ({
   success: false,
   code: "MAINTENANCE_MODE",
   message: `${status.platformName || DEFAULT_PLATFORM_NAME} is temporarily under maintenance. Client and provider access is paused right now.`,
-  data: {
-    maintenanceMode: true,
-    platformName: status.platformName || DEFAULT_PLATFORM_NAME,
-    supportEmail: status.supportEmail || DEFAULT_SUPPORT_EMAIL,
-    maintenanceMessage:
-      status.maintenanceMessage ||
-      "Website is currently under maintenance. Please check back soon.",
+    data: {
+      maintenanceMode: true,
+      platformName: status.platformName || DEFAULT_PLATFORM_NAME,
+      supportEmail: status.supportEmail || DEFAULT_SUPPORT_EMAIL,
+      commissionPercentage: Number(status.commissionPercentage || 5),
+      maintenanceMessage:
+        status.maintenanceMessage ||
+        "Website is currently under maintenance. Please check back soon.",
   },
 });
 

@@ -1,8 +1,7 @@
-const Provider = require("../models/Provider");
 const {
   APPROVAL_STATUS,
   buildPersistedAccountState,
-  normalizeApprovalStatus,
+  isApprovalRequiredRole,
 } = require("../utils/accountState");
 
 const buildAccountAccessState = async (user) => {
@@ -22,10 +21,21 @@ const buildAccountAccessState = async (user) => {
       isActive: true,
       isApproved: true,
       restricted: false,
+      pendingApproval: false,
       reason: null,
       message: "",
+      canCreateBookings: true,
+      canRespondToBookings: true,
     };
   }
+
+  const requiresApproval = isApprovalRequiredRole(role);
+  const pendingApproval =
+    requiresApproval && baseState.approvalStatus === APPROVAL_STATUS.PENDING;
+  const approvalRejected =
+    requiresApproval && baseState.approvalStatus === APPROVAL_STATUS.REJECTED;
+  const isApproved =
+    !requiresApproval || baseState.approvalStatus === APPROVAL_STATUS.APPROVED;
 
   if (!baseState.isActive) {
     return {
@@ -33,47 +43,36 @@ const buildAccountAccessState = async (user) => {
       status: baseState.status,
       approvalStatus: baseState.approvalStatus,
       isActive: false,
-      isApproved: baseState.approvalStatus === APPROVAL_STATUS.APPROVED,
+      isApproved,
       restricted: true,
+      pendingApproval: false,
       reason: role === "PROVIDER" ? "provider_disabled" : "client_suspended",
       message:
         role === "PROVIDER"
           ? "Your provider account is disabled. You can access only your dashboard to contact the admin."
           : "Your client account is suspended. You can access only your dashboard to contact the admin.",
+      canCreateBookings: false,
+      canRespondToBookings: false,
     };
   }
 
-  if (role === "PROVIDER") {
-    const provider = await Provider.findOne({ userId: user._id })
-      .select("isApproved")
-      .lean();
-    const approvalStatus = normalizeApprovalStatus(
-      user.approvalStatus,
-      {
-        role: user.role,
-        status: baseState.status,
-        isApproved: provider?.isApproved,
-      }
-    );
-
-    if (approvalStatus !== APPROVAL_STATUS.APPROVED) {
-      return {
-        role,
-        status: baseState.status,
-        approvalStatus,
-        isActive: true,
-        isApproved: false,
-        restricted: true,
-        reason:
-          approvalStatus === APPROVAL_STATUS.REJECTED
-            ? "provider_rejected"
-            : "provider_unapproved",
-        message:
-          approvalStatus === APPROVAL_STATUS.REJECTED
-            ? "Your provider account was rejected by admin. You can access only your dashboard to contact the admin."
-            : "Your provider account is awaiting admin approval. You can access only your dashboard to contact the admin.",
-      };
-    }
+  if (approvalRejected) {
+    return {
+      role,
+      status: baseState.status,
+      approvalStatus: baseState.approvalStatus,
+      isActive: true,
+      isApproved: false,
+      restricted: true,
+      pendingApproval: false,
+      reason: role === "PROVIDER" ? "provider_rejected" : "client_rejected",
+      message:
+        role === "PROVIDER"
+          ? "Your provider account was rejected by admin. Please contact support for next steps."
+          : "Your client account was rejected by admin. Please contact support for next steps.",
+      canCreateBookings: false,
+      canRespondToBookings: false,
+    };
   }
 
   return {
@@ -81,10 +80,13 @@ const buildAccountAccessState = async (user) => {
     status: baseState.status,
     approvalStatus: baseState.approvalStatus,
     isActive: true,
-    isApproved: true,
+    isApproved,
     restricted: false,
+    pendingApproval,
     reason: null,
     message: "",
+    canCreateBookings: role === "CLIENT" ? isApproved : true,
+    canRespondToBookings: role === "PROVIDER" ? isApproved : true,
   };
 };
 
@@ -101,7 +103,10 @@ const buildAccountRestrictionResponse = (accessState = {}) => ({
       approvalStatus: accessState.approvalStatus || "",
       isActive: accessState.isActive !== false,
       isApproved: accessState.isApproved !== false,
+      pendingApproval: Boolean(accessState.pendingApproval),
       restricted: true,
+      canCreateBookings: Boolean(accessState.canCreateBookings),
+      canRespondToBookings: Boolean(accessState.canRespondToBookings),
   },
 });
 

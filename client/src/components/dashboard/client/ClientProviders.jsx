@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  AlertTriangle,
   BriefcaseBusiness,
   ChevronRight,
   Filter,
@@ -15,6 +16,12 @@ import {
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
 import { resolveMediaUrl } from "@/lib/media";
+import { useAuth } from "@/components/contexts/AuthContext";
+import { getAccountAccessState } from "@/lib/accountAccess";
+import { subscribeToProviderUpdates } from "@/lib/socket";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockClientProviders } from "@/lib/mockWorkspaceData";
 
 const formatCurrency = (amount) =>
   `INR ${Number(amount || 0).toLocaleString("en-IN")}/hr`;
@@ -79,6 +86,9 @@ const getAvailabilityLabel = (provider) =>
   provider.available ? "Available now" : "Unavailable";
 
 export default function ClientProviders() {
+  const { user } = useAuth();
+  const clientAccess = getAccountAccessState(user);
+  const canBook = clientAccess.canCreateBookings;
   const [providers, setProviders] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [locationQuery, setLocationQuery] = useState("");
@@ -125,12 +135,32 @@ export default function ClientProviders() {
       fetchProviders();
     }, 250);
 
+    const unsubscribe = subscribeToProviderUpdates(() => {
+      fetchProviders();
+    });
+
     return () => {
       window.clearTimeout(timeoutId);
+      unsubscribe();
     };
   }, [fetchProviders]);
 
   const handleViewProfile = async (providerId) => {
+    const mockProvider = mockClientProviders.find(
+      (provider) => String(provider.id) === String(providerId)
+    );
+
+    if (mockProvider) {
+      setSelectedProviderId(providerId);
+      setSelectedProvider({
+        ...normalizeProviderDetails(mockProvider),
+        dataOrigin: "mock",
+      });
+      setDetailError("");
+      setDetailLoading(false);
+      return;
+    }
+
     try {
       setSelectedProviderId(providerId);
       setSelectedProvider(null);
@@ -139,7 +169,10 @@ export default function ClientProviders() {
 
       const response = await api.get(`/api/providers/${providerId}`);
       const payload = response.data?.data || response.data;
-      setSelectedProvider(normalizeProviderDetails(payload));
+      setSelectedProvider({
+        ...normalizeProviderDetails(payload),
+        dataOrigin: "real",
+      });
     } catch (err) {
       setDetailError(
         err.response?.data?.message ||
@@ -158,11 +191,22 @@ export default function ClientProviders() {
   };
 
   const hasFilters = Boolean(searchQuery.trim() || locationQuery.trim());
+  const layeredProviders = useMemo(
+    () =>
+      mergeLayeredCollections(
+        providers,
+        mockClientProviders.map(normalizeProviderCard),
+        {
+          getId: (provider) => provider.id,
+        }
+      ),
+    [providers]
+  );
 
   const providerCountLabel = useMemo(
     () =>
-      `${providers.length} provider${providers.length === 1 ? "" : "s"} found`,
-    [providers.length]
+      `${layeredProviders.length} provider${layeredProviders.length === 1 ? "" : "s"} found`,
+    [layeredProviders.length]
   );
 
   return (
@@ -240,9 +284,9 @@ export default function ClientProviders() {
             />
           ))}
         </div>
-      ) : providers.length ? (
+      ) : layeredProviders.length ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {providers.map((provider) => {
+          {layeredProviders.map((provider) => {
             const imageUrl = resolveMediaUrl(provider.image);
 
             return (
@@ -268,6 +312,7 @@ export default function ClientProviders() {
                     <span className="bg-background/85 backdrop-blur-md px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm">
                       {provider.serviceType}
                     </span>
+                    <DataOriginBadge origin={provider.dataOrigin} liveLabel="Live" sampleLabel="Sample" className="bg-background/85" />
                     {provider.verified ? (
                       <span className="bg-emerald-500/85 backdrop-blur-md text-white px-2 py-1 rounded-lg shadow-sm">
                         <ShieldCheck size={14} />
@@ -350,9 +395,14 @@ export default function ClientProviders() {
                   <p className="text-[10px] font-black uppercase tracking-[0.22em] text-primary">
                     Provider Profile
                   </p>
-                  <h2 className="mt-2 text-2xl font-bold tracking-tight">
-                    {selectedProvider?.name || "Loading profile"}
-                  </h2>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <h2 className="text-2xl font-bold tracking-tight">
+                      {selectedProvider?.name || "Loading profile"}
+                    </h2>
+                    {selectedProvider?.dataOrigin ? (
+                      <DataOriginBadge origin={selectedProvider.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                    ) : null}
+                  </div>
                   <p className="mt-2 text-sm text-muted-foreground">
                     Review provider details and book directly from this profile card.
                   </p>
@@ -522,17 +572,28 @@ export default function ClientProviders() {
                     </div>
 
                     <div className="flex flex-wrap gap-3">
-                      {selectedProvider.availabilitySummary.status !==
-                      "unavailable" ? (
-                        <Button asChild className="rounded-xl">
-                          <Link to={`/booking/${selectedProvider.id}`}>
+                      {canBook ? (
+                        selectedProvider.availabilitySummary.status !== "unavailable" ? (
+                          <Button asChild className="rounded-xl">
+                            <Link to={`/booking/${selectedProvider.id}`}>
+                              Book Now
+                            </Link>
+                          </Button>
+                        ) : (
+                          <Button className="rounded-xl" disabled>
                             Book Now
-                          </Link>
-                        </Button>
+                          </Button>
+                        )
                       ) : (
-                        <Button className="rounded-xl" disabled>
-                          Book Now
-                        </Button>
+                        <div className="flex flex-col gap-1.5">
+                          <Button className="rounded-xl" disabled>
+                            Book Now
+                          </Button>
+                          <p className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                            <AlertTriangle size={12} />
+                            {clientAccess.title || "Booking unavailable"} - booking unavailable.
+                          </p>
+                        </div>
                       )}
                       <Button asChild variant="outline" className="rounded-xl">
                         <Link to={`/providers/${selectedProvider.id}`}>

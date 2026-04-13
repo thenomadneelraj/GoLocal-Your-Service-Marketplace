@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { CalendarClock, CheckCircle2, Clock3, Search, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchAdminBookings,
   fetchAdminBookingsSummary,
-} from "@/lib/adminApi";
+  downloadAdminExport,
+} from "@/lib/cachedAdminApi";
 import {
   AdminLoadingState,
   AdminPageShell,
@@ -13,13 +14,33 @@ import {
   AdminSelectField,
   AdminStatCard,
   AdminStatusBadge,
+  downloadBlobFile,
 } from "./AdminWorkspaceCommon";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockAdminBookings } from "@/lib/mockWorkspaceData";
+import { useBookingUpdates } from "@/components/contexts/WebSocketContext";
 
 export default function AdminBookings() {
   const [filters, setFilters] = useState({ search: "", status: "all" });
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState(null);
   const [items, setItems] = useState([]);
+  const [downloadFormat, setDownloadFormat] = useState("csv");
+
+  // Handle real-time booking updates via WebSocket
+  const handleBookingUpdate = useCallback((payload) => {
+    console.log("[AdminBookings] Received booking update:", payload);
+    
+    // Refresh the bookings list when updates occur
+    loadBookings();
+    
+    if (payload.message) {
+      toast.success(payload.message);
+    }
+  }, [filters]);
+
+  useBookingUpdates(handleBookingUpdate);
 
   const loadBookings = async (nextFilters = filters) => {
     try {
@@ -47,6 +68,39 @@ export default function AdminBookings() {
     loadBookings(nextFilters);
   };
 
+  const layeredItems = useMemo(
+    () =>
+      mergeLayeredCollections(items, mockAdminBookings, {
+        getId: (booking) => booking.id,
+      }),
+    [items]
+  );
+  const mockSummary = {
+    totalBookings: mockAdminBookings.length,
+    pendingRequests: mockAdminBookings.filter((booking) => booking.status === "pending").length,
+    acceptedJobs: mockAdminBookings.filter((booking) => booking.status === "accepted").length,
+    cancelledJobs: mockAdminBookings.filter((booking) => booking.status === "cancelled").length,
+  };
+  const hasLiveSummary =
+    (summary?.totalBookings || 0) > 0 ||
+    (summary?.pendingRequests || 0) > 0 ||
+    (summary?.acceptedJobs || 0) > 0 ||
+    (summary?.cancelledJobs || 0) > 0;
+  const resolvedSummary = hasLiveSummary ? summary : mockSummary;
+
+  const handleExport = async () => {
+    try {
+      const response = await downloadAdminExport({
+        packageType: "bookings",
+        format: downloadFormat,
+      });
+      const fileName = downloadBlobFile(response, `bookings.${downloadFormat}`);
+      toast.success(`${fileName} downloaded successfully.`);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to download export.");
+    }
+  };
+
   if (loading && !summary) {
     return <AdminLoadingState label="Loading booking queue..." />;
   }
@@ -55,12 +109,24 @@ export default function AdminBookings() {
     <AdminPageShell
       title="Bookings"
       description="Review live booking requests from the database across clients, providers, and payments."
+      actions={
+        <>
+          <AdminSelectField value={downloadFormat} onChange={setDownloadFormat}>
+            <option value="csv">CSV</option>
+            <option value="xlsx">XLSX</option>
+            <option value="pdf">PDF</option>
+          </AdminSelectField>
+          <button type="button" onClick={handleExport} className="admin-button-secondary">
+            Export {String(downloadFormat).toUpperCase()}
+          </button>
+        </>
+      }
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AdminStatCard icon={CalendarClock} title="Total bookings" value={summary?.totalBookings ?? 0} />
-        <AdminStatCard icon={Clock3} title="Pending requests" value={summary?.pendingRequests ?? 0} tone="text-amber-600" />
-        <AdminStatCard icon={CheckCircle2} title="Accepted jobs" value={summary?.acceptedJobs ?? 0} tone="text-emerald-600" />
-        <AdminStatCard icon={XCircle} title="Cancelled jobs" value={summary?.cancelledJobs ?? 0} tone="text-slate-500" />
+        <AdminStatCard icon={CalendarClock} title="Total bookings" value={resolvedSummary?.totalBookings ?? 0} />
+        <AdminStatCard icon={Clock3} title="Pending requests" value={resolvedSummary?.pendingRequests ?? 0} tone="text-amber-600" />
+        <AdminStatCard icon={CheckCircle2} title="Accepted jobs" value={resolvedSummary?.acceptedJobs ?? 0} tone="text-emerald-600" />
+        <AdminStatCard icon={XCircle} title="Cancelled jobs" value={resolvedSummary?.cancelledJobs ?? 0} tone="text-slate-500" />
       </div>
 
       <AdminPanel>
@@ -98,10 +164,13 @@ export default function AdminBookings() {
               </tr>
             </thead>
             <tbody className="admin-table-body">
-              {items.map((booking) => (
+              {layeredItems.map((booking) => (
                 <tr key={booking.id} className="admin-table-row">
                   <td className="admin-cell">
-                    <p className="admin-cell-strong">{booking.service}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="admin-cell-strong">{booking.service}</p>
+                      <DataOriginBadge origin={booking.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                    </div>
                     <p className="admin-cell-muted">{booking.category}</p>
                   </td>
                   <td className="admin-cell">
@@ -122,7 +191,7 @@ export default function AdminBookings() {
                   </td>
                 </tr>
               ))}
-              {!items.length ? (
+              {!layeredItems.length ? (
                 <tr>
                   <td className="admin-empty-state" colSpan={6}>
                     No bookings found for the selected filters.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Bell,
   Calendar,
@@ -26,6 +26,9 @@ import {
   disconnectSocket,
 } from "@/lib/socket";
 import { useAuth } from "@/components/contexts/AuthContext";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockProviderNotifications } from "@/lib/mockWorkspaceData";
 
 // Icon + color mapping per notification type
 const TYPE_CONFIG = {
@@ -148,7 +151,18 @@ export default function ProviderNotifications() {
     }
   };
 
-  const filtered = notifications.filter(
+  const layeredNotifications = useMemo(
+    () =>
+      mergeLayeredCollections(notifications, mockProviderNotifications, {
+        getId: (notification) => notification.id,
+      }),
+    [notifications]
+  );
+  const resolvedUnreadCount =
+    unreadCount ||
+    layeredNotifications.filter((notification) => !notification.read).length;
+
+  const filtered = layeredNotifications.filter(
     (n) => filter === "all" || n.type === filter
   );
 
@@ -161,9 +175,9 @@ export default function ProviderNotifications() {
           <h1 className="text-3xl font-bold tracking-tight">Alerts</h1>
           <p className="text-muted-foreground mt-1 max-w-md text-sm font-medium leading-relaxed">
             Real-time notifications for bookings, payments, and reviews.{" "}
-            {unreadCount > 0 && (
+            {resolvedUnreadCount > 0 && (
               <span className="text-emerald-600 font-bold">
-                {unreadCount} unread
+                {resolvedUnreadCount} unread
               </span>
             )}
           </p>
@@ -180,7 +194,7 @@ export default function ProviderNotifications() {
           <Button
             className="rounded-xl h-11 px-6 gap-2 font-bold bg-emerald-500 hover:bg-emerald-600 shadow-md"
             onClick={markAllRead}
-            disabled={unreadCount === 0}
+            disabled={resolvedUnreadCount === 0}
           >
             <CheckCircle2 size={18} />
             Mark all read
@@ -259,9 +273,12 @@ export default function ProviderNotifications() {
 
                   <div className="flex-1 space-y-1 text-center md:text-left">
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:justify-between">
-                      <h3 className="text-md font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight">
-                        {n.title}
-                      </h3>
+                      <div className="flex flex-wrap items-center justify-center gap-2 md:justify-start">
+                        <h3 className="text-md font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight">
+                          {n.title}
+                        </h3>
+                        <DataOriginBadge origin={n.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                      </div>
                       <div className="flex items-center gap-3 justify-center md:justify-end">
                         <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 italic whitespace-nowrap">
                           {formatTime(n.createdAt)}

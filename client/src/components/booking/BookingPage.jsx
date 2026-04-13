@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/components/contexts/AuthContext";
+import { getAccountAccessState } from "@/lib/accountAccess";
 
 const BOOKING_DRAFT_KEY = (providerId) => `booking-draft:${providerId}`;
 const DEFAULT_SLOTS = ["9:00 AM", "10:00 AM", "12:00 PM", "2:00 PM", "4:00 PM"];
@@ -15,87 +17,70 @@ const getTodayValue = () => {
 const formatCurrency = (amount) =>
   `INR ${Number(amount || 0).toLocaleString("en-IN")}`;
 
-const buildFallbackService = (payload = {}) => ({
-  _id: "default-service",
-  title:
-    payload?.serviceType && payload?.serviceType !== "Other"
-      ? `${payload.serviceType} Service`
-      : "General Service",
-  category: payload?.serviceType || "Other",
-  duration: "1 hour",
-  locationType: "offline",
-  price: Number(payload?.hourlyRate || 0),
-});
-
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const clientAccess = getAccountAccessState(user);
 
   const [provider, setProvider] = useState(null);
   const [services, setServices] = useState([]);
-  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [selectedServiceIds, setSelectedServiceIds] = useState([]);
   const [bookingDate, setBookingDate] = useState(getTodayValue());
   const [timeSlot, setTimeSlot] = useState(DEFAULT_SLOTS[1]);
   const [address, setAddress] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("card");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let isMounted = true;
+    let mounted = true;
 
     const loadProvider = async () => {
       try {
         setLoading(true);
         setError("");
-
         const response = await api.get(`/api/providers/${id}`);
-        const payload = response.data?.data || response.data;
-        const providerServices = Array.isArray(payload?.services) ? payload.services : [];
-        const normalizedServices = providerServices.length
-          ? providerServices
-          : [buildFallbackService(payload)];
+        const payload = response.data?.data || {};
+        const activeServices = Array.isArray(payload?.services) ? payload.services : [];
         const savedDraft = sessionStorage.getItem(BOOKING_DRAFT_KEY(id));
         const parsedDraft = savedDraft ? JSON.parse(savedDraft) : null;
-        const initialServiceId =
-          parsedDraft?.serviceId &&
-          normalizedServices.some((service) => service._id === parsedDraft.serviceId)
-            ? parsedDraft.serviceId
-            : normalizedServices[0]?._id || "";
+        const restoredIds = Array.isArray(parsedDraft?.serviceIds)
+          ? parsedDraft.serviceIds.filter((serviceId) =>
+              activeServices.some((service) => String(service._id) === String(serviceId))
+            )
+          : [];
 
-        if (!isMounted) {
-          return;
-        }
+        if (!mounted) return;
 
         setProvider({
-          id: payload?._id || payload?.id || id,
+          id: payload?._id || id,
           name: payload?.name || "Provider",
-          serviceType: payload?.serviceType || "Service",
-          location: payload?.location || "",
-          available: payload?.available ?? payload?.availability ?? false,
           availabilitySummary: payload?.availabilitySummary || {
-            status: payload?.available ?? payload?.availability ? "available" : "unavailable",
-            reason: payload?.available ?? payload?.availability
+            status: payload?.available ? "available" : "unavailable",
+            reason: payload?.available
               ? "Provider is available for booking."
               : "Provider is currently unavailable.",
-            canBook: Boolean(payload?.available ?? payload?.availability),
           },
         });
-        setServices(normalizedServices);
-        setSelectedServiceId(initialServiceId);
+        setServices(activeServices);
+        setSelectedServiceIds(
+          restoredIds.length
+            ? restoredIds
+            : activeServices[0]?._id
+              ? [String(activeServices[0]._id)]
+              : []
+        );
         setBookingDate(parsedDraft?.bookingDate || getTodayValue());
         setTimeSlot(parsedDraft?.timeSlot || DEFAULT_SLOTS[1]);
         setAddress(parsedDraft?.address || "");
-        setPaymentMethod(parsedDraft?.paymentMethod || "card");
-      } catch (err) {
-        console.error("Failed to load provider booking data:", err);
-        if (isMounted) {
-          setError("Could not load provider booking details. Please return to the provider profile and try again.");
-          setProvider(null);
-          setServices([]);
-        }
+      } catch (nextError) {
+        if (!mounted) return;
+        setError(
+          nextError.response?.data?.message ||
+            "Could not load provider booking details."
+        );
       } finally {
-        if (isMounted) {
+        if (mounted) {
           setLoading(false);
         }
       }
@@ -104,28 +89,52 @@ export default function BookingPage() {
     loadProvider();
 
     return () => {
-      isMounted = false;
+      mounted = false;
     };
   }, [id]);
 
-  const selectedService = useMemo(
-    () => services.find((service) => service._id === selectedServiceId) || null,
-    [services, selectedServiceId]
+  const selectedServices = useMemo(
+    () =>
+      services.filter((service) =>
+        selectedServiceIds.includes(String(service._id))
+      ),
+    [services, selectedServiceIds]
   );
 
-  const addressLabel =
-    selectedService?.locationType === "online"
-      ? "Meeting link or contact address"
-      : "Service address";
+  const baseAmount = useMemo(
+    () =>
+      selectedServices.reduce(
+        (sum, service) => sum + Number(service.price || 0),
+        0
+      ),
+    [selectedServices]
+  );
 
-  const addressPlaceholder =
-    selectedService?.locationType === "online"
-      ? "Enter the video meeting link or online service instructions"
-      : "Enter the full service address";
-  const bookingLocked = provider?.availabilitySummary?.status === "unavailable";
+  const requiresOfflineAddress = useMemo(
+    () => selectedServices.some((service) => service.locationType !== "online"),
+    [selectedServices]
+  );
+
+  const bookingLocked =
+    provider?.availabilitySummary?.status === "unavailable" || !services.length;
+  const bookingBlockedByAccount = !clientAccess.canCreateBookings;
+
+  const toggleService = (serviceId) => {
+    setSelectedServiceIds((current) =>
+      current.includes(String(serviceId))
+        ? current.filter((item) => item !== String(serviceId))
+        : [...current, String(serviceId)]
+    );
+    setError("");
+  };
 
   const handleContinue = () => {
-    setError("");
+    if (bookingBlockedByAccount) {
+      const message = clientAccess.title || "Account approval pending.";
+      setError(message);
+      toast.error(message);
+      return;
+    }
 
     if (bookingLocked) {
       const message =
@@ -136,37 +145,35 @@ export default function BookingPage() {
       return;
     }
 
-    if (!selectedService) {
-      const message = "Please select a service before continuing.";
-      setError(message);
-      toast.error(message);
+    if (!selectedServiceIds.length) {
+      setError("Select at least one work before continuing.");
+      toast.error("Select at least one work before continuing.");
       return;
     }
 
-    if (!bookingDate || !address.trim()) {
-      const message =
-        "Please choose a booking date and enter the service address or meeting instructions.";
-      setError(message);
-      toast.error(message);
+    if (!bookingDate || !timeSlot || !address.trim()) {
+      setError(
+        "Choose a date, time slot, and add the service address or meeting instructions."
+      );
+      toast.error(
+        "Choose a date, time slot, and add the service address or meeting instructions."
+      );
       return;
     }
 
     const draft = {
       providerId: id,
       providerName: provider?.name || "Provider",
-      serviceId: selectedService._id,
-      serviceTitle: selectedService.title,
+      serviceIds: selectedServices.map((service) => String(service._id)),
+      serviceTitles: selectedServices.map((service) => service.title),
       bookingDate,
       timeSlot,
       address: address.trim(),
-      paymentMethod,
-      totalAmount: Number(selectedService.price || 0),
-      duration: selectedService.duration || "",
-      locationType: selectedService.locationType || "offline",
+      totalAmount: baseAmount,
+      requiresOfflineAddress,
     };
 
     sessionStorage.setItem(BOOKING_DRAFT_KEY(id), JSON.stringify(draft));
-    toast.success("Booking details saved. Review and confirm your appointment.");
     navigate(`/booking/${id}/confirm`);
   };
 
@@ -203,7 +210,7 @@ export default function BookingPage() {
           Book {provider.name}
         </h1>
         <p className="mt-3 text-sm leading-7 text-muted-foreground">
-          Select a real provider service, choose your preferred time, and save the booking draft before the final confirmation step.
+          Select one or more works, choose your date and time, then continue to the payment step.
         </p>
       </div>
 
@@ -213,61 +220,60 @@ export default function BookingPage() {
         </div>
       ) : null}
 
+      {bookingBlockedByAccount ? (
+        <div className="mb-6 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          <span className="font-semibold">{clientAccess.title || "Account approval pending."}</span>{" "}
+          {clientAccess.description}
+        </div>
+      ) : null}
+
       {provider?.availabilitySummary?.reason ? (
-        <div className={`mb-6 rounded-2xl px-4 py-3 text-sm ${
-          provider.availabilitySummary.status === "available"
-            ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-            : provider.availabilitySummary.status === "busy"
-              ? "border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-              : "border border-slate-400/25 bg-slate-500/10 text-slate-700 dark:text-slate-300"
-        }`}>
+        <div className="mb-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
           {provider.availabilitySummary.reason}
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
+      <div className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-6">
           <div className="rounded-[1.5rem] border border-border/70 bg-muted/25 p-5">
-            <h2 className="text-lg font-semibold text-foreground">1. Choose a service</h2>
-            {services.length ? (
-              <div className="mt-4 grid gap-3">
-                {services.map((service) => {
-                  const active = service._id === selectedServiceId;
-
-                  return (
-                    <button
-                      key={service._id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedServiceId(service._id);
-                        setError("");
-                      }}
-                      className={`rounded-[1.25rem] border p-4 text-left transition-colors ${
-                        active
-                          ? "border-primary bg-primary/10"
-                          : "border-border/70 bg-card hover:border-primary/30"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-semibold text-foreground">{service.title}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {service.category} | {service.duration}
-                          </p>
-                        </div>
+            <h2 className="text-lg font-semibold text-foreground">1. Select work</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Providers can publish multiple works. Pick one or more before booking.
+            </p>
+            <div className="mt-4 grid gap-3">
+              {services.map((service) => {
+                const active = selectedServiceIds.includes(String(service._id));
+                return (
+                  <button
+                    key={service._id}
+                    type="button"
+                    onClick={() => toggleService(service._id)}
+                    className={`rounded-[1.25rem] border p-4 text-left transition-colors ${
+                      active
+                        ? "border-primary bg-primary/10"
+                        : "border-border/70 bg-card hover:border-primary/30"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-semibold text-foreground">{service.title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {service.category} | {service.duration} | {service.locationType}
+                        </p>
+                      </div>
+                      <div className="text-right">
                         <p className="text-sm font-semibold text-primary">
                           {formatCurrency(service.price)}
                         </p>
+                        <p className="mt-2 text-[11px] font-medium text-muted-foreground">
+                          {active ? "Selected" : "Tap to add"}
+                        </p>
                       </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="mt-4 text-sm text-muted-foreground">
-                This provider does not have bookable services yet.
-              </p>
-            )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="rounded-[1.5rem] border border-border/70 bg-muted/25 p-5">
@@ -279,10 +285,7 @@ export default function BookingPage() {
                   type="date"
                   min={getTodayValue()}
                   value={bookingDate}
-                  onChange={(event) => {
-                    setBookingDate(event.target.value);
-                    setError("");
-                  }}
+                  onChange={(event) => setBookingDate(event.target.value)}
                   className="w-full rounded-xl border border-border/70 bg-card px-4 py-3 text-foreground outline-none focus:border-primary"
                 />
               </label>
@@ -290,10 +293,7 @@ export default function BookingPage() {
                 <span className="font-medium text-foreground">Time slot</span>
                 <select
                   value={timeSlot}
-                  onChange={(event) => {
-                    setTimeSlot(event.target.value);
-                    setError("");
-                  }}
+                  onChange={(event) => setTimeSlot(event.target.value)}
                   className="w-full rounded-xl border border-border/70 bg-card px-4 py-3 text-foreground outline-none focus:border-primary"
                 >
                   {DEFAULT_SLOTS.map((slot) => (
@@ -307,44 +307,20 @@ export default function BookingPage() {
           </div>
 
           <div className="rounded-[1.5rem] border border-border/70 bg-muted/25 p-5">
-            <h2 className="text-lg font-semibold text-foreground">3. {addressLabel}</h2>
+            <h2 className="text-lg font-semibold text-foreground">
+              3. {requiresOfflineAddress ? "Service address" : "Meeting link / instructions"}
+            </h2>
             <textarea
               value={address}
-              onChange={(event) => {
-                setAddress(event.target.value);
-                setError("");
-              }}
+              onChange={(event) => setAddress(event.target.value)}
               rows={4}
-              placeholder={addressPlaceholder}
+              placeholder={
+                requiresOfflineAddress
+                  ? "Enter the full service address"
+                  : "Enter the online meeting link or instructions"
+              }
               className="mt-4 w-full rounded-xl border border-border/70 bg-card px-4 py-3 text-foreground outline-none focus:border-primary"
             />
-          </div>
-
-          <div className="rounded-[1.5rem] border border-border/70 bg-muted/25 p-5">
-            <h2 className="text-lg font-semibold text-foreground">4. Payment method</h2>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {["card", "upi"].map((method) => {
-                const active = paymentMethod === method;
-
-                return (
-                  <button
-                    key={method}
-                    type="button"
-                    onClick={() => {
-                      setPaymentMethod(method);
-                      setError("");
-                    }}
-                    className={`rounded-[1.25rem] border px-4 py-3 text-left text-sm font-medium transition-colors ${
-                      active
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border/70 bg-card text-foreground hover:border-primary/30"
-                    }`}
-                  >
-                    {method.toUpperCase()}
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </div>
 
@@ -355,7 +331,10 @@ export default function BookingPage() {
               <span className="font-medium text-foreground">Provider:</span> {provider.name}
             </p>
             <p>
-              <span className="font-medium text-foreground">Service:</span> {selectedService?.title || "Select a service"}
+              <span className="font-medium text-foreground">Works:</span>{" "}
+              {selectedServices.length
+                ? selectedServices.map((service) => service.title).join(", ")
+                : "Select at least one"}
             </p>
             <p>
               <span className="font-medium text-foreground">Date:</span> {bookingDate || "-"}
@@ -364,13 +343,10 @@ export default function BookingPage() {
               <span className="font-medium text-foreground">Time:</span> {timeSlot}
             </p>
             <p>
-              <span className="font-medium text-foreground">Payment:</span> {paymentMethod.toUpperCase()}
+              <span className="font-medium text-foreground">Base total:</span> {formatCurrency(baseAmount)}
             </p>
-            <p>
-              <span className="font-medium text-foreground">Location:</span> {selectedService?.locationType || "offline"}
-            </p>
-            <p>
-              <span className="font-medium text-foreground">Total:</span> {formatCurrency(selectedService?.price)}
+            <p className="text-xs leading-6">
+              Platform fees and payment options will be shown on the next step.
             </p>
           </div>
 
@@ -378,8 +354,11 @@ export default function BookingPage() {
             <Button variant="outline" asChild>
               <Link to={`/providers/${id}`}>Back to Provider</Link>
             </Button>
-            <Button onClick={handleContinue} disabled={bookingLocked || !services.length}>
-              Continue to Confirmation
+            <Button
+              onClick={handleContinue}
+              disabled={bookingLocked || bookingBlockedByAccount}
+            >
+              Review Booking
             </Button>
           </div>
         </div>

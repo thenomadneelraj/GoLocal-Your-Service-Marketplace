@@ -3,13 +3,13 @@ const router = express.Router();
 
 const { authenticate } = require("../middleware/auth");
 const { enforceMaintenanceMode } = require("../middleware/maintenance");
-const { enforceAccountAccess } = require("../middleware/accountAccess");
+const { attachAccountAccessState } = require("../middleware/accountAccess");
 const bookingController = require("../controllers/bookingController");
 
 // All booking routes require an authenticated user (CLIENT side)
 router.use(authenticate);
 router.use(enforceMaintenanceMode);
-router.use(enforceAccountAccess);
+router.use(attachAccountAccessState);
 
 // POST /api/bookings - create booking (and payment records)
 router.post("/", bookingController.createBooking);

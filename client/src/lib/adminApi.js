@@ -21,6 +21,18 @@ export const fetchAdminUsers = (params = {}) =>
 export const updateAdminUserStatus = (id, payload) =>
   api.patch(`/api/admin/users/${id}/status`, payload);
 
+export const updateAdminUserVerification = (id, payload) =>
+  api.patch(`/api/admin/users/${id}/verification`, payload);
+
+export const fetchAdminVerificationRequests = (params = {}) =>
+  api.get(`/api/admin/verification-requests${buildQuery(params)}`);
+
+export const fetchAdminVerificationRequest = (id) =>
+  api.get(`/api/admin/verification-requests/${id}`);
+
+export const updateAdminVerificationRequest = (id, payload) =>
+  api.patch(`/api/admin/verification-requests/${id}`, payload);
+
 export const fetchAdminBookings = (params = {}) =>
   api.get(`/api/admin/bookings${buildQuery(params)}`);
 
@@ -53,6 +65,8 @@ export const updateAdminSettings = (payload) =>
 export const fetchPlatformSettings = fetchAdminSettings;
 
 export const updatePlatformSettings = updateAdminSettings;
+
+export const fetchPublicSettings = () => api.get("/api/public/settings");
 
 export const fetchAdminAdvancedSettings = () =>
   api.get("/api/admin/settings/advanced");

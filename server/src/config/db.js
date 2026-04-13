@@ -33,13 +33,10 @@ const connectDB = async () => {
       console.log("🔄 MongoDB reconnected");
     });
 
+    return conn;
   } catch (error) {
     console.error("❌ MongoDB connection failed:", error.message);
-
-    // Exit process in production
-    if (process.env.NODE_ENV === "production") {
-      process.exit(1);
-    }
+    throw error; // Re-throw the error so callers can handle it
   }
 };
 

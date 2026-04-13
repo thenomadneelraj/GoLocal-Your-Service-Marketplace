@@ -96,7 +96,11 @@ const applySocketAuth = () => {
 		return;
 	}
 
+	// Get the JWT token from sessionStorage
+	const token = sessionStorage.getItem("token");
+
 	socket.auth = {
+		...(token ? { token } : {}),
 		...(joinedUserId ? { user_id: joinedUserId } : {}),
 		...(joinedUserRole ? { role: joinedUserRole } : {}),
 	};
@@ -111,10 +115,17 @@ const clearPendingDisconnect = () => {
 
 const ensureSocket = () => {
 	if (!socket) {
+		// Get the JWT token from sessionStorage
+		const token = sessionStorage.getItem("token");
+		
 		socket = io(SOCKET_URL, {
 			autoConnect: false,
 			transports: ["websocket", "polling"],
-			auth: {},
+			auth: {
+				token: token || undefined,
+				user_id: joinedUserId || undefined,
+				role: joinedUserRole || undefined,
+			},
 		});
 
 		socket.on("connect", () => {
@@ -124,6 +135,10 @@ const ensureSocket = () => {
 					role: joinedUserRole,
 				});
 			}
+		});
+
+		socket.on("connect_error", (error) => {
+			console.error("Socket connection error:", error.message);
 		});
 	}
 
@@ -288,6 +303,17 @@ export const subscribeToUserStatusUpdates = (cb) => {
   return () => {
     socket?.off("user_updated", handler);
     socket?.off("user_status_updated", handler);
+  };
+};
+
+export const subscribeToProviderUpdates = (cb) => {
+  if (!socket) return () => {};
+
+  const handler = (data) => cb(null, data);
+  socket.on("providers_updated", handler);
+
+  return () => {
+    socket?.off("providers_updated", handler);
   };
 };
 

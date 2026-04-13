@@ -23,6 +23,7 @@ import VerifiedIcon from "@mui/icons-material/Verified";
 import WorkIcon from "@mui/icons-material/Work";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { resolveMediaUrl } from "@/lib/media";
+import { getAccountAccessState } from "@/lib/accountAccess";
 
 const STATUS_CONFIG = {
   available: { label: "Available", color: "success" },
@@ -65,7 +66,7 @@ const ProviderProfile = () => {
     try {
       const response = await api.get(`/api/providers/${id}`);
       const raw = response.data?.data || response.data;
-      const normalized = {
+const normalized = {
         ...raw,
         id: raw?._id || raw?.id,
         name: raw?.name || "Unknown",
@@ -80,6 +81,9 @@ const ProviderProfile = () => {
         responseTime: raw?.responseTime || "Within 24 hours",
         completedJobs: raw?.completedJobs || 0,
         services: Array.isArray(raw?.services) ? raw.services : [],
+        hourlyRate: raw?.hourlyRate ?? 0,
+        servicePriceRange: raw?.servicePriceRange || null,
+        serviceCount: raw?.serviceCount ?? 0,
         reviews: Array.isArray(raw?.reviews)
           ? raw.reviews.map((review) => ({
               id: review?.id || review?._id,
@@ -103,6 +107,7 @@ const ProviderProfile = () => {
           reason: raw?.available ?? raw?.availability ? "Provider is available for booking." : "Provider is currently unavailable.",
           canBook: Boolean(raw?.available ?? raw?.availability),
         },
+        isMock: raw?.isMock || false,
       };
       setProvider(normalized);
     } catch (err) {
@@ -166,9 +171,22 @@ const ProviderProfile = () => {
         ? "Unavailable for Booking"
         : "Book Now";
   const currentUserRole = String(user?.role || "").toLowerCase();
+  const accountAccess = getAccountAccessState(user);
+  const isClientViewer = !user || currentUserRole === "client";
   const isOwnProviderProfile =
     currentUserRole === "provider" &&
     String(user?.id || "") === String(provider.userAccountId || "");
+  const canStartBooking =
+    isClientViewer &&
+    (!user || accountAccess.canCreateBookings) &&
+    !provider.isMock &&
+    provider.availabilitySummary?.status !== "unavailable";
+  const bookingDisabledReason =
+    user && currentUserRole === "client" && !accountAccess.canCreateBookings
+      ? accountAccess.title || "Account approval pending."
+      : user && currentUserRole !== "client"
+        ? "Only client accounts can create bookings."
+      : "";
   const canMessageProvider =
     Boolean(provider.userAccountId) &&
     (!user || currentUserRole === "client" || isOwnProviderProfile);
@@ -187,7 +205,7 @@ const ProviderProfile = () => {
       navigate("/signin", {
         state: {
           message: "Sign in as a client to message this provider.",
-          redirectTo: `/messages?contact=${provider.userAccountId}`,
+          redirectTo: `/client/chat?contact=${provider.userAccountId}`,
           preferredRole: "CLIENT",
         },
       });
@@ -195,12 +213,12 @@ const ProviderProfile = () => {
     }
 
     if (currentUserRole === "client") {
-      navigate(`/messages?contact=${provider.userAccountId}`);
+      navigate(`/client/chat?contact=${provider.userAccountId}`);
       return;
     }
 
     if (isOwnProviderProfile) {
-      navigate("/provider/messages");
+      navigate("/provider/chat");
     }
   };
 
@@ -552,22 +570,28 @@ const ProviderProfile = () => {
                   variant="contained"
                   fullWidth
                   size="large"
-                  component={Link}
-                  to={`/booking/${provider.id}`}
+                  component={canStartBooking ? Link : "button"}
+                  to={canStartBooking ? `/booking/${provider.id}` : undefined}
                   sx={{ mb: 2 }}
-                  disabled={provider.availabilitySummary?.status === "unavailable"}
+                  disabled={!canStartBooking}
                 >
-                  {bookingButtonLabel}
+                  {provider.isMock ? "Booking Disabled (Demo Mode)" : bookingButtonLabel}
                 </Button>
+
+                {bookingDisabledReason ? (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {bookingDisabledReason}
+                  </Alert>
+                ) : null}
 
                 <Button
                   variant="outlined"
                   fullWidth
                   size="large"
                   onClick={handleMessageClick}
-                  disabled={!canMessageProvider}
+                  disabled={provider.isMock || !canMessageProvider}
                 >
-                  {messageButtonLabel}
+                  {provider.isMock ? "Messaging Disabled" : messageButtonLabel}
                 </Button>
               </CardContent>
             </Card>

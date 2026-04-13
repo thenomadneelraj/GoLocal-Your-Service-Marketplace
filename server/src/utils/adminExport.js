@@ -1,3 +1,5 @@
+const XLSX = require("xlsx");
+
 const escapeCsvCell = (value) => {
   const normalized = value === null || value === undefined ? "" : String(value);
   if (/[",\n]/.test(normalized)) {
@@ -23,6 +25,31 @@ const buildCsvBuffer = ({ columns = [], rows = [] }) => {
   return Buffer.from([headerRow, ...bodyRows].join("\n"), "utf8");
 };
 
+const buildXlsxBuffer = ({ columns = [], rows = [], sheetName = "Export" }) => {
+  const jsonRows = rows.map((row) => {
+    const nextRow = {};
+
+    columns.forEach((column) => {
+      const value =
+        typeof column.render === "function"
+          ? column.render(row)
+          : row?.[column.key];
+      nextRow[column.header] = value ?? "";
+    });
+
+    return nextRow;
+  });
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(jsonRows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, String(sheetName || "Export"));
+
+  return XLSX.write(workbook, {
+    type: "buffer",
+    bookType: "xlsx",
+  });
+};
+
 const escapePdfText = (value) =>
   String(value ?? "")
     .replace(/\\/g, "\\\\")
@@ -36,10 +63,21 @@ const buildPdfBuffer = ({ title = "GoLocal Export", lines = [] }) => {
     .filter((line) => line !== undefined && line !== null)
     .map((line) => escapePdfText(line));
 
-  const contentCommands = ["BT", "/F1 12 Tf", "50 780 Td"];
-  textLines.forEach((line, index) => {
+  // Professional PDF layout with better formatting
+  const contentCommands = [
+    "BT",
+    "/F1 14 Tf", // Larger font for title
+    "50 780 Td",
+    `(${textLines[0]}) Tj`,
+    "ET",
+    "BT",
+    "/F1 10 Tf", // Smaller font for content
+    "50 750 Td"
+  ];
+
+  textLines.slice(1).forEach((line, index) => {
     if (index > 0) {
-      contentCommands.push("0 -18 Td");
+      contentCommands.push("0 -14 Td"); // Reduced line spacing
     }
     contentCommands.push(`(${line}) Tj`);
   });
@@ -80,5 +118,6 @@ const buildPdfBuffer = ({ title = "GoLocal Export", lines = [] }) => {
 
 module.exports = {
   buildCsvBuffer,
+  buildXlsxBuffer,
   buildPdfBuffer,
 };

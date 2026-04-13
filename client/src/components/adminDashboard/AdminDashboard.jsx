@@ -19,7 +19,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAdminDashboard } from "@/lib/adminApi";
+import { fetchAdminDashboard } from "@/lib/cachedAdminApi";
 import {
   AdminEmptyState,
   AdminLoadingState,
@@ -28,6 +28,8 @@ import {
   AdminStatCard,
   formatAdminCurrency,
 } from "./AdminWorkspaceCommon";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mockAdminDashboard } from "@/lib/mockWorkspaceData";
 
 const CATEGORY_COLORS = ["#f59e0b", "#f97316", "#fbbf24", "#fed7aa", "#fb923c"];
 
@@ -39,8 +41,9 @@ export default function AdminDashboard() {
     const loadDashboard = async () => {
       try {
         setLoading(true);
-        const response = await fetchAdminDashboard();
-        setData(response.data?.data || null);
+        const result = await fetchAdminDashboard();
+        // Handle both cached and non-cached responses
+        setData(result.data?.data || result.data || null);
       } finally {
         setLoading(false);
       }
@@ -51,11 +54,24 @@ export default function AdminDashboard() {
 
   const summary = data?.summary || {};
   const charts = data?.charts || {};
-  const currency = data?.meta?.currency || "USD";
+  const hasGrowthData = (charts.growth || []).some(
+    (entry) =>
+      Number(entry?.users || 0) > 0 ||
+      Number(entry?.revenue || 0) > 0 ||
+      Number(entry?.bookings || 0) > 0
+  );
+  const hasSummaryData =
+    (summary.totalUsers || 0) > 0 ||
+    (summary.pendingProviders || 0) > 0 ||
+    (summary.revenue || 0) > 0 ||
+    (summary.bookingsTracked || 0) > 0;
+  const resolvedSummary = hasSummaryData ? summary : mockAdminDashboard.summary;
+  const resolvedCharts = hasGrowthData ? charts : mockAdminDashboard.charts;
+  const currency = data?.meta?.currency || mockAdminDashboard.meta.currency || "USD";
 
   const categoryData = useMemo(
-    () => (charts.categoryDistribution || []).filter((item) => item.value > 0),
-    [charts.categoryDistribution]
+    () => (resolvedCharts.categoryDistribution || []).filter((item) => item.value > 0),
+    [resolvedCharts.categoryDistribution]
   );
 
   if (loading) {
@@ -70,33 +86,34 @@ export default function AdminDashboard() {
     <AdminPageShell
       title="Dashboard"
       description="Platform control across users, provider approvals, bookings, revenue, disputes, and operational alerts."
+      actions={<DataOriginBadge origin={hasSummaryData ? "real" : "mock"} liveLabel="Live first" sampleLabel="Sample fallback" />}
     >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <AdminStatCard
           icon={Users}
           title="Total users"
-          value={summary.totalUsers ?? 0}
+          value={resolvedSummary.totalUsers ?? 0}
           subtitle="Active accounts across admin, client, and provider roles."
         />
         <AdminStatCard
           icon={UserRoundCog}
           title="Providers pending review"
-          value={summary.pendingProviders ?? 0}
+          value={resolvedSummary.pendingProviders ?? 0}
           subtitle="Accounts still waiting for approval and verification."
           tone="text-blue-600"
         />
         <AdminStatCard
           icon={DollarSign}
           title="Platform revenue"
-          value={formatAdminCurrency(summary.revenue ?? 0, currency)}
+          value={formatAdminCurrency(resolvedSummary.revenue ?? 0, currency)}
           subtitle="Recognized from successful transactions."
           tone="text-emerald-600"
         />
         <AdminStatCard
           icon={ReceiptText}
           title="Bookings tracked"
-          value={summary.bookingsTracked ?? 0}
-          subtitle={`${summary.openDisputes ?? 0} open disputes being monitored.`}
+          value={resolvedSummary.bookingsTracked ?? 0}
+          subtitle={`${resolvedSummary.openDisputes ?? 0} open disputes being monitored.`}
           tone="text-violet-600"
         />
       </div>
@@ -108,7 +125,7 @@ export default function AdminDashboard() {
         >
           <div className="h-[290px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={charts.growth || []}>
+              <AreaChart data={resolvedCharts.growth || []}>
                 <defs>
                   <linearGradient id="dashboardUsers" x1="0" x2="0" y1="0" y2="1">
                     <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.38} />
@@ -179,7 +196,7 @@ export default function AdminDashboard() {
           description="Revenue recognized from successful transaction history."
         >
           <div className="space-y-3">
-            {(charts.growth || []).map((entry) => (
+            {(resolvedCharts.growth || []).map((entry) => (
               <div
                 key={`${entry.month}-revenue`}
                 className="admin-card-soft flex items-center justify-between gap-3"
@@ -203,7 +220,7 @@ export default function AdminDashboard() {
           description="Recent booking volume tracked from the live backend workspace."
         >
           <div className="space-y-3">
-            {(charts.growth || []).map((entry) => (
+            {(resolvedCharts.growth || []).map((entry) => (
               <div
                 key={`${entry.month}-bookings`}
                 className="admin-card-soft flex items-center justify-between gap-3"

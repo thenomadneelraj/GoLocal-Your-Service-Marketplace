@@ -2,8 +2,6 @@ const mongoose = require("mongoose");
 const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
 const User = require("../models/User");
-const Client = require("../models/Client");
-const Provider = require("../models/Provider");
 const {
   createNotification,
   markNotificationsReadByFilter,
@@ -45,64 +43,24 @@ const buildParticipantDirectory = async (userIds = []) => {
     return new Map();
   }
 
-  const [users, clients, providers] = await Promise.all([
-    User.find({ _id: { $in: uniqueIds } }).select("email role").lean(),
-    Client.find({ userId: { $in: uniqueIds } })
-      .select("_id userId name profileImage address")
-      .lean(),
-    Provider.find({ userId: { $in: uniqueIds } })
-      .select("_id userId name profileImage address location serviceType availability")
-      .lean(),
-  ]);
-
-  const clientMap = new Map(
-    clients.map((profile) => [toObjectIdString(profile.userId), profile])
-  );
-  const providerMap = new Map(
-    providers.map((profile) => [toObjectIdString(profile.userId), profile])
-  );
+  const users = await User.find({ _id: { $in: uniqueIds } }).select("email role name profileImage address location serviceType availability").lean();
 
   return new Map(
     users.map((user) => {
       const userId = toObjectIdString(user._id);
-      const clientProfile = clientMap.get(userId);
-      const providerProfile = providerMap.get(userId);
-      const primaryProfile =
-        user.role === "provider" ? providerProfile : clientProfile;
-
       return [
         userId,
         {
           userId,
-          profileId:
-            primaryProfile?._id ||
-            providerProfile?._id ||
-            clientProfile?._id ||
-            null,
+          profileId: user._id,
           role: user.role,
           email: user.email,
-          name:
-            primaryProfile?.name ||
-            providerProfile?.name ||
-            clientProfile?.name ||
-            user.email?.split("@")[0] ||
-            "User",
-          profilePhoto:
-            primaryProfile?.profileImage ||
-            providerProfile?.profileImage ||
-            clientProfile?.profileImage ||
-            "",
-          address:
-            primaryProfile?.address ||
-            providerProfile?.address ||
-            clientProfile?.address ||
-            "",
-          location: providerProfile?.location || "",
-          serviceType: providerProfile?.serviceType || "",
-          availability:
-            typeof providerProfile?.availability === "boolean"
-              ? providerProfile.availability
-              : undefined,
+          name: user.name || user.email?.split("@")[0] || "User",
+          profilePhoto: user.profileImage || "",
+          address: user.address || "",
+          location: user.location || "",
+          serviceType: user.serviceType || "",
+          availability: typeof user.availability === "boolean" ? user.availability : undefined,
         },
       ];
     })

@@ -1,6 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { useLocation } from "react-router-dom";
+
+const WORKSPACE_PATH_PATTERN =
+  /^\/(?:dashboard|settings|help-support|client(?:\/|$)|provider(?:-dashboard|\/|$)|admin(?:\/|$)|booking(?:\/|$)|bookings(?:\/|$))/;
 
 /**
  * SmoothScrollLayout - Main layout wrapper for smooth scrolling and page transitions
@@ -16,6 +19,10 @@ import { useLocation } from "react-router-dom";
 const SmoothScrollLayout = ({ children, transitionConfig }) => {
   const location = useLocation();
   const containerRef = useRef(null);
+  const isWorkspaceRoute = useMemo(
+    () => WORKSPACE_PATH_PATTERN.test(location.pathname),
+    [location.pathname]
+  );
 
   // Default animation variants
   const defaultVariants = {
@@ -35,40 +42,47 @@ const SmoothScrollLayout = ({ children, transitionConfig }) => {
 
   const animationVariants = transitionConfig || defaultVariants;
 
-  // Ensure smooth scrolling is enabled globally
   useEffect(() => {
-    // Apply smooth scroll to html element
-    document.documentElement.style.scrollBehavior = "smooth";
-    
-    // Handle scroll restoration
     if ("scrollRestoration" in window.history) {
       window.history.scrollRestoration = "manual";
     }
+  }, []);
 
-    // Cleanup
+  useEffect(() => {
+    document.documentElement.style.scrollBehavior = isWorkspaceRoute
+      ? "auto"
+      : "smooth";
+
     return () => {
       document.documentElement.style.scrollBehavior = "auto";
     };
-  }, []);
+  }, [isWorkspaceRoute]);
 
-  // Handle scroll position on route change
   useEffect(() => {
-    // Small delay to ensure DOM is ready
-    const timer = setTimeout(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      const shellScroller = document.querySelector("[data-shell-scroll]");
+
+      if (shellScroller instanceof HTMLElement) {
+        shellScroller.scrollTo({
+          top: 0,
+          left: 0,
+          behavior: isWorkspaceRoute ? "auto" : "smooth",
+        });
+        return;
+      }
+
       window.scrollTo({
         top: 0,
         left: 0,
-        behavior: "smooth",
+        behavior: isWorkspaceRoute ? "auto" : "smooth",
       });
-    }, 100);
+    });
 
-    return () => clearTimeout(timer);
-  }, [location.pathname]);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isWorkspaceRoute, location.pathname]);
 
-  // Prevent layout shift by ensuring proper overflow handling
   useEffect(() => {
     const handleResize = () => {
-      // Ensure body doesn't cause horizontal overflow
       document.body.style.overflowX = "hidden";
       document.body.style.width = "100%";
     };
@@ -91,18 +105,29 @@ const SmoothScrollLayout = ({ children, transitionConfig }) => {
         position: "relative",
       }}
     >
-      <motion.div
-        key={location.pathname}
-        initial="initial"
-        animate="animate"
-        variants={animationVariants}
-        style={{
-          width: "100%",
-          minHeight: "100%",
-        }}
-      >
-        {children}
-      </motion.div>
+      {isWorkspaceRoute ? (
+        <div
+          style={{
+            width: "100%",
+            minHeight: "100%",
+          }}
+        >
+          {children}
+        </div>
+      ) : (
+        <motion.div
+          key={location.pathname}
+          initial="initial"
+          animate="animate"
+          variants={animationVariants}
+          style={{
+            width: "100%",
+            minHeight: "100%",
+          }}
+        >
+          {children}
+        </motion.div>
+      )}
     </div>
   );
 };

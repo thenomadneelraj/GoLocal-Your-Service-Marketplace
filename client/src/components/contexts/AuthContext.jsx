@@ -14,7 +14,8 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Changed to false - don't block initial render
+  const [initialized, setInitialized] = useState(false);
 
   const extractAuthPayload = (payload = {}) => {
     const container = payload.data ?? payload;
@@ -33,7 +34,7 @@ export const AuthProvider = ({ children }) => {
 
     if (!token) {
       persistUser(null);
-      setLoading(false);
+      setInitialized(true);
       return null;
     }
 
@@ -53,17 +54,20 @@ export const AuthProvider = ({ children }) => {
       return null;
     } finally {
       setLoading(false);
+      setInitialized(true);
     }
   };
 
+  // Use startTransition to prevent blocking UI
   useEffect(() => {
+    // Don't block - load profile in background
     refreshProfile();
 
     const intervalId = window.setInterval(() => {
       if (sessionStorage.getItem("token")) {
         refreshProfile({ silent: true });
       }
-    }, 30000);
+    }, 60000); // Increased to 60s
 
     const handleFocus = () => {
       if (sessionStorage.getItem("token")) {
@@ -116,7 +120,16 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (name, email, phone, password, role, profilePhoto = "", serviceType = "") => {
+  const register = async (
+    name,
+    email,
+    phone,
+    password,
+    role,
+    profilePhoto = "",
+    serviceType = "",
+    workCategories = []
+  ) => {
     try {
       const [firstName, ...rest] = String(name || "").trim().split(" ");
       const lastName = rest.join(" ") || "User";
@@ -130,6 +143,7 @@ export const AuthProvider = ({ children }) => {
         role,
         profilePhoto,
         serviceType,
+        workCategories,
         agreeToTerms: true,
       });
       const { token, user } = extractAuthPayload(response.data);

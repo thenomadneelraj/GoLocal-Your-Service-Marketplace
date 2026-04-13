@@ -52,6 +52,7 @@ const ADMIN_SECTIONS = [
     items: [
       { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
       { to: "/admin/users", label: "Users", icon: Users },
+      { to: "/admin/verification", label: "Account Verification", icon: ShieldCheck },
       { to: "/admin/bookings", label: "Bookings", icon: CalendarClock },
       { to: "/admin/transactions", label: "Transactions", icon: ReceiptText },
       { to: "/admin/disputes", label: "Disputes", icon: MessagesSquare },
@@ -67,8 +68,6 @@ const ROLE_NAV = {
     { to: "/client/providers", label: "Providers", icon: BriefcaseBusiness },
     { to: "/client/bookings", label: "Bookings", icon: CalendarClock },
     { to: "/client/payments", label: "Payments", icon: Wallet2 },
-    { to: "/client/analytics", label: "Analytics", icon: BarChart3 },
-    { to: "/client/tasks", label: "Tasks", icon: CheckCircle2 },
     { to: "/client/notifications", label: "Notifications", icon: Bell },
     { to: "/client/chat", label: "Chat", icon: MessageSquare },
     { to: "/client/disputes", label: "Disputes", icon: ShieldCheck },
@@ -107,8 +106,6 @@ const TITLES = {
     "/client/providers": "Service Providers",
     "/client/bookings": "My Bookings",
     "/client/payments": "Payments & Invoices",
-    "/client/analytics": "Spending Analytics",
-    "/client/tasks": "Pending Tasks",
     "/client/notifications": "Notifications Center",
     "/client/chat": "Messages & Chat",
     "/client/disputes": "Disputes & Support",
@@ -134,6 +131,7 @@ const TITLES = {
   ADMIN: {
     "/admin": "Dashboard",
     "/admin/users": "Users",
+    "/admin/verification": "Account Verification",
     "/admin/bookings": "Bookings",
     "/admin/transactions": "Transactions",
     "/admin/disputes": "Disputes",
@@ -207,11 +205,14 @@ function ProfileMenu({ user, displayName, profileOpen, setProfileOpen, handleSet
     <div className="relative">
       <button
         type="button"
-        className={`flex items-center gap-2 rounded-full border p-1 pr-2 transition-colors focus:outline-none ${
+        className={`flex items-center gap-2 rounded-full border px-2 py-1 transition-colors focus:outline-none ${
           provider ? "border-border/60 bg-card/75 hover:border-primary/30" : "border-transparent bg-transparent hover:bg-accent"
         }`}
         onClick={() => setProfileOpen((prev) => !prev)}
       >
+        <span className="max-w-[120px] truncate text-sm font-medium text-foreground">
+          {displayName}
+        </span>
         <div className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-sm font-semibold ${provider ? "bg-primary/15 text-primary" : "bg-primary text-primary-foreground"}`}>
           {user?.profilePhoto ? (
             <img src={user.profilePhoto} alt="profile" className="h-full w-full object-cover" />
@@ -272,6 +273,8 @@ export default function RoleShell({ role }) {
   const isAdminLight = role === "ADMIN" && theme === "light";
   const accountAccess = getAccountAccessState(user);
   const isRestrictedAccount = isSpecialRole && accountAccess.restricted;
+  const showPendingApprovalBanner =
+    isSpecialRole && accountAccess.pendingApproval && accountAccess.title;
   const visibleRoleNav = isRestrictedAccount ? (ROLE_NAV[role] || []).slice(0, 1) : ROLE_NAV[role] || [];
   const visibleRoleUtil = isRestrictedAccount ? [] : ROLE_UTIL[role] || [];
   const visibleSpecialBottom = isRestrictedAccount ? [] : SPECIAL_BOTTOM[role] || [];
@@ -333,11 +336,19 @@ export default function RoleShell({ role }) {
     }
   };
 
+  // Defer notification loading to not block initial render
   useEffect(() => {
     if (!user?.id || isRestrictedAccount) return undefined;
 
-    initiateSocketConnection(user.id, user.role);
-    loadNotifications(true);
+    // Delay socket connection slightly to prioritize initial paint
+    const socketTimer = setTimeout(() => {
+      initiateSocketConnection(user.id, user.role);
+    }, 500);
+
+    // Delay notification loading significantly to prioritize LCP
+    const notificationTimer = setTimeout(() => {
+      loadNotifications(true);
+    }, 1500);
 
     const unsubscribeNew = subscribeToNotifications((err, payload) => {
       if (err || !payload?.notification) return;
@@ -377,6 +388,8 @@ export default function RoleShell({ role }) {
     );
 
     return () => {
+      clearTimeout(socketTimer);
+      clearTimeout(notificationTimer);
       unsubscribeNew();
       unsubscribeRead();
       unsubscribeUserStatus();
@@ -476,7 +489,17 @@ export default function RoleShell({ role }) {
           {!sidebarCollapsed && (
             <div className="min-w-0">
               <p className="truncate text-xl font-semibold tracking-tight">{role === "ADMIN" ? "Admin" : role === "PROVIDER" ? "Provider" : "Client"}</p>
-              {isSpecialRole ? <p className="mt-1 truncate text-xs text-sidebar-foreground/55">{isRestrictedAccount ? "Restricted access" : role === "PROVIDER" ? "Service workspace" : "Client workspace"}</p> : null}
+              {isSpecialRole ? (
+                <p className="mt-1 truncate text-xs text-sidebar-foreground/55">
+                  {isRestrictedAccount
+                    ? "Restricted access"
+                    : accountAccess.pendingApproval
+                      ? "Pending approval"
+                      : role === "PROVIDER"
+                        ? "Service workspace"
+                        : "Client workspace"}
+                </p>
+              ) : null}
             </div>
           )}
         </div>
@@ -522,6 +545,14 @@ export default function RoleShell({ role }) {
           {visibleSpecialBottom.map((item) => (
             <ShellLink key={item.to} item={item} active={isShellLinkActive(item.to)} collapsed={sidebarCollapsed} provider onClick={closeDrawer} />
           ))}
+          {!sidebarCollapsed && role === "PROVIDER" && accountAccess.isApproved ? (
+            <div className="rounded-[1.5rem] border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-700 shadow-[0_18px_36px_-30px_rgba(16,185,129,0.55)] dark:text-emerald-300">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} />
+                <span className="font-semibold">Account Approved</span>
+              </div>
+            </div>
+          ) : null}
           {!sidebarCollapsed && (
             <div className="rounded-[1.5rem] border border-sidebar-foreground/10 bg-sidebar-accent/45 p-3 shadow-[0_24px_48px_-30px_rgba(0,0,0,0.45)]">
               <div className="flex items-center gap-3">
@@ -571,7 +602,7 @@ export default function RoleShell({ role }) {
   );
 
   return (
-    <div className={`flex min-h-screen bg-background font-sans text-foreground transition-colors duration-300 ${themeClass} ${roleScopeClass}`}>
+    <div className={`flex h-screen overflow-hidden bg-background font-sans text-foreground transition-colors duration-300 ${themeClass} ${roleScopeClass}`}>
       <aside className={`relative z-40 hidden flex-shrink-0 border-r px-4 py-2 md:block ${isSpecialRole ? (sidebarCollapsed ? "w-24" : "w-72") : (sidebarCollapsed ? "w-[88px]" : "w-[280px]")} ${isSpecialRole ? "border-border/60 bg-sidebar/95 shadow-[0_30px_80px_-45px_rgba(4,12,8,0.55)] backdrop-blur-2xl" : isAdminLight ? adminSidebarShell : "border-border bg-sidebar shadow-xl backdrop-blur-xl"}`}>
         {sidebarBody}
       </aside>
@@ -585,7 +616,7 @@ export default function RoleShell({ role }) {
         </>
       )}
 
-      <div className="relative flex min-h-screen flex-1 flex-col overflow-hidden">
+      <div className="relative flex h-full flex-1 flex-col overflow-hidden">
         {isSpecialRole ? (
           <div className="pointer-events-none absolute inset-0">
             <div className="absolute left-[-8%] top-[-12%] h-[360px] w-[360px] rounded-full bg-primary/18 blur-[120px]" />
@@ -733,7 +764,22 @@ export default function RoleShell({ role }) {
           </div>
         </header>
 
-        <main className="relative z-10 w-full flex-1 overflow-x-hidden px-4 py-8 md:px-8 lg:px-10">
+        {showPendingApprovalBanner ? (
+          <div className="relative z-20 flex items-start gap-3 border-b border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm font-medium text-amber-700 md:px-8 dark:text-amber-300">
+            <span className="mt-0.5 shrink-0">
+              <Clock size={16} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <span className="font-bold">{accountAccess.title}</span>{" "}
+              {accountAccess.description}
+            </div>
+          </div>
+        ) : null}
+
+        <main
+          data-shell-scroll
+          className="relative z-10 w-full flex-1 overflow-y-auto overflow-x-hidden px-4 py-8 md:px-8 lg:px-10"
+        >
           <div className={`mx-auto w-full ${isSpecialRole ? "max-w-[1560px]" : "max-w-[1600px]"}`}>
             <Outlet />
           </div>

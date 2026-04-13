@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useMemo, memo } from "react";
 import { useAuth } from "@/components/contexts/AuthContext";
 import api from "@/lib/api";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import {
   Wallet,
   ArrowUpRight,
   ArrowDownRight,
+  Clock,
 } from "lucide-react";
 
 const formatCurrency = (amount, currency = "INR") => {
@@ -34,6 +35,16 @@ const formatDate = (date) => {
   });
 };
 
+// Memoized PaymentMethodIcon component
+const PaymentMethodIcon = memo(function PaymentMethodIcon({ method }) {
+  const icons = {
+    card: <CreditCard className="w-4 h-4" />,
+    cash: <BanknoteIcon className="w-4 h-4" />,
+    bank: <Wallet className="w-4 h-4" />,
+  };
+  return icons[method] || <Wallet className="w-4 h-4" />;
+});
+
 export default function ProviderEarnings() {
   const { user } = useAuth();
   const [earnings, setEarnings] = useState([]);
@@ -49,17 +60,15 @@ export default function ProviderEarnings() {
   const [timeRange, setTimeRange] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
 
-  useEffect(() => {
-    loadEarnings();
-  }, [timeRange]);
-
-  const loadEarnings = async () => {
+  // Memoized loadEarnings function
+  const loadEarnings = useCallback(async () => {
+    setLoading(true);
     try {
-      const response = await api.get(`/transactions?timeRange=${timeRange}`);
-      setEarnings(response.data || []);
+      const response = await api.get(`/providers/stats/payouts?timeRange=${timeRange}`);
+      const transactions = response.data?.items || [];
+      setEarnings(transactions);
       
       // Calculate summary
-      const transactions = response.data || [];
       const now = new Date();
       const thisMonth = now.getMonth();
       const thisYear = now.getFullYear();
@@ -69,18 +78,18 @@ export default function ProviderEarnings() {
           const date = new Date(t.createdAt);
           return date.getMonth() === thisMonth && date.getFullYear() === thisYear;
         })
-        .reduce((sum, t) => sum + t.amount, 0);
+        .reduce((sum, t) => sum + (t.amount || 0), 0);
       
       const lastMonthEarnings = transactions
         .filter(t => {
           const date = new Date(t.createdAt);
           return date.getMonth() === (thisMonth - 1) && date.getFullYear() === thisYear;
         })
-        .reduce((sum, t) => sum + t.amount, 0);
+        .reduce((sum, t) => sum + (t.amount || 0), 0);
 
       const pendingAmount = transactions
         .filter(t => t.status === "pending")
-        .reduce((sum, t) => sum + t.amount, 0);
+        .reduce((sum, t) => sum + (t.amount || 0), 0);
 
       const completedJobs = transactions
         .filter(t => t.status === "paid")
@@ -88,7 +97,7 @@ export default function ProviderEarnings() {
 
       const totalEarnings = transactions
         .filter(t => t.status === "paid")
-        .reduce((sum, t) => sum + t.amount, 0);
+        .reduce((sum, t) => sum + (t.amount || 0), 0);
 
       const averageJobValue = completedJobs > 0 ? totalEarnings / completedJobs : 0;
 
@@ -106,27 +115,36 @@ export default function ProviderEarnings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeRange]);
 
-  const filteredEarnings = earnings.filter(earning => {
-    const matchesSearch = 
-      earning.bookingId?.serviceId?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      earning.clientId?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      earning.transactionId?.toLowerCase().includes(searchTerm.toLowerCase());
+  useEffect(() => {
+    loadEarnings();
+  }, [loadEarnings]);
+
+  // Memoized filtered earnings calculation
+  const filteredEarnings = useMemo(() => {
+    if (!searchTerm) return earnings;
     
-    return matchesSearch;
-  });
+    const term = searchTerm.toLowerCase();
+    return earnings.filter(earning => {
+      return (
+        earning.bookingId?.serviceId?.name?.toLowerCase().includes(term) ||
+        earning.clientId?.name?.toLowerCase().includes(term) ||
+        earning.transactionId?.toLowerCase().includes(term)
+      );
+    });
+  }, [earnings, searchTerm]);
 
-  const handleWithdraw = async () => {
+  const handleWithdraw = useCallback(async () => {
     try {
       // This would integrate with a payment system
       toast.info("Withdrawal feature coming soon!");
     } catch (error) {
       toast.error("Failed to process withdrawal");
     }
-  };
+  }, []);
 
-  const downloadStatement = async () => {
+  const downloadStatement = useCallback(async () => {
     try {
       // Generate CSV or PDF statement
       const csvContent = [
@@ -155,16 +173,7 @@ export default function ProviderEarnings() {
       toast.error("Failed to download statement");
       console.error("Error downloading statement:", error);
     }
-  };
-
-  const PaymentMethodIcon = ({ method }) => {
-    const icons = {
-      card: <CreditCard className="w-4 h-4" />,
-      cash: <BanknoteIcon className="w-4 h-4" />,
-      bank: <Wallet className="w-4 h-4" />,
-    };
-    return icons[method] || <Wallet className="w-4 h-4" />;
-  };
+  }, [filteredEarnings]);
 
   return (
     <DashboardLayout>

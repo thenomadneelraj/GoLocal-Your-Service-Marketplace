@@ -10,6 +10,11 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import FormLabel from "@mui/material/FormLabel";
 import FormControl from "@mui/material/FormControl";
 import Link from "@mui/material/Link";
+import InputLabel from "@mui/material/InputLabel";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
+import OutlinedInput from "@mui/material/OutlinedInput";
+import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import Stack from "@mui/material/Stack";
@@ -72,6 +77,18 @@ const SignUpContainer = styled(Stack)(({ theme }) => ({
   },
 }));
 
+const SERVICE_CATEGORY_OPTIONS = [
+  "Plumbing",
+  "Electrical",
+  "Cleaning",
+  "Painting",
+  "Carpentry",
+  "AC Repair",
+  "Appliance Repair",
+  "Moving",
+  "Other",
+];
+
 export default function SignUp(props) {
   const navigate = useNavigate();
   const { register } = useAuth();
@@ -84,12 +101,15 @@ export default function SignUp(props) {
   const [phoneErrorMessage, setPhoneErrorMessage] = useState("");
   const [nameError, setNameError] = useState(false);
   const [nameErrorMessage, setNameErrorMessage] = useState("");
+  const [workCategoriesError, setWorkCategoriesError] = useState(false);
+  const [workCategoriesErrorMessage, setWorkCategoriesErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [profilePhoto, setProfilePhoto] = useState("");
   const [role, setRole] = useState("CLIENT");
   const [serviceType, setServiceType] = useState("Other");
+  const [workCategories, setWorkCategories] = useState(["Other"]);
 
   const handleProfilePhotoChange = (event) => {
     const file = event.target.files?.[0];
@@ -154,7 +174,69 @@ export default function SignUp(props) {
       setPhoneErrorMessage("");
     }
 
+    if (role === "PROVIDER" && !workCategories.length) {
+      setWorkCategoriesError(true);
+      setWorkCategoriesErrorMessage("Select at least one work category.");
+      isValid = false;
+    } else {
+      setWorkCategoriesError(false);
+      setWorkCategoriesErrorMessage("");
+    }
+
     return isValid;
+  };
+
+  const handleRoleChange = (event) => {
+    const nextRole = event.target.value;
+    setRole(nextRole);
+
+    if (nextRole === "PROVIDER") {
+      setWorkCategories((current) =>
+        current.length ? current : [serviceType || "Other"]
+      );
+      return;
+    }
+
+    setWorkCategoriesError(false);
+    setWorkCategoriesErrorMessage("");
+  };
+
+  const handleServiceTypeChange = (event) => {
+    const nextServiceType = event.target.value;
+    setServiceType(nextServiceType);
+    setWorkCategories((current) =>
+      Array.from(
+        new Set([nextServiceType, ...(Array.isArray(current) ? current : [])].filter(Boolean))
+      )
+    );
+  };
+
+  const handleWorkCategoriesChange = (event) => {
+    const rawValue = event.target.value;
+    const nextCategories =
+      typeof rawValue === "string" ? rawValue.split(",") : rawValue;
+    const normalizedCategories = Array.from(
+      new Set(
+        (Array.isArray(nextCategories) ? nextCategories : [])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    setWorkCategories(normalizedCategories);
+
+    if (!normalizedCategories.length) {
+      setWorkCategoriesError(true);
+      setWorkCategoriesErrorMessage("Select at least one work category.");
+      return;
+    }
+
+    if (!normalizedCategories.includes(serviceType)) {
+      setServiceType(normalizedCategories[0]);
+    }
+
+    setWorkCategoriesError(false);
+    setWorkCategoriesErrorMessage("");
   };
 
   const handleSubmit = async (event) => {
@@ -162,7 +244,7 @@ export default function SignUp(props) {
     setError("");
     setSuccess(false);
 
-    if (nameError || emailError || phoneError || passwordError) {
+    if (!validateInputs()) {
       return;
     }
 
@@ -171,6 +253,16 @@ export default function SignUp(props) {
     const email = data.get("email");
     const phone = data.get("phone");
     const password = data.get("password");
+    const submittedWorkCategories =
+      role === "PROVIDER"
+        ? Array.from(new Set([serviceType, ...workCategories].filter(Boolean)))
+        : [];
+
+    if (role === "PROVIDER" && !submittedWorkCategories.length) {
+      setWorkCategoriesError(true);
+      setWorkCategoriesErrorMessage("Select at least one work category.");
+      return;
+    }
 
     setLoading(true);
     const result = await register(
@@ -180,7 +272,8 @@ export default function SignUp(props) {
       password,
       role,
       profilePhoto,
-      serviceType
+      serviceType,
+      submittedWorkCategories
     );
     setLoading(false);
 
@@ -309,7 +402,7 @@ export default function SignUp(props) {
                 select
                 name="role"
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
+                onChange={handleRoleChange}
                 slotProps={{
                   select: {
                     native: true,
@@ -328,23 +421,54 @@ export default function SignUp(props) {
                   select
                   name="serviceType"
                   value={serviceType}
-                  onChange={(e) => setServiceType(e.target.value)}
+                  onChange={handleServiceTypeChange}
                   slotProps={{
                     select: {
                       native: true,
                     },
                   }}
                 >
-                  <option value="Plumbing">Plumbing</option>
-                  <option value="Electrical">Electrical</option>
-                  <option value="Cleaning">Cleaning</option>
-                  <option value="Painting">Painting</option>
-                  <option value="Carpentry">Carpentry</option>
-                  <option value="AC Repair">AC Repair</option>
-                  <option value="Appliance Repair">Appliance Repair</option>
-                  <option value="Moving">Moving</option>
-                  <option value="Other">Other</option>
+                  {SERVICE_CATEGORY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
                 </TextField>
+              </FormControl>
+            )}
+
+            {role === "PROVIDER" && (
+              <FormControl error={workCategoriesError}>
+                <InputLabel id="work-categories-label">Work Categories</InputLabel>
+                <Select
+                  labelId="work-categories-label"
+                  multiple
+                  value={workCategories}
+                  onChange={handleWorkCategoriesChange}
+                  input={<OutlinedInput label="Work Categories" />}
+                  renderValue={(selected) => (
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                      {selected.map((value) => (
+                        <Chip key={value} label={value} size="small" />
+                      ))}
+                    </Box>
+                  )}
+                >
+                  {SERVICE_CATEGORY_OPTIONS.map((option) => (
+                    <MenuItem key={option} value={option}>
+                      {option}
+                    </MenuItem>
+                  ))}
+                </Select>
+                {workCategoriesErrorMessage ? (
+                  <Typography variant="caption" color="error" sx={{ mt: 1 }}>
+                    {workCategoriesErrorMessage}
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" sx={{ mt: 1, color: "text.secondary" }}>
+                    Select one or more work categories. The primary service type will stay in sync.
+                  </Typography>
+                )}
               </FormControl>
             )}
 

@@ -13,6 +13,9 @@ const APPROVAL_STATUS = {
 const USER_STATUS_VALUES = Object.values(USER_STATUS);
 const APPROVAL_STATUS_VALUES = Object.values(APPROVAL_STATUS);
 
+const isApprovalRequiredRole = (role = "") =>
+  ["client", "provider"].includes(String(role || "").trim().toLowerCase());
+
 const normalizeUserStatus = (value, fallbackIsActive = true) => {
   const normalized = String(value || "").trim().toLowerCase();
 
@@ -35,12 +38,16 @@ const normalizeApprovalStatus = (
   }
 
   const normalizedRole = String(role || "").trim().toLowerCase();
-  if (normalizedRole !== "provider") {
+  if (normalizedRole === "admin") {
     return APPROVAL_STATUS.APPROVED;
   }
 
   if (status === USER_STATUS.REJECTED) {
     return APPROVAL_STATUS.REJECTED;
+  }
+
+  if (!isApprovalRequiredRole(normalizedRole)) {
+    return APPROVAL_STATUS.APPROVED;
   }
 
   if (isApproved === true) {
@@ -81,14 +88,24 @@ const isProviderApproved = ({ user, provider } = {}) =>
     isApproved: provider?.isApproved,
   }) === APPROVAL_STATUS.APPROVED;
 
+const isUserApproved = (user = {}) =>
+  !isApprovalRequiredRole(user?.role) ||
+  normalizeApprovalStatus(user?.approvalStatus, {
+    role: user?.role,
+    status: normalizeUserStatus(user?.status, user?.isActive),
+    isApproved: user?.isApproved,
+  }) === APPROVAL_STATUS.APPROVED;
+
 module.exports = {
   USER_STATUS,
   USER_STATUS_VALUES,
   APPROVAL_STATUS,
   APPROVAL_STATUS_VALUES,
+  isApprovalRequiredRole,
   normalizeUserStatus,
   normalizeApprovalStatus,
   buildPersistedAccountState,
   isAccountActive,
   isProviderApproved,
+  isUserApproved,
 };

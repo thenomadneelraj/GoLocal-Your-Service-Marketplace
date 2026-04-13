@@ -9,12 +9,12 @@ const bookingSchema = new mongoose.Schema(
   {
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Client",
+      ref: "User",
       required: true,
     },
     providerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Provider",
+      ref: "User",
       required: true,
     },
     serviceId: {
@@ -22,6 +22,39 @@ const bookingSchema = new mongoose.Schema(
       ref: "Service",
       required: true,
     },
+    selectedServices: [
+      {
+        serviceId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Service",
+        },
+        title: {
+          type: String,
+          trim: true,
+          default: "",
+        },
+        category: {
+          type: String,
+          trim: true,
+          default: "",
+        },
+        price: {
+          type: Number,
+          min: 0,
+          default: 0,
+        },
+        duration: {
+          type: String,
+          trim: true,
+          default: "",
+        },
+        locationType: {
+          type: String,
+          trim: true,
+          default: "offline",
+        },
+      },
+    ],
     bookingDate: {
       type: Date,
       required: true,
@@ -65,11 +98,37 @@ const bookingSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["upi", "cod", "card", "cash"],
+      enum: ["upi", "cod"],
       default: "upi",
+    },
+    review: {
+      rating: {
+        type: Number,
+        min: 1,
+        max: 5,
+      },
+      comment: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      createdAt: {
+        type: Date,
+      },
+      updatedAt: {
+        type: Date,
+      },
     },
   },
   { timestamps: true }
 );
+
+// Indexes for improved query performance
+bookingSchema.index({ status: 1, createdAt: -1 });
+bookingSchema.index({ clientId: 1 });
+bookingSchema.index({ providerId: 1 });
+bookingSchema.index({ serviceId: 1 });
+bookingSchema.index({ paymentStatus: 1 });
+bookingSchema.index({ bookingDate: 1 });
 
 module.exports = mongoose.model("Booking", bookingSchema);

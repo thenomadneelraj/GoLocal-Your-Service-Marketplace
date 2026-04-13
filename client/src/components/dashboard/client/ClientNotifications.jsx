@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Bell,
   Search,
@@ -24,6 +24,9 @@ import {
   disconnectSocket,
 } from "@/lib/socket";
 import { useAuth } from "@/components/contexts/AuthContext";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockClientNotifications } from "@/lib/mockWorkspaceData";
 
 const TYPE_CONFIG = {
   booking: {
@@ -151,7 +154,18 @@ export default function ClientNotifications() {
     }
   };
 
-  const filtered = notifications.filter((n) => {
+  const layeredNotifications = useMemo(
+    () =>
+      mergeLayeredCollections(notifications, mockClientNotifications, {
+        getId: (notification) => notification.id,
+      }),
+    [notifications]
+  );
+  const resolvedUnreadCount =
+    unreadCount ||
+    layeredNotifications.filter((notification) => !notification.read).length;
+
+  const filtered = layeredNotifications.filter((n) => {
     const matchesType = activeFilter === "all" || n.type === activeFilter;
     const matchesSearch =
       !searchQuery ||
@@ -170,9 +184,9 @@ export default function ClientNotifications() {
           <p className="text-muted-foreground mt-2 max-w-md">
             Real-time alerts for bookings, payments, messages, and system
             updates.{" "}
-            {unreadCount > 0 && (
+            {resolvedUnreadCount > 0 && (
               <span className="text-primary font-bold">
-                {unreadCount} unread
+                {resolvedUnreadCount} unread
               </span>
             )}
           </p>
@@ -277,6 +291,11 @@ export default function ClientNotifications() {
                       >
                         {notification.title}
                       </h3>
+                      <DataOriginBadge
+                        origin={notification.dataOrigin}
+                        liveLabel="Live"
+                        sampleLabel="Sample"
+                      />
                       {!notification.read && (
                         <span className="w-2 h-2 rounded-full bg-primary" />
                       )}

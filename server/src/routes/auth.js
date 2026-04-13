@@ -2,9 +2,21 @@ const express = require('express');
 const router = express.Router();
 
 // Import controllers and middleware
-const { register, signIn, getProfile, updateProfile, changePassword, deleteAccount, logout, getPlatformStatusController } = require('../controllers/authController');
+const {
+  register,
+  signIn,
+  getProfile,
+  updateProfile,
+  changePassword,
+  deleteAccount,
+  logout,
+  getPlatformStatusController,
+  getVerificationStatus,
+  submitVerification,
+} = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 const { enforceAccountAccess } = require("../middleware/accountAccess");
+const { handleVerificationUpload } = require("../utils/verificationFiles");
 const { registerValidation, loginValidation, updateProfileValidation } = require('../validations/authValidation');
 
 // Public routes
@@ -15,6 +27,8 @@ router.get('/platform-status', getPlatformStatusController);
 
 // Protected routes
 router.get('/profile', authenticate, getProfile);
+router.get('/verification', authenticate, getVerificationStatus);
+router.post('/verification', authenticate, handleVerificationUpload, submitVerification);
 router.put('/profile', authenticate, enforceAccountAccess, updateProfileValidation, updateProfile);
 router.put('/password', authenticate, enforceAccountAccess, changePassword);
 router.delete('/account', authenticate, enforceAccountAccess, deleteAccount);

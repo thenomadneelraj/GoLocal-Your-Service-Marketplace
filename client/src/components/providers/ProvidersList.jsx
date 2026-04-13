@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
+import { fetchPublicSettings } from "@/lib/adminApi";
 
 import Grid from "@mui/material/Grid";
 import {
@@ -44,7 +45,8 @@ const normalizeProvider = (item) => ({
   available: item.available ?? item.availability ?? false,
   image: item.profileImage || item.profilePhoto || item.image || "",
   experience: Number(item.experience || item.yearsExperience || 0),
-  serviceCount: Array.isArray(item.services) ? item.services.length : 0,
+  serviceCount: item.serviceCount ?? (Array.isArray(item.services) ? item.services.length : 0),
+  servicePriceRange: item.servicePriceRange || null,
 });
 
 const ProvidersList = () => {

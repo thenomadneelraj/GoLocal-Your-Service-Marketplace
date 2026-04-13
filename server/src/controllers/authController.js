@@ -1,10 +1,6 @@
-const User = require("../models/User");
-const Admin = require("../models/Admin");
-const Provider = require("../models/Provider");
-const Client = require("../models/Client");
-const LoginHistory = require("../models/LoginHistory");
-const jwt = require("jsonwebtoken");
 const { validationResult } = require("express-validator");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
 const {
   buildMaintenanceResponse,
   getPlatformStatus,
@@ -14,71 +10,193 @@ const {
   USER_STATUS,
   APPROVAL_STATUS,
   buildPersistedAccountState,
-  normalizeApprovalStatus,
+  isUserApproved,
 } = require("../utils/accountState");
 const {
   SOCKET_EVENTS,
   emitSocketEvent,
 } = require("../utils/socketEvents");
+const { generateUpiId } = require("../utils/payment");
+const { createNotification } = require("../services/notificationService");
+const {
+  VERIFICATION_STATUS,
+  VERIFICATION_DOCUMENT_LABELS,
+  normalizeVerificationStatus,
+  getRequiredVerificationDocumentKinds,
+  serializeVerificationDocument,
+} = require("../utils/verification");
+const {
+  deleteStoredVerificationFile,
+  deleteVerificationDocuments,
+} = require("../utils/verificationFiles");
 
-const generateToken = (account, accountType = "USER") => {
-  return jwt.sign(
+const generateToken = (account, accountType = "USER") =>
+  jwt.sign(
     { accountId: account._id, role: account.role, accountType },
     process.env.JWT_SECRET,
     {
       expiresIn: "1d",
     }
   );
+
+const normalizeWorkCategories = (value, primaryCategory = "") => {
+  const categories = Array.from(
+    new Set(
+      (Array.isArray(value) ? value : [value])
+        .flatMap((entry) =>
+          typeof entry === "string"
+            ? entry.split(",")
+            : Array.isArray(entry)
+              ? entry
+              : [entry]
+        )
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  const normalizedPrimary = String(primaryCategory || "").trim();
+  if (normalizedPrimary && !categories.includes(normalizedPrimary)) {
+    categories.unshift(normalizedPrimary);
+  }
+
+  return categories;
 };
 
-const shapeAccount = (user, profile) => {
+const buildStoredVerificationDocuments = (files = {}, role = "") => {
+  const requiredKinds = getRequiredVerificationDocumentKinds(role);
+
+  return requiredKinds
+    .map((kind) => {
+      const file = Array.isArray(files?.[kind]) ? files[kind][0] : null;
+      if (!file) return null;
+
+      const originalName = String(file.originalname || "").trim() || "Document";
+
+      return {
+        kind,
+        label: VERIFICATION_DOCUMENT_LABELS[kind] || "Document",
+        originalName,
+        name: originalName,
+        storedName: String(file.filename || "").trim(),
+        filePath: `/uploads/verification/${String(file.filename || "").trim()}`,
+        mimeType: String(file.mimetype || "").trim(),
+        size: Number(file.size || 0),
+        uploadedAt: new Date(),
+      };
+    })
+    .filter(Boolean);
+};
+
+const collectUploadedVerificationPaths = (files = {}) =>
+  Object.values(files || {})
+    .flat()
+    .map((file) =>
+      file?.filename ? `/uploads/verification/${String(file.filename).trim()}` : ""
+    )
+    .filter(Boolean);
+
+const cleanupUploadedVerificationFiles = async (files = {}) => {
+  await Promise.allSettled(
+    collectUploadedVerificationPaths(files).map((filePath) =>
+      deleteStoredVerificationFile(filePath)
+    )
+  );
+};
+
+const shapeAccount = (user) => {
   const operationalState = buildPersistedAccountState({
-    role: user?.role,
-    status: user?.status,
-    isActive: user?.isActive,
-    approvalStatus: user?.approvalStatus,
-    isApproved: profile?.isApproved,
+    role: user.role,
+    status: user.status,
+    isActive: user.isActive,
+    approvalStatus: user.approvalStatus,
   });
 
-  const payload = {
+  return {
     id: user._id,
     email: user.email,
     role: user.role,
+    name: user.name || "",
+    phone: user.phone || "",
+    address: user.address || "",
+    profileImage: user.profileImage || "",
+    profilePhoto: user.profileImage || "",
+    bankName: user.bankName || "",
+    accountNumber: user.accountNumber || "",
+    accountHolderName: user.accountHolderName || user.name || "",
+    upiId:
+      user.upiId ||
+      generateUpiId({ phone: user.phone, bankName: user.bankName }),
+    serviceType: user.serviceType || "",
+    workCategories: Array.isArray(user.workCategories) ? user.workCategories : [],
+    isVerified: Boolean(user.isVerified),
+    verificationStatus: normalizeVerificationStatus(
+      user.verification?.status,
+      user.isVerified
+    ),
+    verificationSubmittedAt: user.verification?.submittedAt || null,
+    verificationReviewedAt: user.verification?.reviewedAt || null,
+    verificationRejectionReason: user.verification?.rejectionReason || "",
+    verificationDocuments: Array.isArray(user.verification?.documents)
+      ? user.verification.documents.map((document) =>
+          serializeVerificationDocument(document)
+        )
+      : [],
+    availability: typeof user.availability === "boolean" ? user.availability : true,
     status: operationalState.status,
     approvalStatus: operationalState.approvalStatus,
     isActive: operationalState.isActive,
+    isApproved: isUserApproved(user),
   };
+};
 
-  // Admin and fallback handling
-  if (user.role === "admin" || !profile) {
-    if (user.name) payload.name = user.name;
-    if (user.phone) payload.phone = user.phone;
-    if (user.address) payload.address = user.address;
-    if (user.profileImage || user.profilePhoto) {
-      payload.profilePhoto = user.profileImage || user.profilePhoto;
-    }
-    return payload; // For Admin model or incomplete queries
-  }
+const buildVerificationPayload = (user) => {
+  const role = String(user?.role || "").toLowerCase();
+  const verificationStatus = normalizeVerificationStatus(
+    user?.verification?.status,
+    user?.isVerified
+  );
 
-  if (profile) {
-    if (profile.name) payload.name = profile.name;
-    if (profile.phone) payload.phone = profile.phone;
-    if (profile.address) payload.address = profile.address;
-    if (profile.profileImage || profile.profilePhoto) {
-      payload.profilePhoto = profile.profileImage || profile.profilePhoto;
-    }
-    if (user.role === "provider" || user.role === "PROVIDER") {
-      payload.isApproved =
-        normalizeApprovalStatus(operationalState.approvalStatus, {
-          role: user.role,
-          isApproved: profile?.isApproved,
-          status: operationalState.status,
-        }) === APPROVAL_STATUS.APPROVED;
-      payload.services = profile.services;
-    }
-  }
+  return {
+    role,
+    isVerified: verificationStatus === VERIFICATION_STATUS.VERIFIED,
+    verificationStatus,
+    submittedAt: user?.verification?.submittedAt || null,
+    reviewedAt: user?.verification?.reviewedAt || null,
+    rejectionReason: user?.verification?.rejectionReason || "",
+    requiredDocuments: getRequiredVerificationDocumentKinds(role).map((kind) => ({
+      kind,
+      label: VERIFICATION_DOCUMENT_LABELS[kind] || "Document",
+    })),
+    documents: Array.isArray(user?.verification?.documents)
+      ? user.verification.documents.map((document) =>
+          serializeVerificationDocument(document)
+        )
+      : [],
+  };
+};
 
-  return payload;
+const notifyAdminsOfVerificationSubmission = async (user) => {
+  const admins = await User.find({ role: "admin" }).select("_id");
+
+  await Promise.all(
+    admins.map((admin) =>
+      createNotification({
+        userId: admin._id,
+        title: "Verification submitted",
+        message: `${user.name || user.email} submitted verification documents.`,
+        type: "account",
+        actionUrl: "/admin/verification",
+        metadata: {
+          userId: String(user._id),
+          verificationStatus: normalizeVerificationStatus(
+            user.verification?.status,
+            user.isVerified
+          ),
+        },
+      })
+    )
+  );
 };
 
 const register = async (req, res) => {
@@ -91,12 +209,31 @@ const register = async (req, res) => {
       });
     }
 
-    const { name, firstName, lastName, email, phone, password, role, profilePhoto, serviceType } =
-      req.body;
+    const {
+      name,
+      firstName,
+      lastName,
+      email,
+      phone,
+      password,
+      role,
+      profilePhoto,
+      serviceType,
+      workCategories,
+    } = req.body;
 
-    const actualName = name || `${firstName || ""} ${lastName || ""}`.trim();
+    const actualName =
+      String(name || "").trim() ||
+      `${String(firstName || "").trim()} ${String(lastName || "").trim()}`.trim();
 
-    if (role === "ADMIN" || role === "admin") {
+    if (!actualName) {
+      return res.status(400).json({
+        success: false,
+        message: "Name is required.",
+      });
+    }
+
+    if (String(role || "").toLowerCase() === "admin") {
       return res.status(403).json({
         success: false,
         message: "Admin registration is not allowed from this route.",
@@ -108,9 +245,27 @@ const register = async (req, res) => {
       return res.status(503).json(buildMaintenanceResponse(platformStatus));
     }
 
-    const assignedRole = (role === "PROVIDER" || role === "provider") ? "provider" : "client";
+    const assignedRole =
+      String(role || "").toLowerCase() === "provider" ? "provider" : "client";
+    const normalizedServiceType =
+      assignedRole === "provider"
+        ? String(serviceType || "").trim() || "Other"
+        : "Other";
+    const normalizedWorkCategories =
+      assignedRole === "provider"
+        ? normalizeWorkCategories(workCategories, normalizedServiceType)
+        : [];
 
-    const existingEmail = await User.findOne({ email });
+    if (assignedRole === "provider" && !normalizedWorkCategories.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Select at least one work category for provider accounts.",
+      });
+    }
+
+    const existingEmail = await User.findOne({
+      email: String(email || "").trim().toLowerCase(),
+    });
     if (existingEmail) {
       return res.status(400).json({
         success: false,
@@ -118,50 +273,33 @@ const register = async (req, res) => {
       });
     }
 
-    const existingPhoneInClient = await Client.findOne({ phone });
-    const existingPhoneInProvider = await Provider.findOne({ phone });
-    if (existingPhoneInClient || existingPhoneInProvider) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone already registered",
-      });
+    const normalizedPhone = String(phone || "").trim();
+    if (normalizedPhone) {
+      const existingPhone = await User.findOne({ phone: normalizedPhone });
+      if (existingPhone) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone already registered",
+        });
+      }
     }
 
     const user = await User.create({
-      email,
+      email: String(email || "").trim().toLowerCase(),
       password,
       role: assignedRole,
+      name: actualName,
+      phone: normalizedPhone,
+      profileImage: String(profilePhoto || "").trim(),
+      serviceType: normalizedServiceType,
+      workCategories: normalizedWorkCategories,
+      availability: assignedRole === "provider",
       status: USER_STATUS.ACTIVE,
-      approvalStatus:
-        assignedRole === "provider"
-          ? APPROVAL_STATUS.PENDING
-          : APPROVAL_STATUS.APPROVED,
+      approvalStatus: APPROVAL_STATUS.PENDING,
     });
 
-    let profile;
-    if (assignedRole === "provider") {
-      profile = await Provider.create({
-        userId: user._id,
-        name: actualName,
-        phone,
-        upiId: phone ? `${phone}@golocal` : "",
-        profileImage: profilePhoto || "",
-        serviceType: serviceType || "Other",
-        services: [], // can be populated later
-        experience: 0,
-        availability: true,
-      });
-    } else {
-      profile = await Client.create({
-        userId: user._id,
-        name: actualName,
-        phone,
-        profileImage: profilePhoto || "",
-      });
-    }
-
     const token = generateToken(user);
-    const userPayload = shapeAccount(user, profile);
+    const userPayload = shapeAccount(user);
 
     res.status(201).json({
       success: true,
@@ -192,21 +330,10 @@ const signIn = async (req, res) => {
     }
 
     const { email, password, role } = req.body;
-    let wantsAdmin = (role === "ADMIN" || role === "admin");
-    let accountType = wantsAdmin ? "ADMIN" : "USER";
 
-    let account = wantsAdmin
-      ? await Admin.findOne({ email }).select("+password")
-      : await User.findOne({ email }).select("+password");
-
-    if (!account && (!role || role === "")) {
-      // allow fallback
-      account = await Admin.findOne({ email }).select("+password");
-      if (account) {
-        accountType = "ADMIN";
-        wantsAdmin = true;
-      }
-    }
+    const account = await User.findOne({
+      email: String(email || "").trim().toLowerCase(),
+    }).select("+password");
 
     if (!account) {
       return res.status(401).json({
@@ -215,8 +342,7 @@ const signIn = async (req, res) => {
       });
     }
 
-    const bcrypt = require("bcrypt");
-    const isMatch = await bcrypt.compare(password, account.password);
+    const isMatch = await account.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -224,58 +350,33 @@ const signIn = async (req, res) => {
       });
     }
 
-    const roleLower = role ? role.toLowerCase() : null;
-    const accountRoleLower = account.role ? account.role.toLowerCase() : null;
+    const requestedRole = String(role || "").trim().toLowerCase();
+    const actualRole = String(account.role || "").trim().toLowerCase();
 
-    if (roleLower && accountRoleLower && roleLower !== accountRoleLower) {
-        return res.status(403).json({
-            success: false,
-            message: "Role mismatch for this account.",
-        });
+    if (requestedRole && requestedRole !== actualRole) {
+      return res.status(403).json({
+        success: false,
+        message: "Role mismatch for this account.",
+      });
     }
 
-    if (accountType !== "ADMIN") {
+    if (actualRole !== "admin") {
       const platformStatus = await getPlatformStatus();
       if (platformStatus.maintenanceMode) {
         return res.status(503).json(buildMaintenanceResponse(platformStatus));
       }
     }
 
-    let profile = null;
-    if (accountType === "USER") {
-      if (account.role === "client") {
-        profile = await Client.findOne({ userId: account._id });
-      } else if (account.role === "provider") {
-        profile = await Provider.findOne({ userId: account._id });
-      }
+    account.totalLogins = Number(account.totalLogins || 0) + 1;
+    account.lastLogin = new Date();
+    await account.save();
 
-      // Use updateOne to avoid triggering full model validators on unrelated fields
-      // (avoids ValidationErrors from stale/legacy data in existing documents)
-      await account.constructor.findByIdAndUpdate(account._id, {
-        $inc: { totalLogins: 1 },
-        $set: { lastLogin: new Date() },
-      });
-    } else {
-      profile = account;
-    }
-
-    const token = generateToken(account, accountType);
-    const userPayload = shapeAccount(account, profile);
-
-    LoginHistory.create({
-      accountId: account._id,
-      account: account.email || String(account._id),
-      accountModel: accountType === "ADMIN" ? "Admin" : "User",
-      role: account.role,
-      ipAddress: req.ip,
-      userAgent: req.get("user-agent") || "",
-      success: true,
-      loginTime: new Date(),
-    }).catch(() => {});
+    const token = generateToken(account, actualRole === "admin" ? "ADMIN" : "USER");
+    const userPayload = shapeAccount(account);
 
     res.json({
       success: true,
-      message: "Login successful TEST",
+      message: "Login successful",
       token,
       user: userPayload,
       data: {
@@ -284,7 +385,6 @@ const signIn = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("SIGNIN FULL ERROR:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -294,37 +394,18 @@ const signIn = async (req, res) => {
 
 const getProfile = async (req, res) => {
   try {
-    const user = req.user; 
-    let profile = null;
-
-    if (req.auth?.accountType === "ADMIN") {
-      profile = user;
-    } else {
-      if (user.role === "client") {
-        profile = await Client.findOne({ userId: user._id });
-      } else if (user.role === "provider") {
-        profile = await Provider.findOne({ userId: user._id });
-      }
-    }
-
-    const userPayload = shapeAccount(user, profile);
-    const accountAccess = await buildAccountAccessState(user);
+    const userPayload = shapeAccount(req.user);
+    const accountAccess = await buildAccountAccessState(req.user);
 
     res.json({
       success: true,
       user: {
         ...userPayload,
-        status: userPayload.status || accountAccess.status,
-        approvalStatus:
-          userPayload.approvalStatus || accountAccess.approvalStatus,
         isApproved: accountAccess.isApproved,
       },
       data: {
         user: {
           ...userPayload,
-          status: userPayload.status || accountAccess.status,
-          approvalStatus:
-            userPayload.approvalStatus || accountAccess.approvalStatus,
           isApproved: accountAccess.isApproved,
         },
       },
@@ -353,63 +434,217 @@ const getPlatformStatusController = async (req, res) => {
   }
 };
 
-const updateProfile = async (req, res) => {
+const getVerificationStatus = async (req, res) => {
   try {
-    const userId = req.user._id.toString();
-    const { name, firstName, lastName, phone, profilePhoto, address } = req.body;
-    
-    const actualName = name || (firstName || lastName ? `${firstName || ""} ${lastName || ""}`.trim() : undefined);
+    const user = await User.findById(req.user._id).select("-password");
 
-    let updatedUser;
-    let profile = null;
-
-    if (req.auth?.accountType === "ADMIN") {
-      const updateData = {};
-      if (actualName) updateData.name = actualName;
-      if (phone) {
-        const existingPhone = await Admin.findOne({ phone });
-        if (existingPhone && existingPhone._id.toString() !== userId) {
-          return res.status(400).json({ success: false, message: "Phone already registered" });
-        }
-        updateData.phone = phone;
-      }
-      if (address !== undefined) updateData.address = address;
-      if (profilePhoto) {
-         updateData.profileImage = profilePhoto; 
-      }
-      updatedUser = await Admin.findByIdAndUpdate(userId, updateData, { new: true }).select("-password");
-      profile = updatedUser;
-    } else {
-      updatedUser = req.user; 
-
-      const updateData = {};
-      if (actualName) updateData.name = actualName;
-      if (phone) updateData.phone = phone;
-      if (address !== undefined) updateData.address = address;
-      if (profilePhoto) {
-         updateData.profileImage = profilePhoto; 
-      }
-
-      if (updatedUser.role === "client") {
-        if (phone) {
-          const existingPhone = await Client.findOne({ phone });
-          if (existingPhone && existingPhone.userId.toString() !== userId) {
-            return res.status(400).json({ success: false, message: "Phone already registered" });
-          }
-        }
-        profile = await Client.findOneAndUpdate({ userId }, updateData, { new: true });
-      } else if (updatedUser.role === "provider") {
-        if (phone) {
-          const existingPhone = await Provider.findOne({ phone });
-          if (existingPhone && existingPhone.userId.toString() !== userId) {
-            return res.status(400).json({ success: false, message: "Phone already registered" });
-          }
-        }
-        profile = await Provider.findOneAndUpdate({ userId }, updateData, { new: true });
-      }
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Account not found.",
+      });
     }
 
-    const payload = shapeAccount(updatedUser, profile);
+    if (!["client", "provider"].includes(String(user.role || "").toLowerCase())) {
+      return res.status(403).json({
+        success: false,
+        message: "Verification is only available for client and provider accounts.",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: buildVerificationPayload(user),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const submitVerification = async (req, res) => {
+  let verificationSaved = false;
+
+  try {
+    const uploadedFiles = req.files || {};
+    const user = await User.findById(req.user._id).select("-password");
+
+    if (!user) {
+      await cleanupUploadedVerificationFiles(uploadedFiles);
+      return res.status(404).json({
+        success: false,
+        message: "Account not found.",
+      });
+    }
+
+    if (!["client", "provider"].includes(String(user.role || "").toLowerCase())) {
+      await cleanupUploadedVerificationFiles(uploadedFiles);
+      return res.status(403).json({
+        success: false,
+        message: "Verification is only available for client and provider accounts.",
+      });
+    }
+
+    const currentStatus = normalizeVerificationStatus(
+      user.verification?.status,
+      user.isVerified
+    );
+
+    if (currentStatus === VERIFICATION_STATUS.VERIFIED) {
+      await cleanupUploadedVerificationFiles(uploadedFiles);
+      return res.status(409).json({
+        success: false,
+        message: "This account is already verified.",
+      });
+    }
+
+    if (currentStatus === VERIFICATION_STATUS.UNDER_REVIEW) {
+      await cleanupUploadedVerificationFiles(uploadedFiles);
+      return res.status(409).json({
+        success: false,
+        message: "Verification is already under review.",
+      });
+    }
+
+    const documents = buildStoredVerificationDocuments(uploadedFiles, user.role);
+    const requiredKinds = getRequiredVerificationDocumentKinds(user.role);
+    const providedKinds = new Set(documents.map((document) => document.kind));
+    const missingKinds = requiredKinds.filter((kind) => !providedKinds.has(kind));
+
+    if (missingKinds.length) {
+      await cleanupUploadedVerificationFiles(uploadedFiles);
+      return res.status(400).json({
+        success: false,
+        message: `Missing required documents: ${missingKinds
+          .map((kind) => VERIFICATION_DOCUMENT_LABELS[kind] || kind)
+          .join(", ")}.`,
+      });
+    }
+
+    const previousDocuments = Array.isArray(user.verification?.documents)
+      ? user.verification.documents
+      : [];
+
+    user.verification = {
+      ...(user.verification?.toObject
+        ? user.verification.toObject()
+        : user.verification),
+      status: VERIFICATION_STATUS.UNDER_REVIEW,
+      submittedAt: new Date(),
+      reviewedAt: null,
+      reviewedBy: null,
+      rejectionReason: "",
+      documents,
+    };
+    user.isVerified = false;
+    await user.save();
+    verificationSaved = true;
+
+    const postSubmitTasks = await Promise.allSettled([
+      deleteVerificationDocuments(previousDocuments),
+      notifyAdminsOfVerificationSubmission(user),
+    ]);
+
+    postSubmitTasks.forEach((result) => {
+      if (result.status === "rejected") {
+        console.error("Verification submission follow-up failed:", result.reason);
+      }
+    });
+
+    emitSocketEvent({
+      userIds: [req.user._id],
+      eventName: SOCKET_EVENTS.USER_UPDATED,
+      payload: {
+        userId: String(req.user._id),
+        verificationStatus: user.verification.status,
+        message: "Verification submitted successfully.",
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Verification submitted successfully.",
+      data: buildVerificationPayload(user),
+    });
+  } catch (error) {
+    if (!verificationSaved) {
+      await cleanupUploadedVerificationFiles(req.files || {});
+    }
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const updateProfile = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+
+    const userId = req.user._id.toString();
+    const {
+      name,
+      firstName,
+      lastName,
+      phone,
+      profilePhoto,
+      address,
+      bankName,
+      accountNumber,
+      accountHolderName,
+    } = req.body;
+
+    const actualName =
+      String(name || "").trim() ||
+      `${String(firstName || "").trim()} ${String(lastName || "").trim()}`.trim();
+
+    const updateData = {};
+    if (actualName) updateData.name = actualName;
+
+    if (phone !== undefined) {
+      const normalizedPhone = String(phone || "").trim();
+      if (normalizedPhone) {
+        const existingPhone = await User.findOne({
+          phone: normalizedPhone,
+          _id: { $ne: userId },
+        });
+        if (existingPhone) {
+          return res.status(400).json({
+            success: false,
+            message: "Phone already registered",
+          });
+        }
+      }
+      updateData.phone = normalizedPhone;
+    }
+
+    if (address !== undefined) updateData.address = String(address || "").trim();
+    if (profilePhoto !== undefined) {
+      updateData.profileImage = String(profilePhoto || "").trim();
+    }
+    if (bankName !== undefined) updateData.bankName = String(bankName || "").trim();
+    if (accountNumber !== undefined) {
+      updateData.accountNumber = String(accountNumber || "").trim();
+    }
+    if (accountHolderName !== undefined) {
+      updateData.accountHolderName = String(accountHolderName || "").trim();
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).select("-password");
+
+    const payload = shapeAccount(updatedUser);
 
     emitSocketEvent({
       userIds: [req.user._id],
@@ -438,57 +673,66 @@ const changePassword = async (req, res) => {
   try {
     const userId = req.user._id.toString();
     const { currentPassword, newPassword } = req.body;
-    
-    let account;
-    if (req.auth?.accountType === "ADMIN") {
-      account = await Admin.findById(userId).select("+password");
-    } else {
-      account = await User.findById(userId).select("+password");
-    }
+
+    const account = await User.findById(userId).select("+password");
 
     if (!account) {
-      return res.status(404).json({ success: false, message: "Account not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Account not found",
+      });
     }
 
     const isMatch = await account.comparePassword(currentPassword);
     if (!isMatch) {
-      return res.status(400).json({ success: false, message: "Incorrect current password" });
+      return res.status(400).json({
+        success: false,
+        message: "Incorrect current password",
+      });
     }
 
-    if (!newPassword || newPassword.length < 8) {
-      return res.status(400).json({ success: false, message: "Password must be at least 8 characters long" });
+    if (!newPassword || String(newPassword).length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters long",
+      });
     }
 
     account.password = newPassword;
     await account.save();
 
-    res.json({ success: true, message: "Password updated successfully" });
+    res.json({
+      success: true,
+      message: "Password updated successfully",
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
 const deleteAccount = async (req, res) => {
   try {
     const userId = req.user._id.toString();
+    const user = await User.findById(userId).select("verification.documents");
 
-    if (req.auth?.accountType === "ADMIN") {
-      await Admin.findByIdAndDelete(userId);
-    } else {
-      const user = await User.findById(userId);
-      if (!user) return res.status(404).json({ success: false, message: "Account not found" });
-
-      if (user.role === "provider") {
-        await Provider.findOneAndDelete({ userId });
-      } else if (user.role === "client") {
-        await Client.findOneAndDelete({ userId });
-      }
-      await User.findByIdAndDelete(userId);
+    if (Array.isArray(user?.verification?.documents) && user.verification.documents.length) {
+      await deleteVerificationDocuments(user.verification.documents);
     }
 
-    res.json({ success: true, message: "Account deleted successfully" });
+    await User.findByIdAndDelete(userId);
+
+    res.json({
+      success: true,
+      message: "Account deleted successfully",
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
@@ -504,6 +748,8 @@ module.exports = {
   signIn,
   getProfile,
   getPlatformStatusController,
+  getVerificationStatus,
+  submitVerification,
   updateProfile,
   changePassword,
   deleteAccount,

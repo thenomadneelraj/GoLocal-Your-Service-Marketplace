@@ -1,188 +1,523 @@
-import React, { useState } from "react";
-import { 
-  BarChart3, 
-  LineChart, 
-  TrendingUp, 
-  TrendingDown, 
-  Search, 
-  Calendar, 
-  ArrowUpRight, 
-  Download,
+import { useEffect, useMemo, useState } from "react";
+import {
   Activity,
-  PieChart as PieChartIcon,
+  BarChart3,
+  Briefcase,
   CircleDollarSign,
-  Briefcase
+  Download,
+  PieChart as PieChartIcon,
+  RefreshCcw,
+  Users,
 } from "lucide-react";
-import { 
-  Area, 
-  AreaChart, 
-  ResponsiveContainer, 
-  Tooltip, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid,
-  BarChart,
+import {
+  Area,
   Bar,
+  CartesianGrid,
   Cell,
+  ComposedChart,
+  Pie,
   PieChart,
-  Pie
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import api from "@/lib/api";
 
-const MOCK_LINE_DATA = [
-  { name: "Jan", spent: 3200, bookings: 4 },
-  { name: "Feb", spent: 4500, bookings: 6 },
-  { name: "Mar", spent: 2800, bookings: 3 },
-  { name: "Apr", spent: 5100, bookings: 8 },
-  { name: "May", spent: 4200, bookings: 5 },
-  { name: "Jun", spent: 6300, bookings: 9 },
+const EMPTY_DASHBOARD = {
+  summary: {
+    activeProviders: 0,
+    ongoingProjects: 0,
+    totalSpent: 0,
+    upcomingMeetings: 0,
+  },
+  overview30d: [],
+  overview6m: [],
+  currency: "INR",
+};
+
+const CATEGORY_COLORS = [
+  "hsl(var(--primary))",
+  "rgb(14, 165, 233)",
+  "rgb(16, 185, 129)",
+  "rgb(249, 115, 22)",
+  "rgb(99, 102, 241)",
+  "rgb(236, 72, 153)",
 ];
 
-const MOCK_PIE_DATA = [
-  { name: "Plumbing", value: 35, color: "hsl(var(--primary))" },
-  { name: "Cleaning", value: 45, color: "rgb(56, 189, 248)" },
-  { name: "Electrical", value: 20, color: "rgb(129, 140, 248)" },
-];
+const formatCurrency = (value, currency = "INR") =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
+
+const compactCurrency = (value, currency = "INR") =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Number(value || 0));
+
+const downloadBlob = (blobData, filename) => {
+  const blob = new Blob([blobData]);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+function Panel({ className = "", children }) {
+  return (
+    <section
+      className={`overflow-hidden rounded-[2rem] border border-border/70 bg-card/90 shadow-[0_24px_60px_-42px_rgba(15,23,42,0.55)] backdrop-blur-xl ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
 
 export default function ClientAnalytics() {
-  const [range, setRange] = useState("6m");
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState("30d");
+  const [downloadFormat, setDownloadFormat] = useState("csv");
+  const [dashboard, setDashboard] = useState(EMPTY_DASHBOARD);
+  const [bookingTrend, setBookingTrend] = useState([]);
+  const [categoryStats, setCategoryStats] = useState([]);
+
+  const loadAnalytics = async () => {
+    try {
+      setLoading(true);
+      const [dashboardResponse, bookingResponse, categoryResponse] = await Promise.all([
+        api.get("/api/clients/stats/dashboard"),
+        api.get("/api/clients/stats/bookings"),
+        api.get("/api/clients/stats/services"),
+      ]);
+
+      setDashboard({
+        ...EMPTY_DASHBOARD,
+        ...(dashboardResponse.data?.data || {}),
+      });
+      setBookingTrend(bookingResponse.data?.data || []);
+      setCategoryStats(categoryResponse.data?.data || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not load client analytics.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAnalytics();
+  }, []);
+
+  const currency = dashboard.currency || "INR";
+  const spendSeries = range === "30d" ? dashboard.overview30d : dashboard.overview6m;
+
+  const metrics = useMemo(() => {
+    const totalBookings = spendSeries.reduce(
+      (sum, item) => sum + Number(item.bookings || 0),
+      0
+    );
+    const totalSpendFromSeries = spendSeries.reduce(
+      (sum, item) => sum + Number(item.spend || 0),
+      0
+    );
+
+    return [
+      {
+        label: "Total Spent",
+        value: formatCurrency(dashboard.summary.totalSpent, currency),
+        note: "Successful payments recorded",
+        icon: CircleDollarSign,
+        accent: "text-primary bg-primary/10 border-primary/20",
+      },
+      {
+        label: "Active Providers",
+        value: Number(dashboard.summary.activeProviders || 0).toLocaleString("en-IN"),
+        note: "Providers you've worked with",
+        icon: Users,
+        accent: "text-sky-600 bg-sky-500/10 border-sky-500/20",
+      },
+      {
+        label: "Open Projects",
+        value: Number(dashboard.summary.ongoingProjects || 0).toLocaleString("en-IN"),
+        note: "Accepted live bookings",
+        icon: Briefcase,
+        accent: "text-emerald-600 bg-emerald-500/10 border-emerald-500/20",
+      },
+      {
+        label: "Average Booking",
+        value: totalBookings
+          ? formatCurrency(totalSpendFromSeries / totalBookings, currency)
+          : formatCurrency(0, currency),
+        note: "Average spend per booking in view",
+        icon: Activity,
+        accent: "text-indigo-600 bg-indigo-500/10 border-indigo-500/20",
+      },
+    ];
+  }, [currency, dashboard.summary, spendSeries]);
+
+  const pieData = useMemo(
+    () =>
+      (categoryStats.length ? categoryStats : [{ name: "No Services", value: 1 }]).map(
+        (item, index) => ({
+          ...item,
+          color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
+        })
+      ),
+    [categoryStats]
+  );
+
+  const topCategory = pieData
+    .filter((item) => Number(item.value || 0) > 0)
+    .sort((left, right) => Number(right.value || 0) - Number(left.value || 0))[0];
+
+  const handleExport = async () => {
+    const extension = downloadFormat === "xlsx" ? "xlsx" : downloadFormat;
+
+    try {
+      const response = await api.get("/api/transactions/export", {
+        params: { format: downloadFormat },
+        responseType: "blob",
+      });
+      downloadBlob(
+        response.data,
+        `client-analytics-export-${Date.now()}.${extension}`
+      );
+      toast.success("Analytics export downloaded.");
+    } catch (error) {
+      toast.error("Could not export analytics.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6 pb-10">
+        <div className="h-36 animate-pulse rounded-[2rem] border border-border/70 bg-card/80" />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={index}
+              className="h-36 animate-pulse rounded-[2rem] border border-border/70 bg-card/80"
+            />
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-12">
+          <div className="h-[380px] animate-pulse rounded-[2rem] border border-border/70 bg-card/80 lg:col-span-8" />
+          <div className="h-[380px] animate-pulse rounded-[2rem] border border-border/70 bg-card/80 lg:col-span-4" />
+          <div className="h-[300px] animate-pulse rounded-[2rem] border border-border/70 bg-card/80 lg:col-span-12" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-10">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-card/50 p-8 rounded-[2rem] border border-border/60 backdrop-blur-xl relative overflow-hidden transition-all">
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-transparent pointer-events-none" />
-        <div className="relative">
-          <h1 className="text-3xl font-semibold tracking-tight">Spending Analytics</h1>
-          <p className="text-muted-foreground mt-2 max-w-md">Visualize your platform usage, category-wise spending, and savings trends over time.</p>
-        </div>
-        <div className="flex gap-2">
-          <div className="inline-flex rounded-full border border-border/70 bg-muted/60 p-1">
-            {["1m", "3m", "6m", "1y"].map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`rounded-full px-5 py-2 text-xs font-bold uppercase tracking-widest transition-all ${
-                  range === r ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {r}
-              </button>
-            ))}
+      <Panel className="relative p-8">
+        <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-r from-primary/15 via-primary/5 to-transparent" />
+        <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">
+              Client Analytics
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
+              Spending and booking insights
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+              This page now uses real booking, provider, and transaction data so you
+              can see where your spending is going and how your service activity is trending.
+            </p>
           </div>
-          <Button variant="outline" className="h-10 rounded-full px-5 text-xs font-bold gap-2 border-border/60">
-            <Download size={14} />
-            Export
-          </Button>
-        </div>
-      </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        {[
-          { label: "Total Spent", value: "₹26,100", trend: "+12.5%", icon: CircleDollarSign, accent: "text-primary bg-primary/10 border-primary/20" },
-          { label: "Active Bookings", value: "14", trend: "+2", icon: Briefcase, accent: "text-sky-500 bg-sky-500/10 border-sky-500/20" },
-          { label: "Avg. Task Value", value: "₹1,864", trend: "-5.2%", icon: TrendingUp, accent: "text-emerald-500 bg-emerald-500/10 border-emerald-500/20" },
-          { label: "Savings Generated", value: "₹2,450", trend: "+8.3%", icon: Activity, accent: "text-indigo-500 bg-indigo-500/10 border-indigo-500/20" },
-        ].map((metric) => (
-          <div key={metric.label} className="bg-card/40 border border-border/60 rounded-[2rem] p-6 group hover:shadow-xl hover:shadow-primary/5 transition-all">
-            <div className="flex items-center justify-between mb-4">
-              <span className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${metric.accent}`}>
-                <metric.icon size={22} />
-              </span>
-              <span className={`text-xs font-bold ${metric.trend.startsWith("+") ? "text-emerald-500" : "text-rose-500"} bg-muted/50 px-2 py-1 rounded-lg`}>
-                {metric.trend}
-              </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-full border border-border/70 bg-muted/60 p-1">
+              {[
+                { id: "30d", label: "30D" },
+                { id: "6m", label: "6M" },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setRange(option.id)}
+                  className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
+                    range === option.id
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-1">{metric.label}</p>
-            <p className="text-3xl font-bold tracking-tight text-foreground group-hover:text-primary transition-colors">{metric.value}</p>
+
+            <select
+              value={downloadFormat}
+              onChange={(event) => setDownloadFormat(event.target.value)}
+              className="h-10 rounded-full border border-border/60 bg-background px-3 text-xs font-semibold"
+            >
+              <option value="csv">CSV</option>
+              <option value="xlsx">XLSX</option>
+              <option value="pdf">PDF</option>
+            </select>
+
+            <Button
+              variant="outline"
+              className="h-10 rounded-full border-border/60 px-4 text-xs font-semibold"
+              onClick={loadAnalytics}
+            >
+              <RefreshCcw size={14} className="mr-2" />
+              Refresh
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-10 rounded-full border-border/60 px-4 text-xs font-semibold"
+              onClick={handleExport}
+            >
+              <Download size={14} className="mr-2" />
+              Export
+            </Button>
           </div>
-        ))}
+        </div>
+      </Panel>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {metrics.map((metric) => {
+          const Icon = metric.icon;
+          return (
+            <Panel key={metric.label} className="p-6">
+              <div className="flex items-center justify-between">
+                <div
+                  className={`flex h-12 w-12 items-center justify-center rounded-2xl border ${metric.accent}`}
+                >
+                  <Icon size={22} />
+                </div>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Live
+                </span>
+              </div>
+              <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                {metric.label}
+              </p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
+                {metric.value}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">{metric.note}</p>
+            </Panel>
+          );
+        })}
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Spending Area Chart */}
-        <div className="lg:col-span-2 bg-card/40 border border-border/60 rounded-[3rem] p-8 backdrop-blur-md">
-          <div className="mb-10 flex items-center justify-between">
+      <div className="grid gap-6 lg:grid-cols-12">
+        <Panel className="p-7 lg:col-span-8">
+          <div className="mb-8 flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight">Spending & Usage Trend</h2>
-              <p className="text-sm text-muted-foreground mt-1 tracking-tight">Comparison of monthly expenditures relative to booking volume.</p>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                Spending and booking trend
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Compare what you spent against how many bookings you placed.
+              </p>
             </div>
           </div>
-          
-          <div className="h-[360px] w-full">
+
+          <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={MOCK_LINE_DATA}>
+              <ComposedChart data={spendSeries}>
                 <defs>
-                  <linearGradient id="colorSpent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                  <linearGradient id="clientAnalyticsFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
                     <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.6} />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => `₹${v}`} />
-                <Tooltip 
-                  contentStyle={{ 
-                    borderRadius: "24px", 
-                    border: "1px solid hsl(var(--border))", 
-                    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-                    background: "hsl(var(--card))",
-                    backdropFilter: "blur(12px)"
-                  }} 
+                <CartesianGrid
+                  vertical={false}
+                  strokeDasharray="6 6"
+                  stroke="hsl(var(--border))"
+                  opacity={0.65}
                 />
-                <Area type="monotone" dataKey="spent" stroke="hsl(var(--primary))" strokeWidth={4} fillOpacity={1} fill="url(#colorSpent)" />
-              </AreaChart>
+                <XAxis
+                  dataKey="label"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                />
+                <YAxis
+                  yAxisId="spend"
+                  tickLine={false}
+                  axisLine={false}
+                  width={76}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                  tickFormatter={(value) => compactCurrency(value, currency)}
+                />
+                <YAxis
+                  yAxisId="bookings"
+                  orientation="right"
+                  tickLine={false}
+                  axisLine={false}
+                  width={40}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: "18px",
+                    border: "1px solid hsl(var(--border))",
+                    background: "hsl(var(--card))",
+                    boxShadow: "0 20px 60px -30px rgba(15,23,42,0.55)",
+                  }}
+                  formatter={(value, key) =>
+                    key === "spend"
+                      ? formatCurrency(value, currency)
+                      : `${value} bookings`
+                  }
+                />
+                <Area
+                  yAxisId="spend"
+                  type="monotone"
+                  dataKey="spend"
+                  stroke="hsl(var(--primary))"
+                  strokeWidth={3}
+                  fill="url(#clientAnalyticsFill)"
+                />
+                <Bar
+                  yAxisId="bookings"
+                  dataKey="bookings"
+                  radius={[12, 12, 0, 0]}
+                  fill="rgba(15, 23, 42, 0.65)"
+                  maxBarSize={28}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </Panel>
 
-        {/* Category breakdown Pie Chart */}
-        <div className="bg-card/40 border border-border/60 rounded-[3rem] p-8 backdrop-blur-md flex flex-col items-center">
-          <div className="mb-10 w-full">
-            <h2 className="text-xl font-semibold tracking-tight">Category Breakdown</h2>
-            <p className="text-sm text-muted-foreground mt-1">Distribution of your service requests.</p>
+        <Panel className="p-7 lg:col-span-4">
+          <div className="mb-8 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
+              <PieChartIcon size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                Category breakdown
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Services grouped by booking category.
+              </p>
+            </div>
           </div>
 
-          <div className="h-[240px] w-full relative">
+          <div className="relative h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie 
-                  data={MOCK_PIE_DATA} 
-                  innerRadius={70} 
-                  outerRadius={90} 
-                  paddingAngle={8} 
+                <Pie
+                  data={pieData}
+                  innerRadius={68}
+                  outerRadius={92}
+                  paddingAngle={6}
                   dataKey="value"
                   stroke="none"
                 >
-                  {MOCK_PIE_DATA.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  {pieData.map((entry, index) => (
+                    <Cell key={`${entry.name}-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value) => `${value} bookings`} />
               </PieChart>
             </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <div className="w-20 h-20 rounded-full bg-background border border-border/40 flex flex-col items-center justify-center p-4 text-center">
-                <p className="text-xs text-muted-foreground font-bold">TOP</p>
-                <p className="font-bold text-sm text-foreground">Cleaning</p>
+
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <div className="rounded-full border border-border/50 bg-background/90 px-5 py-4 text-center shadow-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Top
+                </p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {topCategory?.name || "No data"}
+                </p>
               </div>
             </div>
           </div>
 
-          <div className="mt-8 space-y-4 w-full">
-            {MOCK_PIE_DATA.map((item) => (
-              <div key={item.name} className="flex items-center justify-between group">
+          <div className="mt-6 space-y-3">
+            {pieData.map((item) => (
+              <div
+                key={item.name}
+                className="flex items-center justify-between rounded-2xl border border-border/50 bg-muted/20 px-4 py-3"
+              >
                 <div className="flex items-center gap-3">
-                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-sm font-medium group-hover:text-primary transition-colors italic leading-relaxed">{item.name}</span>
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="text-sm font-medium text-foreground">{item.name}</span>
                 </div>
-                <span className="text-sm font-bold text-foreground">{item.value}%</span>
+                <span className="text-sm font-semibold text-foreground">
+                  {Number(item.value || 0)}
+                </span>
               </div>
             ))}
           </div>
-        </div>
+        </Panel>
+
+        <Panel className="p-7 lg:col-span-12">
+          <div className="mb-6 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
+              <BarChart3 size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                Booking trend by month
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Live booking count trend from the client stats service.
+              </p>
+            </div>
+          </div>
+
+          {bookingTrend.length ? (
+            <div className="h-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={bookingTrend}>
+                  <CartesianGrid
+                    vertical={false}
+                    strokeDasharray="6 6"
+                    stroke="hsl(var(--border))"
+                    opacity={0.65}
+                  />
+                  <XAxis
+                    dataKey="month"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                  />
+                  <Tooltip formatter={(value) => `${value} bookings`} />
+                  <Bar
+                    dataKey="bookings"
+                    radius={[14, 14, 0, 0]}
+                    fill="hsl(var(--primary))"
+                    maxBarSize={48}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex min-h-[180px] items-center justify-center rounded-[1.5rem] border border-dashed border-border/70 bg-muted/15 text-sm text-muted-foreground">
+              No booking activity yet.
+            </div>
+          )}
+        </Panel>
       </div>
     </div>
   );

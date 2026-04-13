@@ -1,180 +1,249 @@
-import React, { useState } from "react";
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  MoreVertical, 
-  ShieldCheck, 
-  Star, 
-  Clock, 
-  Tag, 
-  Layers, 
-  Zap, 
-  Trash2, 
-  Edit3,
-  CheckCircle2,
-  XCircle,
-  HelpCircle,
-  IndianRupee,
-  LayoutGrid
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import api from "@/lib/api";
+import { toast } from "sonner";
 
-const MOCK_SERVICES = [
-  {
-    id: "SRV-101",
-    title: "Deep House Cleaning",
-    category: "Cleaning",
-    price: "₹1,500/hr",
-    rating: 4.9,
-    reviews: 124,
-    status: "active",
-    icon: LayoutGrid
-  },
-  {
-    id: "SRV-102",
-    title: "Eco-Friendly Kitchen Sanitization",
-    category: "Cleaning",
-    price: "₹2,200",
-    rating: 4.8,
-    reviews: 86,
-    status: "active",
-    icon: Sparkles
-  },
-  {
-    id: "SRV-103",
-    title: "Full Bathroom Deep Cleaning",
-    category: "Cleaning",
-    price: "₹1,200",
-    rating: 4.7,
-    reviews: 42,
-    status: "inactive",
-    icon: ShieldCheck
-  }
-];
+const emptyForm = {
+  title: "",
+  description: "",
+  category: "",
+  price: "",
+  duration: "1 hour",
+  locationType: "offline",
+  status: "active",
+};
 
-function Sparkles(props) {
-  return <Zap {...props} />;
-}
+const formatCurrency = (amount) =>
+  `INR ${Number(amount || 0).toLocaleString("en-IN")}`;
 
 export default function ProviderServices() {
-  const [activeTab, setActiveTab] = useState("all");
+  const [services, setServices] = useState([]);
+  const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const loadServices = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get("/api/services/me");
+      setServices(response.data?.data?.items || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not load services.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadServices();
+  }, []);
+
+  const resetForm = () => {
+    setForm(emptyForm);
+    setEditingId("");
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      setSaving(true);
+      const payload = {
+        ...form,
+        price: Number(form.price || 0),
+      };
+      if (editingId) {
+        await api.put(`/api/services/${editingId}`, payload);
+        toast.success("Service updated successfully.");
+      } else {
+        await api.post("/api/services", payload);
+        toast.success("Service created successfully.");
+      }
+      resetForm();
+      await loadServices();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not save service.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const activeCount = useMemo(
+    () => services.filter((service) => service.status === "active").length,
+    [services]
+  );
 
   return (
     <div className="space-y-6 pb-10 font-sans">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-card/60 p-8 rounded-[2rem] border border-border/60 backdrop-blur-xl relative overflow-hidden group shadow-sm">
-        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
-        <div className="relative">
-          <h1 className="text-3xl font-bold tracking-tight">Services</h1>
-          <p className="text-muted-foreground mt-1 max-w-md text-sm font-medium leading-relaxed">
-            Manage your professional service catalog.
+      <div className="flex flex-col gap-4 rounded-[2rem] border border-border/60 bg-card/60 p-8 backdrop-blur-xl shadow-sm md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Service Manager</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Add multiple works for clients to choose from during booking.
           </p>
         </div>
-        <Button className="rounded-xl h-11 px-6 gap-2 font-bold bg-emerald-500 hover:bg-emerald-600 shadow-md">
-          <Plus size={18} />
-          Add Service
-        </Button>
+        <div className="flex gap-3 text-sm">
+          <div className="rounded-2xl border border-border/50 bg-muted/20 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Total works</p>
+            <p className="mt-2 text-lg font-semibold text-foreground">{services.length}</p>
+          </div>
+          <div className="rounded-2xl border border-border/50 bg-muted/20 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Active</p>
+            <p className="mt-2 text-lg font-semibold text-foreground">{activeCount}</p>
+          </div>
+        </div>
       </div>
 
-      {/* Filters & Controls */}
-      <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
-        <div className="flex flex-wrap gap-2 p-1.5 bg-muted/40 rounded-2xl border border-border/40 backdrop-blur-md shadow-xs overflow-x-auto no-scrollbar">
-          {["all", "active", "inactive"].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${
-                activeTab === tab 
-                ? "bg-background text-emerald-600 shadow-sm border border-border/40" 
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2 w-full xl:w-auto">
-          <div className="relative group flex-1 xl:w-72">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within/search:text-emerald-500 transition-colors" />
-            <input 
-              type="text" 
-              placeholder="Search services..." 
-              className="w-full h-11 pl-10 pr-4 rounded-xl border border-border/60 bg-card/50 focus:bg-background outline-none transition-all text-xs shadow-xs"
+      <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+        <form onSubmit={handleSubmit} className="rounded-[2rem] border border-border/60 bg-card/40 p-6 backdrop-blur-sm shadow-sm">
+          <h2 className="text-xl font-semibold text-foreground">
+            {editingId ? "Edit work" : "Add new work"}
+          </h2>
+          <div className="mt-5 grid gap-4">
+            <input
+              type="text"
+              placeholder="Work title"
+              value={form.title}
+              onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+              className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+              required
             />
-          </div>
-          <Button variant="outline" size="icon" className="h-11 w-11 rounded-xl border-border/60 hover:bg-muted/50 transition-all shadow-xs">
-            <Filter size={16} className="text-muted-foreground" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Services Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {MOCK_SERVICES.filter(s => activeTab === "all" || s.status === activeTab).map((service) => (
-          <div key={service.id} className="group bg-card/40 border border-border/60 rounded-[2rem] p-6 hover:border-emerald-500/40 hover:bg-card/70 transition-all duration-300 relative overflow-hidden backdrop-blur-sm shadow-xs h-full flex flex-col">
-            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform duration-700 pointer-events-none">
-              <service.icon size={100} />
+            <textarea
+              placeholder="Describe what the client gets from this work."
+              value={form.description}
+              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+              rows={4}
+              className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+              required
+            />
+            <div className="grid gap-4 md:grid-cols-2">
+              <input
+                type="text"
+                placeholder="Category"
+                value={form.category}
+                onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+                className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+                required
+              />
+              <input
+                type="number"
+                min="1"
+                placeholder="Price"
+                value={form.price}
+                onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))}
+                className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+                required
+              />
             </div>
-            
-            <div className="relative flex flex-col h-full">
-              <div className="flex items-start justify-between mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 border border-emerald-500/20 shadow-xs">
-                  <service.icon size={24} />
-                </div>
-                <div className={`px-2 py-0.5 rounded-lg border text-[9px] font-black uppercase tracking-widest shadow-xs ${
-                  service.status === "active" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-muted text-muted-foreground border-border/60"
-                }`}>
-                  {service.status === "active" ? <CheckCircle2 className="inline-block mr-1.5 mb-0.5" size={10} /> : <XCircle className="inline-block mr-1.5 mb-0.5" size={10} />}
-                  {service.status}
-                </div>
-              </div>
-
-              <div className="flex-1">
-                <p className="text-[9px] font-bold uppercase tracking-widest text-emerald-600/60 mb-1.5 leading-none">{service.category}</p>
-                <h3 className="text-lg font-bold text-foreground mb-4 leading-tight group-hover:text-emerald-700 transition-colors line-clamp-1">{service.title}</h3>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="flex items-center gap-1.5 bg-background/80 border border-border/60 px-2.5 py-1 rounded-lg shadow-xs">
-                    <Star size={12} className="text-amber-500 fill-amber-500" />
-                    <span className="text-[10px] font-black leading-none">{service.rating}</span>
-                    <span className="text-[9px] text-muted-foreground font-bold leading-none">({service.reviews})</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 bg-background/80 border border-border/60 px-2.5 py-1 rounded-lg shadow-xs italic text-muted-foreground">
-                    <Clock size={12} className="text-emerald-500" />
-                    <span className="text-[10px] font-bold leading-none">Est. 2h</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-border/60 flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-none">Pricing</p>
-                  <p className="text-lg font-black text-emerald-600 leading-none italic">{service.price}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="icon" className="rounded-lg h-9 w-9 border-border/60 hover:bg-emerald-500/10 hover:text-emerald-600 transition-all">
-                    <Edit3 size={14} />
-                  </Button>
-                  <Button variant="outline" size="icon" className="rounded-lg h-9 w-9 border-border/60 hover:bg-rose-500/10 hover:text-rose-600 transition-all opacity-0 group-hover:opacity-100 duration-300">
-                    <Trash2 size={14} />
-                  </Button>
-                </div>
-              </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <input
+                type="text"
+                placeholder="Duration"
+                value={form.duration}
+                onChange={(event) => setForm((current) => ({ ...current, duration: event.target.value }))}
+                className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+                required
+              />
+              <select
+                value={form.locationType}
+                onChange={(event) => setForm((current) => ({ ...current, locationType: event.target.value }))}
+                className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+              >
+                <option value="offline">Offline</option>
+                <option value="online">Online</option>
+              </select>
             </div>
+            <select
+              value={form.status}
+              onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}
+              className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
           </div>
-        ))}
-        
-        {/* Empty State */}
-        <div className="group bg-card/20 border-2 border-dashed border-border/60 rounded-[2rem] p-8 flex flex-col items-center justify-center text-center hover:border-emerald-500/40 hover:bg-card/40 transition-all duration-500 cursor-pointer min-h-[280px]">
-          <div className="w-14 h-14 bg-muted/40 rounded-2xl flex items-center justify-center mb-4 ring-4 ring-emerald-500/5 group-hover:bg-emerald-500/10 group-hover:text-emerald-600 transition-all">
-            <Plus size={28} className="text-muted-foreground/30 group-hover:text-emerald-600" />
+
+          <div className="mt-6 flex gap-3">
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving..." : editingId ? "Update Work" : "Add Work"}
+            </Button>
+            {editingId ? (
+              <Button type="button" variant="outline" onClick={resetForm}>
+                Cancel
+              </Button>
+            ) : null}
           </div>
-          <h3 className="text-md font-bold text-foreground opacity-60 group-hover:opacity-100 transition-opacity uppercase tracking-tight">Add New</h3>
-          <p className="text-[10px] text-muted-foreground mt-2 max-w-[180px] font-medium italic opacity-60 group-hover:opacity-100 transition-opacity leading-relaxed">Expand your professional portfolio with more offerings.</p>
+        </form>
+
+        <div className="space-y-4 rounded-[2rem] border border-border/60 bg-card/40 p-6 backdrop-blur-sm shadow-sm">
+          <h2 className="text-xl font-semibold text-foreground">Published works</h2>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading works...</p>
+          ) : services.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No works published yet. Add your first work from the form.
+            </p>
+          ) : (
+            services.map((service) => (
+              <div
+                key={service.id}
+                className="rounded-[1.5rem] border border-border/60 bg-muted/20 p-5"
+              >
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-lg font-semibold text-foreground">{service.title}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{service.description}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span className="rounded-full border border-border/50 px-3 py-1">{service.category}</span>
+                      <span className="rounded-full border border-border/50 px-3 py-1">{service.duration}</span>
+                      <span className="rounded-full border border-border/50 px-3 py-1">{service.locationType}</span>
+                      <span className="rounded-full border border-border/50 px-3 py-1">{service.status}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-primary">{formatCurrency(service.price)}</p>
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setEditingId(service.id);
+                          setForm({
+                            title: service.title || "",
+                            description: service.description || "",
+                            category: service.category || "",
+                            price: String(service.price || ""),
+                            duration: service.duration || "1 hour",
+                            locationType: service.locationType || "offline",
+                            status: service.status || "active",
+                          });
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            await api.delete(`/api/services/${service.id}`);
+                            toast.success("Service deleted successfully.");
+                            await loadServices();
+                          } catch (error) {
+                            toast.error(error.response?.data?.message || "Could not delete service.");
+                          }
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
-
   );
 }

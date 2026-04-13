@@ -37,6 +37,9 @@ const toProviderForm = (data = {}) => ({
   experience: data.experience === 0 || data.experience ? String(data.experience) : "",
   availability: data.availability ?? data.available ?? true,
   bio: data.bio || "",
+  workCategoriesText: Array.isArray(data.workCategories)
+    ? data.workCategories.join(", ")
+    : "",
 });
 
 const toPlatformForm = (data = {}) => ({
@@ -45,6 +48,20 @@ const toPlatformForm = (data = {}) => ({
     data.commissionPercentage ?? data.commissionRate ?? 10,
   maintenanceMode: Boolean(data.maintenanceMode),
 });
+
+const buildGeneratedUpiId = (phone = "", bankName = "") => {
+  const normalizedPhone = String(phone || "").replace(/\D/g, "");
+  const normalizedBank = String(bankName || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+  if (!normalizedPhone || !normalizedBank) {
+    return "";
+  }
+
+  return `${normalizedPhone}@${normalizedBank}`;
+};
 
 export default function SettingsLayout({ role }) {
   const normalizedRole = String(role || "").toUpperCase();
@@ -67,7 +84,16 @@ export default function SettingsLayout({ role }) {
   const [platformLoading, setPlatformLoading] = useState(isAdmin);
   const [platformSaving, setPlatformSaving] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
-  const [profileForm, setProfileForm] = useState({ firstName: "", lastName: "", phone: "", address: "", profilePhoto: "" });
+  const [profileForm, setProfileForm] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    address: "",
+    profilePhoto: "",
+    bankName: "",
+    accountNumber: "",
+    accountHolderName: "",
+  });
   const [providerForm, setProviderForm] = useState(toProviderForm());
   const [platformForm, setPlatformForm] = useState(toPlatformForm());
   const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
@@ -83,6 +109,9 @@ export default function SettingsLayout({ role }) {
       phone: user.phone || "",
       address: user.address || "",
       profilePhoto: user.profilePhoto || "",
+      bankName: user.bankName || "",
+      accountNumber: user.accountNumber || "",
+      accountHolderName: user.accountHolderName || user.name || "",
     }));
   }, [user]);
 
@@ -106,6 +135,13 @@ export default function SettingsLayout({ role }) {
           phone: data.phone || prev.phone || "",
           address: data.address || prev.address || "",
           profilePhoto: data.profileImage || data.profilePhoto || prev.profilePhoto || "",
+          bankName: data.bankName || prev.bankName || "",
+          accountNumber: data.accountNumber || prev.accountNumber || "",
+          accountHolderName:
+            data.accountHolderName ||
+            data.name ||
+            prev.accountHolderName ||
+            "",
         }));
         setProviderForm(toProviderForm(data));
       } catch (err) {
@@ -158,6 +194,10 @@ export default function SettingsLayout({ role }) {
   }, [isAdmin]);
 
   const previewPhoto = useMemo(() => resolveMediaUrl(profileForm.profilePhoto), [profileForm.profilePhoto]);
+  const generatedUpiId = useMemo(
+    () => buildGeneratedUpiId(profileForm.phone, profileForm.bankName),
+    [profileForm.phone, profileForm.bankName]
+  );
 
   const handlePhotoChange = (event) => {
     const file = event.target.files?.[0];
@@ -189,6 +229,10 @@ export default function SettingsLayout({ role }) {
           name: fullName,
           phone: profileForm.phone.trim(),
           profilePhoto: profileForm.profilePhoto,
+          bankName: profileForm.bankName.trim(),
+          accountNumber: profileForm.accountNumber.trim(),
+          accountHolderName:
+            profileForm.accountHolderName.trim() || fullName,
           serviceType: providerForm.serviceType,
           location: providerForm.location.trim(),
           address: providerForm.address.trim(),
@@ -196,6 +240,10 @@ export default function SettingsLayout({ role }) {
           experience: Number(providerForm.experience || 0),
           availability: providerForm.availability,
           bio: providerForm.bio.trim(),
+          workCategories: providerForm.workCategoriesText
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
         });
         const data = response.data?.data || {};
         setProviderForm(toProviderForm(data));
@@ -204,6 +252,11 @@ export default function SettingsLayout({ role }) {
           name: data.name || fullName,
           phone: data.phone || profileForm.phone,
           profilePhoto: data.profileImage || data.profilePhoto || profileForm.profilePhoto,
+          bankName: data.bankName || profileForm.bankName,
+          accountNumber: data.accountNumber || profileForm.accountNumber,
+          accountHolderName:
+            data.accountHolderName || profileForm.accountHolderName || fullName,
+          upiId: data.upiId || generatedUpiId,
         });
         setMessage({ type: "success", text: "Provider profile updated successfully!" });
       } else {
@@ -213,6 +266,10 @@ export default function SettingsLayout({ role }) {
           phone: profileForm.phone.trim(),
           address: profileForm.address.trim(),
           profilePhoto: profileForm.profilePhoto,
+          bankName: profileForm.bankName.trim(),
+          accountNumber: profileForm.accountNumber.trim(),
+          accountHolderName:
+            profileForm.accountHolderName.trim() || fullName,
         });
         const nextUser = response.data?.data?.user ?? response.data?.user;
         if (nextUser) setUserData(nextUser);
@@ -408,12 +465,12 @@ export default function SettingsLayout({ role }) {
               ) : (
                 <form onSubmit={handleProfileSubmit} className="space-y-10">
                   <div className="flex flex-col gap-6 rounded-[1.5rem] border border-border/40 bg-muted/20 p-6 sm:flex-row sm:items-center">
-                    <div className="relative group shrink-0">
-                      <div className="h-28 w-28 rounded-[2rem] overflow-hidden border-2 border-primary/20 bg-muted/40 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform duration-500">
+                    <div className="relative inline-block shrink-0">
+                      <div className="h-28 w-28 rounded-full overflow-hidden border-2 border-primary/20 bg-muted/40 flex items-center justify-center shadow-lg">
                         {previewPhoto ? <img src={previewPhoto} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon size={40} className="text-muted-foreground opacity-40" />}
                       </div>
-                      <label className="absolute inset-0 flex items-center justify-center bg-black/60 text-white opacity-0 group-hover:opacity-100 rounded-[2rem] cursor-pointer transition-all duration-300 backdrop-blur-sm">
-                        <span className="text-[10px] font-black uppercase tracking-widest">Update</span>
+                      <label className="absolute bottom-1 right-1 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+                        <span className="text-lg font-bold leading-none pb-0.5">+</span>
                         <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
                       </label>
                     </div>
@@ -489,8 +546,84 @@ export default function SettingsLayout({ role }) {
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Value Proposition (Bio)</label>
                         <textarea value={providerForm.bio} onChange={(event) => setProviderForm((prev) => ({ ...prev, bio: event.target.value }))} placeholder="Explain why clients should choose your expertise..." className={`${INPUT} min-h-[140px] resize-y font-medium leading-relaxed italic`} />
                       </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Work Categories</label>
+                        <input
+                          type="text"
+                          placeholder="Plumbing, Electrical, AC Repair"
+                          value={providerForm.workCategoriesText}
+                          onChange={(event) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              workCategoriesText: event.target.value,
+                            }))
+                          }
+                          className={INPUT}
+                        />
+                        <p className="text-[10px] text-muted-foreground italic">
+                          These categories power your public profile tags. Use commas to add multiple works.
+                        </p>
+                      </div>
                     </div>
                   )}
+
+                  <div className="rounded-[2rem] border border-border/40 bg-muted/10 p-8 space-y-6">
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-widest text-foreground italic">Payment Details</h4>
+                      <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
+                        Add your bank name and account details. Your UPI ID is generated automatically as `phone@bankname`.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Bank Name</label>
+                        <input
+                          type="text"
+                          value={profileForm.bankName}
+                          onChange={(event) =>
+                            setProfileForm((prev) => ({
+                              ...prev,
+                              bankName: event.target.value,
+                            }))
+                          }
+                          className={INPUT}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Generated UPI ID</label>
+                        <input type="text" value={generatedUpiId || "Add phone and bank name"} readOnly className={`${INPUT} cursor-not-allowed opacity-70`} />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Account Number</label>
+                        <input
+                          type="text"
+                          value={profileForm.accountNumber}
+                          onChange={(event) =>
+                            setProfileForm((prev) => ({
+                              ...prev,
+                              accountNumber: event.target.value,
+                            }))
+                          }
+                          className={INPUT}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Name on Account</label>
+                        <input
+                          type="text"
+                          value={profileForm.accountHolderName}
+                          onChange={(event) =>
+                            setProfileForm((prev) => ({
+                              ...prev,
+                              accountHolderName: event.target.value,
+                            }))
+                          }
+                          className={INPUT}
+                        />
+                      </div>
+                    </div>
+                  </div>
 
                   <div className="pt-8 border-t border-border/20">
                     <Button 

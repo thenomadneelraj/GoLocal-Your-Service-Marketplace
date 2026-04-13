@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Typography from "@mui/material/Typography";
@@ -14,6 +15,7 @@ import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import WorkOutlineRoundedIcon from "@mui/icons-material/WorkOutlineRounded";
 import { alpha } from "@mui/material/styles";
 import { resolveMediaUrl } from "@/lib/media";
+import { fetchPublicSettings } from "@/lib/adminApi";
 
 const formatCurrency = (amount) =>
   `INR ${Number(amount || 0).toLocaleString("en-IN")}`;
@@ -27,6 +29,25 @@ const getInitials = (value) =>
     .join("");
 
 const ProviderCard = ({ provider }) => {
+  const [commissionPercentage, setCommissionPercentage] = useState(10);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCommission = async () => {
+      try {
+        const response = await fetchPublicSettings();
+        const commission = response.data?.data?.commissionPercentage || 10;
+        setCommissionPercentage(commission);
+      } catch (error) {
+        console.warn("Failed to fetch commission percentage, using default:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCommission();
+  }, []);
+
   const {
     id,
     name,
@@ -40,6 +61,7 @@ const ProviderCard = ({ provider }) => {
     available,
     experience = 0,
     serviceCount = 0,
+    isMock = false,
   } = provider;
 
   const imageUrl = resolveMediaUrl(image);
@@ -149,6 +171,11 @@ const ProviderCard = ({ provider }) => {
             <Typography variant="body2" sx={{ fontWeight: 800 }}>
               {formatCurrency(hourlyRate)}/hr
             </Typography>
+            {commissionPercentage > 0 && !loading && (
+              <Typography variant="caption" sx={{ display: "block", color: "#0f172a", mt: 0.5 }}>
+                +{commissionPercentage}% platform fee
+              </Typography>
+            )}
           </Box>
         </Box>
 
@@ -212,13 +239,14 @@ const ProviderCard = ({ provider }) => {
           to={`/booking/${id}`}
           variant="contained"
           fullWidth
+          disabled={isMock}
           sx={{
             borderRadius: 999,
             fontWeight: 700,
-            boxShadow: "0 14px 32px -18px rgba(37,99,235,0.8)",
+            boxShadow: isMock ? "none" : "0 14px 32px -18px rgba(37,99,235,0.8)",
           }}
         >
-          Book Now
+          {isMock ? "Mock Provider" : "Book Now"}
         </Button>
       </CardActions>
     </Card>

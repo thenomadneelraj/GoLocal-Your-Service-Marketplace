@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Inbox, Mailbox } from "lucide-react";
 import { toast } from "sonner";
-import { fetchAdminContactMessages } from "@/lib/adminApi";
+import { fetchAdminContactMessages } from "@/lib/cachedAdminApi";
 import {
   AdminLoadingState,
   AdminPageShell,
@@ -10,11 +10,26 @@ import {
   AdminStatusBadge,
   AdminStatCard,
 } from "./AdminWorkspaceCommon";
+import { useSocketEvent } from "@/components/contexts/WebSocketContext";
 
 export default function AdminContactMessages() {
   const [search, setSearch] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Handle real-time contact message updates via WebSocket
+  const handleContactMessageUpdate = useCallback((payload) => {
+    console.log("[AdminContactMessages] Received contact message update:", payload);
+    
+    // Refresh the messages list when updates occur
+    loadMessages();
+    
+    if (payload.message) {
+      toast.success(payload.message);
+    }
+  }, [search]);
+
+  useSocketEvent("contact_message_created", handleContactMessageUpdate);
 
   const loadMessages = async (nextSearch = search) => {
     try {

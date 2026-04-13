@@ -1,20 +1,20 @@
 const Booking = require("../models/Booking");
-const Provider = require("../models/Provider");
-const User = require("../models/User");
-const Service = require("../models/Service");
-const PlatformSetting = require("../models/PlatformSetting");
-const Transaction = require("../models/Transaction");
-const Payout = require("../models/Payout");
-const Review = require("../models/Review");
 const Dispute = require("../models/Dispute");
-const Client = require("../models/Client");
+const Service = require("../models/Service");
+const Transaction = require("../models/Transaction");
+const User = require("../models/User");
 const { createNotification } = require("../services/notificationService");
 const { findOrCreateConversation } = require("../services/conversationService");
+const { getPlatformSettings } = require("../services/platformSettingsService");
 const {
   APPROVAL_STATUS,
   isAccountActive,
   isProviderApproved,
+  isUserApproved,
 } = require("../utils/accountState");
+const {
+  buildAccountRestrictionResponse,
+} = require("../middleware/accountAccess");
 const {
   BOOKING_STATUS,
   normalizeBookingStatus,
@@ -22,27 +22,28 @@ const {
   isCompletedBooking,
 } = require("../utils/bookingStatus");
 const {
+  normalizeTransactionStatus,
+  TRANSACTION_STATUS,
+} = require("../utils/transactionStatus");
+const {
   SOCKET_EVENTS,
   emitSocketEvent,
 } = require("../utils/socketEvents");
+const {
+  calculateTransactionBreakdown,
+  buildPaymentSnapshot,
+} = require("../utils/payment");
 
 const BOOKING_POPULATION = [
   {
     path: "providerId",
     select:
-      "name phone upiId profileImage serviceType location hourlyRate userId bio experience rating totalReviews isApproved availability address",
-    populate: {
-      path: "userId",
-      select: "email role status approvalStatus isActive",
-    },
+      "name phone upiId bankName accountNumber accountHolderName profileImage serviceType location hourlyRate bio experience rating totalReviews availability address email role status approvalStatus isActive workCategories",
   },
   {
     path: "clientId",
-    select: "name phone profileImage address userId",
-    populate: {
-      path: "userId",
-      select: "email role status approvalStatus isActive",
-    },
+    select:
+      "name phone upiId bankName accountNumber accountHolderName profileImage address email role status approvalStatus isActive",
   },
   {
     path: "serviceId",
@@ -51,7 +52,10 @@ const BOOKING_POPULATION = [
 ];
 
 const BOOKING_STATUS_TRANSITIONS = {
-  [BOOKING_STATUS.PENDING_PAYMENT]: [BOOKING_STATUS.CANCELLED],
+  [BOOKING_STATUS.PENDING_PAYMENT]: [
+    BOOKING_STATUS.PENDING,
+    BOOKING_STATUS.CANCELLED,
+  ],
   [BOOKING_STATUS.PENDING]: [
     BOOKING_STATUS.ACCEPTED,
     BOOKING_STATUS.REJECTED,
@@ -69,7 +73,6 @@ const BOOKING_STATUS_TRANSITIONS = {
 const BLOCKING_BOOKING_STATUSES = [
   BOOKING_STATUS.PENDING,
   BOOKING_STATUS.ACCEPTED,
-  "confirmed",
 ];
 
 const normalizeArea = (value = "") =>
@@ -81,9 +84,10 @@ const normalizeArea = (value = "") =>
 
 const normalizePaymentMethod = (value = "") => {
   const normalized = String(value || "").trim().toLowerCase();
-  return ["upi", "cod", "card", "cash"].includes(normalized)
-    ? normalized
-    : "upi";
+  if (["cash", "cash_on_delivery"].includes(normalized)) {
+    return "cod";
+  }
+  return ["upi", "cod"].includes(normalized) ? normalized : "upi";
 };
 
 const formatDateLabel = (value) => {
@@ -117,43 +121,6 @@ const doesAreaMatch = (provider, targetAddress) => {
   );
 };
 
-const resolveBookingService = async ({ serviceId, provider, actualAmount }) => {
-  if (serviceId && serviceId !== "default-service") {
-    const explicitService = await Service.findById(serviceId);
-    if (explicitService) {
-      return explicitService;
-    }
-  }
-
-  const existingService = await Service.findOne({ providerId: provider._id }).sort({
-    createdAt: 1,
-  });
-
-  if (existingService) {
-    return existingService;
-  }
-
-  const defaultTitle =
-    provider.serviceType && provider.serviceType !== "Other"
-      ? `${provider.serviceType} Service`
-      : "General Service";
-
-  return Service.create({
-    title: defaultTitle,
-    description: `Auto-generated default service for ${provider.name}.`,
-    category: provider.serviceType || "Other",
-    providerId: provider._id,
-    price: Number(actualAmount) || Number(provider.hourlyRate) || 0,
-    duration: "1 hour",
-    locationType: "offline",
-  });
-};
-
-const getCommissionPercentage = async () => {
-  const settings = await PlatformSetting.findOne();
-  return settings?.commissionPercentage ?? settings?.commissionRate ?? 10;
-};
-
 const hydrateBooking = async (bookingId) =>
   Booking.findById(bookingId).populate(BOOKING_POPULATION);
 
@@ -165,17 +132,13 @@ const getBookingDayRange = (value) => {
   };
 };
 
-const ensureProviderAvailabilityForBooking = async ({
-  provider,
-  providerUser,
-  address,
-}) => {
-  if (providerUser && !isAccountActive(providerUser)) {
+const ensureProviderAvailabilityForBooking = async ({ provider, address }) => {
+  if (!isAccountActive(provider)) {
     return "Provider account is currently disabled.";
   }
 
-  if (!isProviderApproved({ user: providerUser, provider })) {
-    return providerUser?.approvalStatus === APPROVAL_STATUS.REJECTED
+  if (!isProviderApproved({ user: provider, provider })) {
+    return provider?.approvalStatus === APPROVAL_STATUS.REJECTED
       ? "Provider account has been rejected."
       : "Provider is not approved for bookings yet.";
   }
@@ -212,51 +175,72 @@ const findConflictingBooking = async ({
   return Booking.findOne(filter);
 };
 
+const resolveBookingServices = async ({ serviceIds = [], provider }) => {
+  const normalizedServiceIds = Array.from(
+    new Set(
+      (Array.isArray(serviceIds) ? serviceIds : [serviceIds])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!normalizedServiceIds.length) {
+    return [];
+  }
+
+  const services = await Service.find({
+    _id: { $in: normalizedServiceIds },
+    providerId: provider._id,
+    status: "active",
+  }).sort({ createdAt: 1 });
+
+  if (services.length !== normalizedServiceIds.length) {
+    throw new Error("One or more selected works are unavailable.");
+  }
+
+  return services;
+};
+
+const serializeReview = (booking) => ({
+  id: `${String(booking?._id || "")}:review`,
+  bookingId: booking?._id,
+  rating: Number(booking?.review?.rating || 0),
+  comment: booking?.review?.comment || "",
+  createdAt: booking?.review?.createdAt || null,
+  updatedAt: booking?.review?.updatedAt || null,
+  serviceTitle: booking?.serviceId?.title || "",
+  clientName: booking?.clientId?.name || "Client",
+  clientProfileImage: booking?.clientId?.profileImage || "",
+});
+
 const recalculateProviderRating = async (providerId) => {
   if (!providerId) return;
 
-  const providerObjectId =
-    typeof providerId === "string"
-      ? new Provider.db.base.Types.ObjectId(providerId)
-      : providerId;
+  const bookings = await Booking.find({
+    providerId,
+    "review.rating": { $exists: true },
+  }).select("review");
 
-  const stats = await Review.aggregate([
-    {
-      $match: {
-        providerId: providerObjectId,
-      },
-    },
-    {
-      $group: {
-        _id: "$providerId",
-        averageRating: { $avg: "$rating" },
-        totalReviews: { $sum: 1 },
-      },
-    },
-  ]);
+  const ratings = bookings
+    .map((booking) => Number(booking.review?.rating || 0))
+    .filter((rating) => rating > 0);
 
-  const nextRating = stats[0]?.averageRating
-    ? Number(stats[0].averageRating.toFixed(1))
+  const nextRating = ratings.length
+    ? Number(
+        (
+          ratings.reduce((sum, value) => sum + value, 0) / ratings.length
+        ).toFixed(1)
+      )
     : 0;
-  const totalReviews = Number(stats[0]?.totalReviews || 0);
 
-  await Provider.findByIdAndUpdate(providerId, {
-    rating: nextRating,
-    totalReviews,
-  });
+  await User.findOneAndUpdate(
+    { _id: providerId, role: "provider" },
+    {
+      rating: nextRating,
+      totalReviews: ratings.length,
+    }
+  );
 };
-
-const serializeReview = (review) => ({
-  id: review?._id,
-  bookingId: review?.bookingId?._id || review?.bookingId,
-  rating: Number(review?.rating || 0),
-  comment: review?.comment || "",
-  createdAt: review?.createdAt,
-  updatedAt: review?.updatedAt,
-  serviceTitle: review?.serviceId?.title || "",
-  clientName: review?.clientId?.name || "Client",
-  clientProfileImage: review?.clientId?.profileImage || "",
-});
 
 const buildBookingSummaryPayload = (booking) => ({
   id: booking._id,
@@ -266,23 +250,24 @@ const buildBookingSummaryPayload = (booking) => ({
   status: normalizeBookingStatus(booking.status),
   paymentStatus: String(booking.paymentStatus || "pending").toLowerCase(),
   paymentMethod: booking.paymentMethod || "upi",
+  selectedServices: booking.selectedServices || [],
 });
 
 const createProviderBookingNotification = async ({
   booking,
   client,
   provider,
-  service,
+  serviceLabel,
 }) => {
-  if (!provider?.userId) {
+  if (!provider?._id) {
     return;
   }
 
   await createNotification({
-    userId: provider.userId,
+    userId: provider._id,
     title: `New booking request from ${client.name}`,
     message: `${client.name} requested ${
-      service.title || provider.serviceType || "a service"
+      serviceLabel || provider.serviceType || "a service"
     } for ${formatDateLabel(booking.bookingDate)} at ${booking.timeSlot}.`,
     type: "booking",
     actionUrl: "/provider/booking-management",
@@ -299,7 +284,7 @@ const createProviderBookingNotification = async ({
 const createClientPaymentNotification = async ({
   userId,
   booking,
-  service,
+  serviceLabel,
   paymentMethod,
 }) => {
   await createNotification({
@@ -307,8 +292,8 @@ const createClientPaymentNotification = async ({
     title: "Payment recorded",
     message:
       paymentMethod === "cod"
-        ? `Cash on delivery selected for ${service.title || "your booking"}.`
-        : `Payment confirmed for ${service.title || "your booking"}.`,
+        ? `Cash on delivery selected for ${serviceLabel || "your booking"}.`
+        : `Payment confirmed for ${serviceLabel || "your booking"}.`,
     type: "payment",
     actionUrl: "/client/payments",
     metadata: {
@@ -319,45 +304,61 @@ const createClientPaymentNotification = async ({
   });
 };
 
-const createTransactionAndMaybePayout = async ({
+const createTransactionRecord = async ({
   booking,
   client,
   provider,
   paymentMethod,
+  services = [],
+  settings = {},
+  currency = "INR",
 }) => {
-  const transactionStatus = paymentMethod === "upi" ? "success" : "pending";
-
-  const transaction = await Transaction.create({
-    bookingId: booking._id,
-    clientId: client._id,
-    amount: booking.price,
-    status: transactionStatus,
-    paymentMethod,
-    transactionId:
-      paymentMethod === "upi"
-        ? `UPI-${String(booking._id).slice(-8).toUpperCase()}`
-        : `COD-${String(booking._id).slice(-8).toUpperCase()}`,
+  const normalizedMethod = normalizePaymentMethod(paymentMethod);
+  const transactionStatus =
+    normalizedMethod === "cod"
+      ? TRANSACTION_STATUS.PENDING
+      : TRANSACTION_STATUS.PAID;
+  const breakdown = calculateTransactionBreakdown({
+    baseAmount: booking.price,
+    commissionPercentage: Number(settings?.commissionPercentage || 5),
   });
 
-  let payout = null;
-  if (paymentMethod === "upi") {
-    const commissionPercentage = await getCommissionPercentage();
-    const commissionAmount = Math.round(
-      (Number(booking.price) * Number(commissionPercentage)) / 100
-    );
-    const netAmount = Number(booking.price) - commissionAmount;
-
-    payout = await Payout.create({
-      providerId: provider._id,
-      bookingId: booking._id,
-      amount: booking.price,
-      commission: commissionAmount,
-      netAmount,
-      status: "pending",
-    });
-  }
-
-  return { transaction, payout };
+  return Transaction.create({
+    bookingId: booking._id,
+    clientId: client._id,
+    providerId: provider._id,
+    amount: breakdown.totalPaidByClient,
+    baseAmount: breakdown.baseAmount,
+    clientPlatformFee: breakdown.clientPlatformFee,
+    providerPlatformFee: breakdown.providerPlatformFee,
+    totalPaidByClient: breakdown.totalPaidByClient,
+    netToProvider: breakdown.netToProvider,
+    platformRevenue: breakdown.platformRevenue,
+    commissionPercentage: breakdown.commissionPercentage,
+    currency,
+    status: transactionStatus,
+    paymentMethod: normalizedMethod,
+    transactionId: `${normalizedMethod.toUpperCase()}-${String(booking._id)
+      .slice(-8)
+      .toUpperCase()}`,
+    clientPaymentSnapshot: buildPaymentSnapshot(client),
+    providerPaymentSnapshot: buildPaymentSnapshot(provider),
+    serviceSnapshot: {
+      serviceId: booking.serviceId,
+      title: services[0]?.title || "",
+      category: services[0]?.category || "",
+      duration: services[0]?.duration || "",
+      locationType: services[0]?.locationType || "",
+      services: services.map((service) => ({
+        serviceId: service._id,
+        title: service.title,
+        category: service.category,
+        price: Number(service.price || 0),
+        duration: service.duration || "",
+        locationType: service.locationType || "offline",
+      })),
+    },
+  });
 };
 
 const emitBookingAndPaymentEvents = ({
@@ -377,61 +378,124 @@ const emitBookingAndPaymentEvents = ({
     },
   });
 
-  if (transaction) {
+  if (!transaction) {
+    return;
+  }
+
+  emitSocketEvent({
+    userIds: [clientUserId, providerUserId],
+    eventName: SOCKET_EVENTS.TRANSACTION_CREATED,
+    payload: {
+      transactionId: transaction._id,
+      bookingId: booking._id,
+      amount: Number(transaction.totalPaidByClient || transaction.amount || 0),
+      status: normalizeTransactionStatus(transaction.status),
+      paymentMethod: transaction.paymentMethod || "upi",
+    },
+  });
+
+  if (normalizeTransactionStatus(transaction.status) === TRANSACTION_STATUS.PAID) {
     emitSocketEvent({
       userIds: [clientUserId, providerUserId],
-      eventName: SOCKET_EVENTS.TRANSACTION_CREATED,
+      eventName: SOCKET_EVENTS.PAYMENT_COMPLETED,
       payload: {
         transactionId: transaction._id,
         bookingId: booking._id,
-        amount: Number(transaction.amount || 0),
-        status: String(transaction.status || "pending").toLowerCase(),
+        amount: Number(transaction.totalPaidByClient || transaction.amount || 0),
+        status: normalizeTransactionStatus(transaction.status),
         paymentMethod: transaction.paymentMethod || "upi",
       },
     });
   }
 };
 
+const notifyAdminsOfDispute = async (dispute, booking) => {
+  const admins = await User.find({ role: "admin" }).select("_id");
+
+  await Promise.all(
+    admins.map((admin) =>
+      createNotification({
+        userId: admin._id,
+        title: "New dispute filed",
+        message: `A dispute was opened for booking #${String(
+          booking._id
+        ).slice(-6)}.`,
+        type: "dispute",
+        actionUrl: "/admin/disputes",
+        metadata: {
+          disputeId: dispute._id.toString(),
+          bookingId: booking._id.toString(),
+          threadKey: dispute.threadKey,
+        },
+      })
+    )
+  );
+};
+
+const buildPendingApprovalResponse = ({
+  message,
+  approvalStatus = APPROVAL_STATUS.PENDING,
+  role = "",
+}) => ({
+  success: false,
+  code: "ACCOUNT_APPROVAL_PENDING",
+  message,
+  data: {
+    role: String(role || "").toUpperCase(),
+    approvalStatus,
+    pendingApproval: true,
+  },
+});
+
 const createBooking = async (req, res) => {
   try {
+    if (req.accountAccess?.restricted) {
+      return res
+        .status(403)
+        .json(buildAccountRestrictionResponse(req.accountAccess));
+    }
+
     const userId = req.user._id;
     const {
       providerId,
       serviceId,
+      serviceIds,
       scheduledAt,
       bookingDate,
       timeSlot,
       address,
       notes,
       requirements,
-      totalAmount,
-      price,
-      paymentMethod,
     } = req.body;
 
-    const actualAmount = Number(totalAmount || price || 0);
     const actualDate = scheduledAt
       ? new Date(scheduledAt)
       : bookingDate
         ? new Date(bookingDate)
         : new Date();
     const actualTimeSlot = String(timeSlot || "Flexible").trim();
-    const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
     const trimmedAddress = String(address || "").trim();
     const trimmedNotes = String(notes || "").trim();
     const trimmedRequirements = String(
-      requirements || trimmedNotes || ""
+      requirements || trimmedNotes || "General service request"
     ).trim();
+    const selectedServiceIds = Array.from(
+      new Set(
+        (Array.isArray(serviceIds) ? serviceIds : [serviceId])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+      )
+    );
 
-    if (!providerId || !trimmedAddress || !actualAmount || !trimmedRequirements) {
+    if (!providerId || !trimmedAddress || !selectedServiceIds.length) {
       return res.status(400).json({
         success: false,
         message:
-          "providerId, address, amount, and required work details are required.",
+          "providerId, address, and at least one selected work are required.",
       });
     }
 
-    const client = await Client.findOne({ userId });
+    const client = await User.findOne({ _id: userId, role: "client" });
     if (!client) {
       return res.status(404).json({
         success: false,
@@ -439,7 +503,17 @@ const createBooking = async (req, res) => {
       });
     }
 
-    const provider = await Provider.findById(providerId);
+    if (!isUserApproved(client)) {
+      return res.status(403).json(
+        buildPendingApprovalResponse({
+          role: client.role,
+          approvalStatus: client.approvalStatus,
+          message: "Account approval pending.",
+        })
+      );
+    }
+
+    const provider = await User.findOne({ _id: providerId, role: "provider" });
     if (!provider) {
       return res.status(404).json({
         success: false,
@@ -447,13 +521,8 @@ const createBooking = async (req, res) => {
       });
     }
 
-    const providerUser = await User.findById(provider.userId).select(
-      "role status approvalStatus isActive"
-    );
-
     const providerAvailabilityError = await ensureProviderAvailabilityForBooking({
       provider,
-      providerUser,
       address: trimmedAddress,
     });
     if (providerAvailabilityError) {
@@ -477,39 +546,51 @@ const createBooking = async (req, res) => {
       });
     }
 
-    const service = await resolveBookingService({
-      serviceId,
+    const services = await resolveBookingServices({
+      serviceIds: selectedServiceIds,
       provider,
-      actualAmount,
     });
 
-    if (!service) {
+    if (!services.length) {
       return res.status(404).json({
         success: false,
-        message: "Service not found.",
+        message: "No active works were found for this provider.",
       });
     }
+
+    const totalAmount = services.reduce(
+      (sum, service) => sum + Number(service.price || 0),
+      0
+    );
 
     const booking = await Booking.create({
       clientId: client._id,
       providerId,
-      serviceId: service._id,
+      serviceId: services[0]._id,
+      selectedServices: services.map((service) => ({
+        serviceId: service._id,
+        title: service.title,
+        category: service.category,
+        price: Number(service.price || 0),
+        duration: service.duration || "",
+        locationType: service.locationType || "offline",
+      })),
       bookingDate: actualDate,
       timeSlot: actualTimeSlot,
       address: trimmedAddress,
       notes: trimmedNotes,
       requirements: trimmedRequirements,
-      price: actualAmount,
+      price: totalAmount,
       status: BOOKING_STATUS.PENDING_PAYMENT,
       paymentStatus: "pending",
-      paymentMethod: normalizedPaymentMethod,
+      paymentMethod: "upi",
     });
 
     const hydratedBooking = await hydrateBooking(booking._id);
 
     return res.status(201).json({
       success: true,
-      message: "Booking intent created. Complete payment to notify the provider.",
+      message: "Booking draft created. Complete payment to send the request.",
       data: {
         booking: hydratedBooking,
       },
@@ -528,26 +609,31 @@ const getMyBookings = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const normalizedUserRole = String(req.user.role || "").toLowerCase();
+    const requestedStatuses = String(req.query.status || "")
+      .split(",")
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .map((value) => toBookingPersistenceStatus(value))
+      .filter(Boolean);
 
     let filter = {};
 
     if (normalizedUserRole === "provider") {
-      const providerProfile = await Provider.findOne({ userId: req.user._id });
-      filter = providerProfile
-        ? {
-            providerId: providerProfile._id,
-            status: { $ne: BOOKING_STATUS.PENDING_PAYMENT },
-          }
-        : { providerId: null };
+      filter = {
+        providerId: req.user._id,
+        status: { $ne: BOOKING_STATUS.PENDING_PAYMENT },
+      };
     } else if (normalizedUserRole === "admin") {
       filter = {};
     } else {
-      const clientProfile = await Client.findOne({ userId: req.user._id });
-      filter = clientProfile ? { clientId: clientProfile._id } : { clientId: null };
+      filter = { clientId: req.user._id };
     }
 
-    if (req.query.status) {
-      filter.status = toBookingPersistenceStatus(req.query.status);
+    if (requestedStatuses.length) {
+      filter.status =
+        requestedStatuses.length === 1
+          ? requestedStatuses[0]
+          : { $in: requestedStatuses };
     }
 
     const [items, total] = await Promise.all([
@@ -559,23 +645,12 @@ const getMyBookings = async (req, res) => {
       Booking.countDocuments(filter),
     ]);
 
-    const bookingIds = items.map((item) => item._id);
-    const reviews = bookingIds.length
-      ? await Review.find({ bookingId: { $in: bookingIds } })
-          .populate("clientId", "name profileImage")
-          .populate("serviceId", "title")
-      : [];
-
-    const reviewMap = new Map(
-      reviews.map((review) => [String(review.bookingId), serializeReview(review)])
-    );
-
     const hydratedItems = items.map((item) => {
       const plain = item.toObject ? item.toObject() : item;
       return {
         ...plain,
         status: normalizeBookingStatus(plain.status),
-        review: reviewMap.get(String(item._id)) || null,
+        review: plain.review?.rating ? serializeReview(plain) : null,
       };
     });
 
@@ -614,37 +689,21 @@ const getBookingById = async (req, res) => {
     const actorRole = String(req.user?.role || "").trim().toLowerCase();
 
     if (actorRole === "client") {
-      const clientProfile = await Client.findOne({ userId: req.user._id }).select(
-        "_id"
-      );
-      if (
-        !clientProfile ||
-        String(booking.clientId?._id || booking.clientId) !==
-          String(clientProfile._id)
-      ) {
+      if (String(booking.clientId?._id || booking.clientId) !== String(req.user._id)) {
         return res.status(403).json({
           success: false,
           message: "You can only view your own bookings.",
         });
       }
     } else if (actorRole === "provider") {
-      const providerProfile = await Provider.findOne({ userId: req.user._id }).select(
-        "_id"
-      );
-      if (
-        !providerProfile ||
-        String(booking.providerId?._id || booking.providerId) !==
-          String(providerProfile._id)
-      ) {
+      if (String(booking.providerId?._id || booking.providerId) !== String(req.user._id)) {
         return res.status(403).json({
           success: false,
           message: "You can only view your own booking requests.",
         });
       }
 
-      if (
-        normalizeBookingStatus(booking.status) === BOOKING_STATUS.PENDING_PAYMENT
-      ) {
+      if (normalizeBookingStatus(booking.status) === BOOKING_STATUS.PENDING_PAYMENT) {
         return res.status(404).json({
           success: false,
           message: "Booking not found.",
@@ -660,7 +719,11 @@ const getBookingById = async (req, res) => {
     res.json({
       success: true,
       data: {
-        booking,
+        booking: {
+          ...(booking.toObject ? booking.toObject() : booking),
+          status: normalizeBookingStatus(booking.status),
+          review: booking.review?.rating ? serializeReview(booking) : null,
+        },
       },
     });
   } catch (error) {
@@ -673,10 +736,16 @@ const getBookingById = async (req, res) => {
 
 const confirmBookingPayment = async (req, res) => {
   try {
+    if (req.accountAccess?.restricted) {
+      return res
+        .status(403)
+        .json(buildAccountRestrictionResponse(req.accountAccess));
+    }
+
     const { id } = req.params;
     const requestedPaymentMethod = normalizePaymentMethod(req.body?.paymentMethod);
 
-    const booking = await Booking.findById(id).populate("clientId", "name userId");
+    const booking = await Booking.findById(id).populate("clientId", "name");
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -684,29 +753,25 @@ const confirmBookingPayment = async (req, res) => {
       });
     }
 
-    const clientProfile = await Client.findOne({ userId: req.user._id }).select(
-      "_id name"
-    );
-    if (
-      !clientProfile ||
-      String(booking.clientId?._id || booking.clientId) !== String(clientProfile._id)
-    ) {
+    if (String(booking.clientId?._id || booking.clientId) !== String(req.user._id)) {
       return res.status(403).json({
         success: false,
         message: "You can only complete payment for your own bookings.",
       });
     }
 
-    if (
-      normalizeBookingStatus(booking.status) !== BOOKING_STATUS.PENDING_PAYMENT
-    ) {
+    if (normalizeBookingStatus(booking.status) !== BOOKING_STATUS.PENDING_PAYMENT) {
       return res.status(409).json({
         success: false,
         message: "This booking is no longer waiting for payment.",
       });
     }
 
-    const provider = await Provider.findById(booking.providerId);
+    const [provider, client] = await Promise.all([
+      User.findOne({ _id: booking.providerId, role: "provider" }),
+      User.findOne({ _id: req.user._id, role: "client" }),
+    ]);
+
     if (!provider) {
       return res.status(404).json({
         success: false,
@@ -714,12 +779,33 @@ const confirmBookingPayment = async (req, res) => {
       });
     }
 
-    const providerUser = await User.findById(provider.userId).select(
-      "role status approvalStatus isActive"
-    );
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: "Client profile not found.",
+      });
+    }
+
+    if (!isUserApproved(client)) {
+      return res.status(403).json(
+        buildPendingApprovalResponse({
+          role: client.role,
+          approvalStatus: client.approvalStatus,
+          message: "Account approval pending.",
+        })
+      );
+    }
+
+    if (requestedPaymentMethod === "upi" && !client.upiId) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Add your bank name and phone number in personal information before paying with UPI.",
+      });
+    }
+
     const providerAvailabilityError = await ensureProviderAvailabilityForBooking({
       provider,
-      providerUser,
       address: booking.address,
     });
     if (providerAvailabilityError) {
@@ -752,49 +838,58 @@ const confirmBookingPayment = async (req, res) => {
       });
     }
 
-    const service = await Service.findById(booking.serviceId).select(
-      "title category price duration locationType"
-    );
+    const settings = await getPlatformSettings();
+    const services = booking.selectedServices?.length
+      ? booking.selectedServices.map((service) => ({
+          _id: service.serviceId,
+          title: service.title,
+          category: service.category,
+          price: service.price,
+          duration: service.duration,
+          locationType: service.locationType,
+        }))
+      : await Service.find({ _id: { $in: [booking.serviceId].filter(Boolean) } }).select(
+          "title category price duration locationType"
+        );
+    const serviceLabel = services.map((service) => service.title).join(", ");
 
     booking.status = BOOKING_STATUS.PENDING;
     booking.paymentMethod = requestedPaymentMethod;
-    booking.paymentStatus = requestedPaymentMethod === "upi" ? "paid" : "pending";
+    booking.paymentStatus = requestedPaymentMethod === "cod" ? "pending" : "paid";
     await booking.save();
 
-    await findOrCreateConversation([req.user._id, provider.userId]);
+    await findOrCreateConversation([req.user._id, provider._id]);
 
-    const { transaction, payout } = await createTransactionAndMaybePayout({
+    const transaction = await createTransactionRecord({
       booking,
-      client: clientProfile,
+      client,
       provider,
       paymentMethod: requestedPaymentMethod,
+      services,
+      settings,
+      currency: settings?.currency || "INR",
     });
 
     await createProviderBookingNotification({
       booking,
-      client: {
-        _id: clientProfile._id,
-        name: clientProfile.name || booking.clientId?.name || "Client",
-      },
+      client,
       provider,
-      service: service || {},
+      serviceLabel,
     });
 
     await createClientPaymentNotification({
       userId: req.user._id,
       booking,
-      service: service || {},
+      serviceLabel,
       paymentMethod: requestedPaymentMethod,
     });
 
     const hydratedBooking = await hydrateBooking(booking._id);
-    const clientUserId = req.user._id;
-    const providerUserId = provider.userId;
 
     emitBookingAndPaymentEvents({
       booking: hydratedBooking,
-      clientUserId,
-      providerUserId,
+      clientUserId: req.user._id,
+      providerUserId: provider._id,
       transaction,
     });
 
@@ -807,7 +902,6 @@ const confirmBookingPayment = async (req, res) => {
       data: {
         booking: hydratedBooking,
         transaction,
-        payout,
       },
     });
   } catch (error) {
@@ -831,7 +925,7 @@ const updateBookingStatus = async (req, res) => {
       });
     }
 
-    const booking = await Booking.findById(id).populate("clientId", "userId name");
+    const booking = await Booking.findById(id).populate("clientId", "name");
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -841,15 +935,25 @@ const updateBookingStatus = async (req, res) => {
 
     const actorRole = String(req.user?.role || "").trim().toLowerCase();
     const currentStatus = normalizeBookingStatus(booking.status);
-    const providerProfile = await Provider.findOne({ userId: req.user._id }).select(
-      "_id"
-    );
-    const clientProfile = await Client.findOne({ userId: req.user._id }).select(
-      "_id"
-    );
+
+    if (req.accountAccess?.restricted && actorRole !== "admin") {
+      return res
+        .status(403)
+        .json(buildAccountRestrictionResponse(req.accountAccess));
+    }
 
     if (actorRole === "provider") {
-      if (!providerProfile || String(booking.providerId) !== String(providerProfile._id)) {
+      if (!req.accountAccess?.canRespondToBookings) {
+        return res.status(403).json(
+          buildPendingApprovalResponse({
+            role: req.user?.role,
+            approvalStatus: req.accountAccess?.approvalStatus,
+            message: "Account Approval Pending",
+          })
+        );
+      }
+
+      if (String(booking.providerId) !== String(req.user._id)) {
         return res.status(403).json({
           success: false,
           message: "You can only update your own booking requests.",
@@ -873,10 +977,7 @@ const updateBookingStatus = async (req, res) => {
         });
       }
     } else if (actorRole === "client") {
-      if (
-        !clientProfile ||
-        String(booking.clientId?._id || booking.clientId) !== String(clientProfile._id)
-      ) {
+      if (String(booking.clientId?._id || booking.clientId) !== String(req.user._id)) {
         return res.status(403).json({
           success: false,
           message: "You can only update your own bookings.",
@@ -911,13 +1012,24 @@ const updateBookingStatus = async (req, res) => {
     }
 
     booking.status = nextStatus;
+
+    if (
+      nextStatus === BOOKING_STATUS.COMPLETED &&
+      String(booking.paymentMethod || "").toLowerCase() === "cod"
+    ) {
+      booking.paymentStatus = "paid";
+      await Transaction.findOneAndUpdate(
+        { bookingId: booking._id },
+        { status: TRANSACTION_STATUS.PAID }
+      );
+    }
+
     await booking.save();
     await booking.populate(BOOKING_POPULATION);
 
     const normalizedNextStatus = normalizeBookingStatus(booking.status);
-    const providerUserId =
-      booking.providerId?.userId?._id || booking.providerId?.userId;
-    const clientUserId = booking.clientId?.userId?._id || booking.clientId?.userId;
+    const providerUserId = booking.providerId?._id;
+    const clientUserId = booking.clientId?._id;
     const recipientUserId =
       actorRole === "provider" ? clientUserId : providerUserId;
 
@@ -957,7 +1069,11 @@ const updateBookingStatus = async (req, res) => {
 
     res.json({
       success: true,
-      data: booking,
+      data: {
+        ...(booking.toObject ? booking.toObject() : booking),
+        status: normalizeBookingStatus(booking.status),
+        review: booking.review?.rating ? serializeReview(booking) : null,
+      },
     });
   } catch (error) {
     return res.status(500).json({
@@ -969,6 +1085,12 @@ const updateBookingStatus = async (req, res) => {
 
 const createBookingReview = async (req, res) => {
   try {
+    if (req.accountAccess?.restricted) {
+      return res
+        .status(403)
+        .json(buildAccountRestrictionResponse(req.accountAccess));
+    }
+
     const { id } = req.params;
     const { rating, comment } = req.body;
     const numericRating = Number(rating);
@@ -981,7 +1103,10 @@ const createBookingReview = async (req, res) => {
       });
     }
 
-    const booking = await Booking.findById(id);
+    const booking = await Booking.findById(id)
+      .populate("clientId", "name profileImage")
+      .populate("serviceId", "title");
+
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -989,8 +1114,7 @@ const createBookingReview = async (req, res) => {
       });
     }
 
-    const client = await Client.findOne({ userId: req.user._id });
-    if (!client || booking.clientId.toString() !== client._id.toString()) {
+    if (String(booking.clientId?._id || booking.clientId) !== String(req.user._id)) {
       return res.status(403).json({
         success: false,
         message: "You can only review your own bookings.",
@@ -1004,48 +1128,24 @@ const createBookingReview = async (req, res) => {
       });
     }
 
-    const existingReview = await Review.findOne({ bookingId: booking._id });
-
-    if (
-      existingReview &&
-      String(existingReview.clientId) !== String(client._id)
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "This booking review already belongs to another client.",
-      });
-    }
-
-    const review = existingReview
-      ? await Review.findByIdAndUpdate(
-          existingReview._id,
-          {
-            rating: numericRating,
-            comment: trimmedComment,
-          },
-          { new: true }
-        )
-      : await Review.create({
-          bookingId: booking._id,
-          clientId: booking.clientId,
-          providerId: booking.providerId,
-          serviceId: booking.serviceId,
-          rating: numericRating,
-          comment: trimmedComment,
-        });
+    const existingCreatedAt = booking.review?.createdAt || null;
+    const now = new Date();
+    booking.review = {
+      rating: numericRating,
+      comment: trimmedComment,
+      createdAt: existingCreatedAt || now,
+      updatedAt: now,
+    };
+    await booking.save();
 
     await recalculateProviderRating(booking.providerId);
 
-    const populatedReview = await Review.findById(review._id)
-      .populate("clientId", "name profileImage")
-      .populate("serviceId", "title");
-
     res.status(201).json({
       success: true,
-      message: existingReview
+      message: existingCreatedAt
         ? "Review updated successfully."
         : "Review submitted successfully.",
-      data: serializeReview(populatedReview),
+      data: serializeReview(booking),
     });
   } catch (error) {
     return res.status(500).json({
@@ -1057,6 +1157,12 @@ const createBookingReview = async (req, res) => {
 
 const createBookingDispute = async (req, res) => {
   try {
+    if (req.accountAccess?.restricted) {
+      return res
+        .status(403)
+        .json(buildAccountRestrictionResponse(req.accountAccess));
+    }
+
     const { id } = req.params;
     const reason = String(req.body?.reason || "").trim();
     const description = String(req.body?.description || "").trim();
@@ -1069,8 +1175,8 @@ const createBookingDispute = async (req, res) => {
     }
 
     const booking = await Booking.findById(id)
-      .populate("providerId", "userId name")
-      .populate("clientId", "userId name");
+      .populate("providerId", "name")
+      .populate("clientId", "name");
 
     if (!booking) {
       return res.status(404).json({
@@ -1079,11 +1185,7 @@ const createBookingDispute = async (req, res) => {
       });
     }
 
-    const client = await Client.findOne({ userId: req.user._id });
-    if (
-      !client ||
-      String(booking.clientId?._id || booking.clientId) !== String(client._id)
-    ) {
+    if (String(booking.clientId?._id || booking.clientId) !== String(req.user._id)) {
       return res.status(403).json({
         success: false,
         message: "You can only dispute your own bookings.",
@@ -1092,8 +1194,8 @@ const createBookingDispute = async (req, res) => {
 
     const existingOpenDispute = await Dispute.findOne({
       bookingId: booking._id,
-      clientId: client._id,
-      status: { $in: ["open", "under_review"] },
+      reporterId: req.user._id,
+      status: { $in: ["open", "under_review", "escalated"] },
     });
 
     if (existingOpenDispute) {
@@ -1105,35 +1207,46 @@ const createBookingDispute = async (req, res) => {
 
     const dispute = await Dispute.create({
       bookingId: booking._id,
+      reporterId: req.user._id,
       clientId: booking.clientId?._id || booking.clientId,
       providerId: booking.providerId?._id || booking.providerId,
+      targetUserId: booking.providerId?._id || booking.providerId,
+      targetType: "provider",
+      threadKey: `provider:${String(booking.providerId?._id || booking.providerId)}:client:${String(
+        booking.clientId?._id || booking.clientId
+      )}`,
+      subject: `Booking #${String(booking._id).slice(-6)} dispute`,
       reason,
       description,
     });
 
-    if (booking.providerId?.userId) {
+    if (booking.providerId?._id) {
       await createNotification({
-        userId: booking.providerId.userId,
+        userId: booking.providerId._id,
         title: "New booking dispute filed",
         message: `${booking.clientId?.name || "A client"} filed a dispute for booking #${String(
           booking._id
         ).slice(-6)}.`,
-        type: "general",
+        type: "dispute",
         actionUrl: "/provider/disputes",
         metadata: {
           disputeId: dispute._id.toString(),
           bookingId: booking._id.toString(),
+          threadKey: dispute.threadKey,
         },
       });
     }
 
+    await notifyAdminsOfDispute(dispute, booking);
+
     emitSocketEvent({
-      userIds: [booking.providerId?.userId, booking.clientId?.userId],
+      userIds: [booking.providerId?._id, booking.clientId?._id],
       eventName: SOCKET_EVENTS.DISPUTE_CREATED,
       payload: {
         disputeId: dispute._id,
         bookingId: booking._id,
         status: String(dispute.status || "open").toLowerCase(),
+        threadKey: dispute.threadKey,
       },
     });
 

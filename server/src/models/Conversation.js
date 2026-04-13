@@ -9,6 +9,10 @@ const conversationSchema = new mongoose.Schema(
         required: true,
       },
     ],
+    lastMessageAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

@@ -1,6 +1,5 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const Admin = require("../models/Admin");
 
 // Authenticate
 const authenticate = async (req, res, next) => {
@@ -32,9 +31,7 @@ const authenticate = async (req, res, next) => {
       const isAdminToken =
         decoded.accountType === "ADMIN" || decoded.role === "ADMIN";
 
-      const account = isAdminToken
-        ? await Admin.findById(accountId).select("-password")
-        : await User.findById(accountId).select("-password");
+      const account = await User.findById(accountId).select("-password");
 
       if (!account) {
         return res.status(401).json({
@@ -85,11 +82,8 @@ const optionalAuth = async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const isAdminToken =
         decoded.accountType === "ADMIN" || decoded.role === "ADMIN";
-      // Handle different token formats - check for id, accountId, or userId
       const accountId = decoded.accountId || decoded.userId || decoded.id;
-      const user = isAdminToken
-        ? await Admin.findById(accountId).select("-password")
-        : await User.findById(accountId).select("-password");
+      const user = await User.findById(accountId).select("-password");
 
       if (user) req.user = user;
     } catch (err) {

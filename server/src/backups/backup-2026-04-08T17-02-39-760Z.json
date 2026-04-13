@@ -1,0 +1,398 @@
+{
+  "activitylogs": [],
+  "admins": [],
+  "bookingnews": [
+    {
+      "_id": {
+        "$oid": "69d614b73d8c64a34b3190e6"
+      },
+      "clientId": {
+        "$oid": "69d614b73d8c64a34b3190df"
+      },
+      "providerId": {
+        "$oid": "69d614b73d8c64a34b3190e0"
+      },
+      "serviceId": {
+        "$oid": "69d614b73d8c64a34b3190e3"
+      },
+      "status": "accepted",
+      "date": {
+        "$date": {
+          "$numberLong": "1776242487857"
+        }
+      },
+      "address": "123 Main St, City, State",
+      "notes": "Kitchen pipe repair needed",
+      "price": {
+        "$numberInt": "1500"
+      },
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637687857"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637687857"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    }
+  ],
+  "bookings": [],
+  "clients": [],
+  "conversationnews": [
+    {
+      "_id": {
+        "$oid": "69d614b73d8c64a34b3190e8"
+      },
+      "participants": [
+        {
+          "$oid": "69d614b73d8c64a34b3190df"
+        },
+        {
+          "$oid": "69d614b73d8c64a34b3190e0"
+        }
+      ],
+      "status": "active",
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637687984"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637688234"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      },
+      "lastMessage": {
+        "$oid": "69d614b83d8c64a34b3190eb"
+      },
+      "lastMessageAt": {
+        "$date": {
+          "$numberLong": "1775637688233"
+        }
+      }
+    }
+  ],
+  "conversations": [],
+  "disputenews": [],
+  "disputes": [],
+  "loginhistories": [],
+  "messagenews": [
+    {
+      "_id": {
+        "$oid": "69d614b83d8c64a34b3190ea"
+      },
+      "conversationId": {
+        "$oid": "69d614b73d8c64a34b3190e8"
+      },
+      "senderId": {
+        "$oid": "69d614b73d8c64a34b3190df"
+      },
+      "message": "I need plumbing services for my kitchen",
+      "read": false,
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637688101"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637688101"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    },
+    {
+      "_id": {
+        "$oid": "69d614b83d8c64a34b3190eb"
+      },
+      "conversationId": {
+        "$oid": "69d614b73d8c64a34b3190e8"
+      },
+      "senderId": {
+        "$oid": "69d614b73d8c64a34b3190e0"
+      },
+      "message": "Looking forward to the service",
+      "read": false,
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637688101"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637688101"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    }
+  ],
+  "messages": [],
+  "notificationnews": [
+    {
+      "_id": {
+        "$oid": "69d614b83d8c64a34b3190f0"
+      },
+      "userId": {
+        "$oid": "69d614b73d8c64a34b3190df"
+      },
+      "message": "Your booking has been confirmed",
+      "type": "booking",
+      "read": false,
+      "actionUrl": "/bookings",
+      "actionText": "View Booking",
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637688483"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637688483"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    },
+    {
+      "_id": {
+        "$oid": "69d614b83d8c64a34b3190f1"
+      },
+      "userId": {
+        "$oid": "69d614b73d8c64a34b3190e0"
+      },
+      "message": "New booking request received",
+      "type": "booking",
+      "read": false,
+      "actionUrl": "/bookings",
+      "actionText": "View Bookings",
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637688483"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637688483"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    }
+  ],
+  "notifications": [],
+  "payouts": [],
+  "platformsettings": [],
+  "providers": [],
+  "reviews": [],
+  "servicenews": [
+    {
+      "_id": {
+        "$oid": "69d614b73d8c64a34b3190e3"
+      },
+      "providerId": {
+        "$oid": "69d614b73d8c64a34b3190e0"
+      },
+      "name": "Plumbing Services",
+      "price": {
+        "$numberInt": "1500"
+      },
+      "status": "active",
+      "description": "Professional plumbing repair and installation",
+      "category": "Plumbing",
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637687723"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637687723"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    },
+    {
+      "_id": {
+        "$oid": "69d614b73d8c64a34b3190e4"
+      },
+      "providerId": {
+        "$oid": "69d614b73d8c64a34b3190e0"
+      },
+      "name": "Electrical Work",
+      "price": {
+        "$numberInt": "2000"
+      },
+      "status": "active",
+      "description": "Complete electrical installation and repair",
+      "category": "Electrical",
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637687723"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637687723"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    }
+  ],
+  "services": [],
+  "transactionnews": [
+    {
+      "_id": {
+        "$oid": "69d614b83d8c64a34b3190ee"
+      },
+      "bookingId": {
+        "$oid": "69d614b73d8c64a34b3190e6"
+      },
+      "clientId": {
+        "$oid": "69d614b73d8c64a34b3190df"
+      },
+      "providerId": {
+        "$oid": "69d614b73d8c64a34b3190e0"
+      },
+      "amount": {
+        "$numberInt": "1500"
+      },
+      "status": "paid",
+      "paymentMethod": "card",
+      "transactionId": "txn_1775637688323",
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637688323"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637688323"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    }
+  ],
+  "transactions": [],
+  "usernews": [
+    {
+      "_id": {
+        "$oid": "69d614b73d8c64a34b3190df"
+      },
+      "email": "john@example.com",
+      "password": "$2b$10$GqhhKNZsYWfAbZt/5/Su8eeo7t9LZuKOTNPy6nLwXNXbglm7aslu.",
+      "name": "John Doe",
+      "role": "client",
+      "status": "active",
+      "approvalStatus": "approved",
+      "profileImage": "",
+      "totalLogins": {
+        "$numberInt": "5"
+      },
+      "lastLogin": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    },
+    {
+      "_id": {
+        "$oid": "69d614b73d8c64a34b3190e0"
+      },
+      "email": "jane@example.com",
+      "password": "$2b$10$GqhhKNZsYWfAbZt/5/Su8eeo7t9LZuKOTNPy6nLwXNXbglm7aslu.",
+      "name": "Jane Smith",
+      "role": "provider",
+      "status": "active",
+      "approvalStatus": "approved",
+      "profileImage": "",
+      "totalLogins": {
+        "$numberInt": "3"
+      },
+      "lastLogin": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    },
+    {
+      "_id": {
+        "$oid": "69d614b73d8c64a34b3190e1"
+      },
+      "email": "admin@example.com",
+      "password": "$2b$10$GqhhKNZsYWfAbZt/5/Su8eeo7t9LZuKOTNPy6nLwXNXbglm7aslu.",
+      "name": "Admin User",
+      "role": "admin",
+      "status": "active",
+      "approvalStatus": "approved",
+      "profileImage": "",
+      "totalLogins": {
+        "$numberInt": "10"
+      },
+      "lastLogin": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "createdAt": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "updatedAt": {
+        "$date": {
+          "$numberLong": "1775637687624"
+        }
+      },
+      "__v": {
+        "$numberInt": "0"
+      }
+    }
+  ],
+  "users": []
+}

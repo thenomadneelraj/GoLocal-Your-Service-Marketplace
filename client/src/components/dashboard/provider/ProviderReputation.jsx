@@ -1,233 +1,392 @@
-import React from "react";
-import { 
-  Star, 
-  MessageSquare, 
-  Users, 
-  TrendingUp, 
-  PieChart as PieChartIcon, 
-  ThumbsUp, 
-  ArrowUpRight, 
-  Search, 
-  Filter, 
-  MoreVertical,
-  Calendar,
+import { useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  Loader2,
+  MessageSquare,
+  RefreshCcw,
+  Search,
   ShieldCheck,
-  CheckCircle2
+  Star,
+  Users,
 } from "lucide-react";
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
   ResponsiveContainer,
-  Cell
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import api from "@/lib/api";
 
-const RATINGS_DATA = [
-  { star: 5, count: 184, color: "#10b981" },
-  { star: 4, count: 42, color: "#34d399" },
-  { star: 3, count: 12, color: "#f59e0b" },
-  { star: 2, count: 4, color: "#f97316" },
-  { star: 1, count: 1, color: "#ef4444" }
-];
+const EMPTY_PROFILE = {
+  rating: 0,
+  totalReviews: 0,
+  completedJobs: 0,
+  approvalStatus: "pending",
+};
 
-const REVIEWS = [
-  {
-    id: "REV-101",
-    client: "Alice Johnson",
-    rating: 5,
-    date: "2026-03-22",
-    comment: "Excellent service! The team was professional and the quality of work was outstanding. Highly recommend for deep cleaning.",
-    service: "Deep House Cleaning",
-    initials: "AJ"
-  },
-  {
-    id: "REV-102",
-    client: "Bob Smith",
-    rating: 5,
-    date: "2026-03-18",
-    comment: "Very punctual and efficient. The kitchen looks brand new after the sanitization service. Will book again!",
-    service: "Kitchen Sanitization",
-    initials: "BS"
-  },
-  {
-    id: "REV-103",
-    client: "Charlie Davis",
-    rating: 4,
-    date: "2026-03-12",
-    comment: "Good work, but arrived 15 minutes late. Overall satisfied with the result.",
-    service: "Full Apartment Sanitization",
-    initials: "CD"
+const formatDate = (value) => {
+  if (!value) return "Recently";
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const getServiceLabel = (booking = {}) => {
+  if (Array.isArray(booking.selectedServices) && booking.selectedServices.length) {
+    return booking.selectedServices.map((service) => service.title).filter(Boolean).join(", ");
   }
-];
+
+  return booking.serviceId?.title || booking.serviceId?.name || "Service";
+};
+
+const getInitials = (value = "") =>
+  String(value)
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "CL";
+
+function Panel({ className = "", children }) {
+  return (
+    <section
+      className={`overflow-hidden rounded-[2rem] border border-border/70 bg-card/90 shadow-[0_24px_60px_-42px_rgba(4,24,15,0.55)] backdrop-blur-xl ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
 
 export default function ProviderReputation() {
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [profile, setProfile] = useState(EMPTY_PROFILE);
+  const [reviews, setReviews] = useState([]);
+
+  const loadReputation = async () => {
+    try {
+      setLoading(true);
+      const [profileResponse, bookingsResponse] = await Promise.all([
+        api.get("/api/providers/me/profile"),
+        api.get("/api/bookings", {
+          params: {
+            status: "completed",
+            limit: 100,
+          },
+        }),
+      ]);
+
+      const providerProfile = profileResponse.data?.data || EMPTY_PROFILE;
+      const bookingItems = bookingsResponse.data?.data?.items || [];
+      const reviewItems = bookingItems
+        .filter((booking) => booking.review?.rating)
+        .map((booking) => ({
+          id: booking.review?.id || `${booking._id}:review`,
+          bookingId: booking._id,
+          client: booking.clientId?.name || "Client",
+          rating: Number(booking.review?.rating || 0),
+          date: booking.review?.updatedAt || booking.review?.createdAt || booking.createdAt,
+          comment: booking.review?.comment || "No written feedback provided.",
+          service: getServiceLabel(booking),
+          initials: getInitials(booking.clientId?.name || "Client"),
+        }))
+        .sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0));
+
+      setProfile(providerProfile);
+      setReviews(reviewItems);
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not load reputation data.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReputation();
+  }, []);
+
+  const filteredReviews = useMemo(() => {
+    const normalized = String(search || "").trim().toLowerCase();
+    if (!normalized) return reviews;
+
+    return reviews.filter((review) =>
+      [review.client, review.service, review.comment]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalized))
+    );
+  }, [reviews, search]);
+
+  const ratingsData = useMemo(
+    () =>
+      [5, 4, 3, 2, 1].map((star, index) => ({
+        star,
+        count: reviews.filter((review) => review.rating === star).length,
+        color:
+          index === 0
+            ? "rgb(16, 185, 129)"
+            : index === 1
+              ? "rgb(52, 211, 153)"
+              : index === 2
+                ? "rgb(245, 158, 11)"
+                : index === 3
+                  ? "rgb(249, 115, 22)"
+                  : "rgb(239, 68, 68)",
+      })),
+    [reviews]
+  );
+
+  const positiveReviewRate = reviews.length
+    ? Math.round(
+        (reviews.filter((review) => Number(review.rating || 0) >= 4).length /
+          reviews.length) *
+          100
+      )
+    : 0;
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[360px] items-center justify-center rounded-[2rem] border border-border/70 bg-card/80">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 size={18} className="animate-spin text-emerald-500" />
+          Loading provider reputation...
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 pb-10 font-sans">
-      {/* Reputation Hero */}
+    <div className="space-y-6 pb-10">
       <div className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-12 xl:col-span-8 bg-card/60 p-8 rounded-[2rem] border border-border/60 backdrop-blur-xl relative overflow-hidden group shadow-sm">
-          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent pointer-events-none" />
-          <div className="flex flex-col md:flex-row items-center justify-between gap-10 h-full relative">
-            <div className="space-y-6 text-center md:text-left">
-              <div className="flex items-center gap-2 bg-emerald-500/10 text-emerald-600 px-3 py-1.5 rounded-xl w-fit text-[10px] font-black uppercase tracking-widest border border-emerald-500/20 mx-auto md:mx-0 shadow-xs">
+        <Panel className="relative p-8 lg:col-span-8">
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/12 via-emerald-500/5 to-transparent" />
+          <div className="relative flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-5">
+              <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
                 <ShieldCheck size={14} />
-                Elite
+                Reputation Overview
               </div>
-              <div>
-                <div className="flex items-center justify-center md:justify-start gap-4 mb-4">
-                  <h1 className="text-6xl font-black tracking-tighter text-foreground leading-none italic">4.85</h1>
-                  <div className="flex flex-col items-start gap-1">
-                    <div className="flex gap-1 text-amber-500">
-                      {[1,2,3,4,5].map(s => <Star key={s} size={18} fill={s <= 4 ? "#f59e0b" : "none"} className={s === 5 ? "text-amber-500/30" : "text-amber-500"} />)}
-                    </div>
-                    <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60">Professional Rating</p>
+
+              <div className="flex items-center gap-4">
+                <h1 className="text-6xl font-semibold leading-none tracking-tighter text-foreground">
+                  {Number(profile.rating || 0).toFixed(1)}
+                </h1>
+                <div>
+                  <div className="flex gap-1 text-amber-500">
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <Star
+                        key={value}
+                        size={18}
+                        fill={value <= Math.round(Number(profile.rating || 0)) ? "#f59e0b" : "none"}
+                        className={
+                          value <= Math.round(Number(profile.rating || 0))
+                            ? "text-amber-500"
+                            : "text-amber-500/25"
+                        }
+                      />
+                    ))}
                   </div>
+                  <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Professional rating
+                  </p>
                 </div>
-                <p className="text-muted-foreground max-w-lg italic font-medium leading-relaxed text-xs opacity-70">
-                  You have served over <span className="text-foreground font-black">240+ clients</span> with an exceptional satisfaction rate.
-                </p>
               </div>
+
+              <p className="max-w-lg text-sm leading-7 text-muted-foreground">
+                This score now comes from real completed-booking reviews, not mock
+                placeholders. Keep your completed work quality high to improve visibility and trust.
+              </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 w-full md:w-fit">
-              <div className="bg-background/80 border border-border/60 p-5 rounded-2xl text-center shadow-xs">
-                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground mb-1 whitespace-nowrap opacity-60">Reviews</p>
-                <p className="text-2xl font-black text-emerald-600 leading-none italic">243</p>
-              </div>
-              <div className="bg-background/80 border border-border/60 p-5 rounded-2xl text-center shadow-xs">
-                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground mb-1 whitespace-nowrap opacity-60">Success Rate</p>
-                <p className="text-2xl font-black text-emerald-600 leading-none italic">99.2%</p>
-              </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                {
+                  label: "Reviews",
+                  value: Number(profile.totalReviews || 0).toLocaleString("en-IN"),
+                },
+                {
+                  label: "Completed Jobs",
+                  value: Number(profile.completedJobs || 0).toLocaleString("en-IN"),
+                },
+                {
+                  label: "Positive Rate",
+                  value: `${positiveReviewRate}%`,
+                },
+                {
+                  label: "Approval",
+                  value: String(profile.approvalStatus || "pending").toUpperCase(),
+                },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-2xl border border-border/60 bg-background/80 p-5 text-center shadow-sm"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    {item.label}
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-emerald-600">{item.value}</p>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        </Panel>
 
-        <div className="lg:col-span-12 xl:col-span-4 bg-card/40 border border-border/60 rounded-[2rem] p-8 backdrop-blur-sm relative group overflow-hidden h-full shadow-xs">
-           <div className="flex items-center gap-3 mb-6">
-            <div className="w-11 h-11 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-600 border border-emerald-500/20 shadow-xs transition-transform group-hover:scale-110">
-              <PieChartIcon size={20} />
+        <Panel className="p-8 lg:col-span-4">
+          <div className="mb-6 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600">
+              <Users size={20} />
             </div>
             <div>
-              <h3 className="text-lg font-bold tracking-tight">Ratings</h3>
-              <p className="text-[10px] text-muted-foreground mt-0.5 font-medium italic opacity-70">Star distribution.</p>
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                Rating distribution
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Review count by star score.
+              </p>
             </div>
           </div>
-          
-          <div className="h-[200px] w-full">
+
+          <div className="h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart layout="vertical" data={RATINGS_DATA}>
+              <BarChart layout="vertical" data={ratingsData}>
+                <CartesianGrid
+                  horizontal={false}
+                  strokeDasharray="4 4"
+                  stroke="hsl(var(--border))"
+                  opacity={0.45}
+                />
                 <XAxis type="number" hide />
-                <YAxis 
-                  dataKey="star" 
-                  type="category" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fontSize: 9, fill: "#9ca3af", fontWeight: 800 }}
-                  width={30}
-                  tickFormatter={(val) => `${val}★`}
+                <YAxis
+                  dataKey="star"
+                  type="category"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                  width={38}
+                  tickFormatter={(value) => `${value} star`}
                 />
-                <Tooltip 
-                  cursor={{ fill: "#10b981", opacity: 0.05 }}
-                  contentStyle={{ borderRadius: "12px", border: "1px solid #e5e7eb", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)", fontSize: "10px", fontWeight: "bold" }}
-                />
-                <Bar dataKey="count" radius={[8, 8, 8, 8]} barSize={20} animationBegin={300} animationDuration={1500}>
-                  {RATINGS_DATA.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} opacity={0.8} />
+                <Tooltip formatter={(value) => `${value} reviews`} />
+                <Bar dataKey="count" radius={[10, 10, 10, 10]} barSize={20}>
+                  {ratingsData.map((entry) => (
+                    <Cell key={entry.star} fill={entry.color} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </Panel>
       </div>
 
-      <div className="space-y-6 mt-8">
-        <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
+      <Panel className="p-7">
+        <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-600 border border-emerald-500/20 shadow-xs transition-transform group-hover:scale-110">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600">
               <MessageSquare size={20} />
             </div>
             <div>
-              <h3 className="text-xl font-bold tracking-tight">Feedback</h3>
-              <p className="text-[10px] text-muted-foreground mt-0.5 font-medium italic opacity-70">Client reviews.</p>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                Client feedback
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Reviews written on completed bookings.
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 w-full xl:w-auto">
-             <div className="relative group/search flex-1 xl:w-72">
-               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground group-focus-within/search:text-emerald-500 transition-colors" />
-               <input 
-                 type="text" 
-                 placeholder="Search feedback..." 
-                 className="w-full h-10 pl-9 pr-4 rounded-xl border border-border/60 bg-card/50 focus:bg-background outline-none transition-all text-xs shadow-xs"
-               />
-             </div>
-             <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl border-border/60 hover:bg-muted/50 transition-all shadow-xs">
-               <Filter size={16} className="text-muted-foreground" />
-             </Button>
+          <div className="flex items-center gap-2">
+            <div className="relative w-full xl:w-72">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search feedback..."
+                className="h-10 w-full rounded-xl border border-border/60 bg-background pl-10 pr-4 text-sm outline-none"
+              />
+            </div>
+            <Button
+              variant="outline"
+              className="h-10 rounded-xl border-border/60 px-4 text-xs font-semibold"
+              onClick={loadReputation}
+            >
+              <RefreshCcw size={14} className="mr-2" />
+              Refresh
+            </Button>
           </div>
         </div>
 
-        <div className="grid gap-3">
-          {REVIEWS.map((review) => (
-            <div key={review.id} className="group bg-card/40 border border-border/60 rounded-[2rem] p-6 hover:border-emerald-500/40 hover:bg-card/60 transition-all duration-300 relative overflow-hidden backdrop-blur-sm shadow-xs h-full flex flex-col">
-               <div className="flex flex-col md:flex-row gap-6">
-                  <div className="flex flex-col items-center gap-3 text-center min-w-[120px] xl:min-w-[130px]">
-                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-lg font-black text-emerald-600 shadow-xs group-hover:scale-105 transition-transform duration-500">
+        <div className="space-y-3">
+          {filteredReviews.length ? (
+            filteredReviews.map((review) => (
+              <article
+                key={review.id}
+                className="rounded-[2rem] border border-border/60 bg-muted/15 p-6 transition-colors hover:border-emerald-500/30 hover:bg-card/70"
+              >
+                <div className="flex flex-col gap-6 md:flex-row">
+                  <div className="flex min-w-[120px] flex-col items-center gap-3 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-lg font-semibold text-emerald-600">
                       {review.initials}
                     </div>
                     <div>
-                      <h4 className="font-bold text-foreground text-[11px] uppercase tracking-tight">{review.client}</h4>
-                      <p className="text-[8px] text-muted-foreground font-black uppercase tracking-widest mt-1 opacity-60 italic leading-none">Verified</p>
+                      <p className="text-sm font-semibold text-foreground">{review.client}</p>
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Verified client
+                      </p>
                     </div>
                   </div>
 
-                  <div className="flex-1 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 bg-background shadow-xs border border-border/60 px-2 py-1 rounded-lg">
-                        {[1,2,3,4,5].map(s => <Star key={s} size={12} fill={s <= review.rating ? "#f59e0b" : "none"} className={s <= review.rating ? "text-amber-500" : "text-amber-500/20"} />)}
-                        <span className="text-[10px] font-black ml-1">{review.rating}.0</span>
+                  <div className="flex-1 space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-background px-3 py-2 shadow-sm">
+                        {[1, 2, 3, 4, 5].map((value) => (
+                          <Star
+                            key={value}
+                            size={14}
+                            fill={value <= review.rating ? "#f59e0b" : "none"}
+                            className={
+                              value <= review.rating ? "text-amber-500" : "text-amber-500/20"
+                            }
+                          />
+                        ))}
+                        <span className="ml-1 text-xs font-semibold text-foreground">
+                          {review.rating}.0
+                        </span>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
-                          <span className="bg-muted px-2 py-0.5 rounded-lg border border-border/60">{review.service}</span>
-                          <span className="hidden md:inline text-xs opacity-30 px-1">•</span>
-                          <span className="hidden md:inline italic">{review.date}</span>
-                        </div>
-                        <Button variant="ghost" size="icon" className="rounded-lg h-9 w-9 opacity-0 group-hover:opacity-100 transition-all hover:bg-emerald-500/10 hover:text-emerald-600">
-                          <MoreVertical size={16} className="text-muted-foreground" />
-                        </Button>
+
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                        <span className="rounded-lg border border-border/60 bg-muted/35 px-2 py-1">
+                          {review.service}
+                        </span>
+                        <span>{formatDate(review.date)}</span>
                       </div>
                     </div>
 
-                    <p className="text-xs font-medium leading-relaxed text-foreground/70 italic group-hover:text-foreground transition-colors max-w-2xl opacity-90">
-                      &quot;{review.comment}&quot;
+                    <p className="text-sm leading-7 text-muted-foreground">
+                      "{review.comment}"
                     </p>
 
-                    <div className="flex items-center gap-6 pt-3 border-t border-border/20">
-                      <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-widest text-emerald-600/80 bg-emerald-500/5 px-2 py-0.5 rounded-lg border border-emerald-500/10 italic">
-                        <CheckCircle2 size={10} />
-                        Verified
-                      </div>
-                      <button className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground hover:text-emerald-600 transition-colors flex items-center gap-1.5 group/like">
-                         <ThumbsUp size={10} className="fill-none group-hover/like:fill-emerald-500/20 transition-all" />
-                         Helpful (12)
-                      </button>
+                    <div className="flex items-center gap-2 text-[11px] font-semibold text-emerald-700">
+                      <CheckCircle2 size={14} />
+                      Reviewed on a completed booking
                     </div>
                   </div>
-               </div>
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="flex min-h-[220px] items-center justify-center rounded-[1.5rem] border border-dashed border-border/70 bg-muted/15 text-sm text-muted-foreground">
+              No review feedback matched your search.
             </div>
-          ))}
-          
-          <Button variant="ghost" className="w-full rounded-2xl h-11 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/5 transition-all mt-2">
-             View All 243 Reviews
-          </Button>
+          )}
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

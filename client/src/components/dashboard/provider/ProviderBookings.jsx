@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   Calendar,
   CheckCircle2,
+  Clock,
   Mail,
   MapPin,
   Phone,
@@ -20,6 +22,12 @@ import {
   getBookingStatusLabel,
   normalizeBookingStatus,
 } from "@/lib/bookingStatus";
+import { useAuth } from "@/components/contexts/AuthContext";
+import { getAccountAccessState } from "@/lib/accountAccess";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockProviderBookings } from "@/lib/mockWorkspaceData";
+import { useBookingUpdates } from "@/components/contexts/WebSocketContext";
 
 const STATUS_STYLES = {
   pending: "bg-amber-500/10 text-amber-600 border-amber-500/20",
@@ -79,6 +87,9 @@ const normalizeBooking = (item = {}) => {
 };
 
 export default function ProviderBookings() {
+  const { user } = useAuth();
+  const providerAccess = getAccountAccessState(user);
+  const canRespondToBookings = providerAccess.canRespondToBookings;
   const [bookings, setBookings] = useState([]);
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,6 +97,30 @@ export default function ProviderBookings() {
   const [error, setError] = useState("");
   const [updatingKey, setUpdatingKey] = useState("");
   const [selectedBooking, setSelectedBooking] = useState(null);
+
+  // Handle real-time booking updates via WebSocket
+  const handleBookingUpdate = useCallback((payload) => {
+    console.log("[ProviderBookings] Received booking update:", payload);
+    
+    if (payload.booking) {
+      setBookings(prev => {
+        const exists = prev.find(b => b.id === payload.booking._id || b.id === payload.booking.id);
+        if (exists) {
+          return prev.map(b => 
+            (b.id === payload.booking._id || b.id === payload.booking.id) 
+              ? { ...payload.booking, id: payload.booking._id || payload.booking.id } 
+              : b
+          );
+        } else {
+          return [{ ...payload.booking, id: payload.booking._id || payload.booking.id }, ...prev];
+        }
+      });
+      
+      toast.success(payload.message || "Booking updated");
+    }
+  }, []);
+
+  useBookingUpdates(handleBookingUpdate);
 
   const loadBookings = useCallback(async () => {
     try {
@@ -112,14 +147,22 @@ export default function ProviderBookings() {
     loadBookings();
   }, [loadBookings]);
 
+  const layeredBookings = useMemo(
+    () =>
+      mergeLayeredCollections(bookings, mockProviderBookings, {
+        getId: (booking) => booking.id,
+      }),
+    [bookings]
+  );
+
   const tabCounts = useMemo(
     () => ({
-      all: bookings.length,
-      pending: bookings.filter((booking) => booking.status === "pending").length,
-      active: bookings.filter((booking) => booking.status === BOOKING_STATUS.ACCEPTED).length,
-      completed: bookings.filter((booking) => booking.status === "completed").length,
+      all: layeredBookings.length,
+      pending: layeredBookings.filter((booking) => booking.status === "pending").length,
+      active: layeredBookings.filter((booking) => booking.status === BOOKING_STATUS.ACCEPTED).length,
+      completed: layeredBookings.filter((booking) => booking.status === "completed").length,
     }),
-    [bookings]
+    [layeredBookings]
   );
 
   const tabs = useMemo(
@@ -135,7 +178,7 @@ export default function ProviderBookings() {
   const filteredBookings = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    return bookings.filter((booking) => {
+    return layeredBookings.filter((booking) => {
       const matchesTab =
         activeTab === "all" ||
         (activeTab === "active"
@@ -162,7 +205,7 @@ export default function ProviderBookings() {
           String(value).toLowerCase().includes(normalizedQuery)
         );
     });
-  }, [activeTab, bookings, searchQuery]);
+  }, [activeTab, layeredBookings, searchQuery]);
 
   const handleStatusUpdate = async (bookingId, nextStatus) => {
     try {
@@ -223,6 +266,27 @@ export default function ProviderBookings() {
         </Button>
       </div>
 
+      {/* Approval gate banner */}
+      {!canRespondToBookings && (
+        <div className={`flex items-start gap-3 rounded-[1.5rem] border px-5 py-4 text-sm font-medium ${
+          providerAccess.title?.toLowerCase().includes("rejected")
+            ? "border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+            : "border-amber-400/25 bg-amber-400/10 text-amber-700 dark:text-amber-300"
+        }`}>
+          <span className="mt-0.5 shrink-0">
+            {providerAccess.title?.toLowerCase().includes("rejected")
+              ? <AlertTriangle size={17} />
+              : <Clock size={17} />}
+          </span>
+          <div>
+            <p className="font-bold">{providerAccess.title}</p>
+            <p className="mt-1 text-xs leading-6 opacity-85">
+              You cannot accept or decline booking requests until the admin approves your provider account.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
         <div className="flex flex-wrap gap-2 p-1.5 bg-muted/40 rounded-2xl border border-border/40 backdrop-blur-md shadow-xs overflow-x-auto no-scrollbar">
           {tabs.map((tab) => (
@@ -282,6 +346,7 @@ export default function ProviderBookings() {
             const bookingPhoto = resolveMediaUrl(booking.clientPhoto);
             const isAccepting = updatingKey === `${booking.id}:${BOOKING_STATUS.ACCEPTED}`;
             const isDeclining = updatingKey === `${booking.id}:${BOOKING_STATUS.REJECTED}`;
+            const isMockBooking = booking.dataOrigin === "mock";
 
             return (
               <div
@@ -314,6 +379,11 @@ export default function ProviderBookings() {
                         >
                           {getBookingStatusLabel(booking.status)}
                         </span>
+                        <DataOriginBadge
+                          origin={booking.dataOrigin}
+                          liveLabel="Live"
+                          sampleLabel="Sample"
+                        />
                       </div>
                       <p className="text-muted-foreground text-[10px] font-bold italic opacity-60">
                         #{booking.id}
@@ -360,28 +430,38 @@ export default function ProviderBookings() {
                     >
                       Details
                     </Button>
-                    {booking.status === "pending" ? (
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          className="rounded-xl h-9 px-4 text-[10px] font-bold uppercase tracking-widest border-rose-500/20 text-rose-500 hover:bg-rose-500/5 transition-all"
-                          onClick={() =>
-                            handleStatusUpdate(booking.id, BOOKING_STATUS.REJECTED)
-                          }
-                          disabled={Boolean(updatingKey)}
-                        >
-                          {isDeclining ? "Declining..." : "Decline"}
-                        </Button>
-                        <Button
-                          className="rounded-xl h-9 px-4 text-[10px] font-bold uppercase tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-sm"
-                          onClick={() =>
-                            handleStatusUpdate(booking.id, BOOKING_STATUS.ACCEPTED)
-                          }
-                          disabled={Boolean(updatingKey)}
-                        >
-                          {isAccepting ? "Accepting..." : "Accept"}
-                        </Button>
-                      </div>
+                    {isMockBooking ? (
+                      <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400/10 text-amber-700 dark:text-amber-300 text-[10px] font-bold uppercase tracking-widest">
+                        Sample booking
+                      </span>
+                    ) : booking.status === "pending" ? (
+                      canRespondToBookings ? (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            className="rounded-xl h-9 px-4 text-[10px] font-bold uppercase tracking-widest border-rose-500/20 text-rose-500 hover:bg-rose-500/5 transition-all"
+                            onClick={() =>
+                              handleStatusUpdate(booking.id, BOOKING_STATUS.REJECTED)
+                            }
+                            disabled={Boolean(updatingKey)}
+                          >
+                            {isDeclining ? "Declining..." : "Decline"}
+                          </Button>
+                          <Button
+                            className="rounded-xl h-9 px-4 text-[10px] font-bold uppercase tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-sm"
+                            onClick={() =>
+                              handleStatusUpdate(booking.id, BOOKING_STATUS.ACCEPTED)
+                            }
+                            disabled={Boolean(updatingKey)}
+                          >
+                            {isAccepting ? "Accepting..." : "Accept"}
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400/10 text-amber-700 dark:text-amber-300 text-[10px] font-bold uppercase tracking-widest">
+                          <Clock size={12} /> Awaiting Approval
+                        </span>
+                      )
                     ) : null}
                   </div>
                 </div>
@@ -414,9 +494,16 @@ export default function ProviderBookings() {
                   <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-600">
                     Booking Request
                   </p>
-                  <h2 className="mt-2 text-2xl font-bold tracking-tight">
-                    {selectedBooking.clientName}
-                  </h2>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <h2 className="text-2xl font-bold tracking-tight">
+                      {selectedBooking.clientName}
+                    </h2>
+                    <DataOriginBadge
+                      origin={selectedBooking.dataOrigin}
+                      liveLabel="Live"
+                      sampleLabel="Sample"
+                    />
+                  </div>
                   <p className="mt-2 text-sm text-muted-foreground">
                     Review the client details and scheduled service before you take action.
                   </p>
@@ -531,30 +618,42 @@ export default function ProviderBookings() {
                   </div>
 
                   <div className="flex flex-wrap gap-3">
-                    {selectedBooking.status === "pending" ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          className="rounded-xl border-rose-500/20 text-rose-500 hover:bg-rose-500/5"
-                          onClick={() =>
-                            handleStatusUpdate(selectedBooking.id, BOOKING_STATUS.REJECTED)
-                          }
-                          disabled={Boolean(updatingKey)}
-                        >
-                          <XCircle size={16} className="mr-2" />
-                          Decline Request
-                        </Button>
-                        <Button
-                          className="rounded-xl bg-emerald-500 hover:bg-emerald-600"
-                          onClick={() =>
-                            handleStatusUpdate(selectedBooking.id, BOOKING_STATUS.ACCEPTED)
-                          }
-                          disabled={Boolean(updatingKey)}
-                        >
-                          <CheckCircle2 size={16} className="mr-2" />
-                          Accept Request
-                        </Button>
-                      </>
+                    {selectedBooking.dataOrigin === "mock" ? (
+                      <div className="flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
+                        <Clock size={15} />
+                        <span className="font-semibold">Sample booking actions are disabled.</span>
+                      </div>
+                    ) : selectedBooking.status === "pending" ? (
+                      canRespondToBookings ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            className="rounded-xl border-rose-500/20 text-rose-500 hover:bg-rose-500/5"
+                            onClick={() =>
+                              handleStatusUpdate(selectedBooking.id, BOOKING_STATUS.REJECTED)
+                            }
+                            disabled={Boolean(updatingKey)}
+                          >
+                            <XCircle size={16} className="mr-2" />
+                            Decline Request
+                          </Button>
+                          <Button
+                            className="rounded-xl bg-emerald-500 hover:bg-emerald-600"
+                            onClick={() =>
+                              handleStatusUpdate(selectedBooking.id, BOOKING_STATUS.ACCEPTED)
+                            }
+                            disabled={Boolean(updatingKey)}
+                          >
+                            <CheckCircle2 size={16} className="mr-2" />
+                            Accept Request
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
+                          <Clock size={15} />
+                          <span className="font-semibold">Awaiting admin approval to take action.</span>
+                        </div>
+                      )
                     ) : null}
                     <Button
                       variant="outline"

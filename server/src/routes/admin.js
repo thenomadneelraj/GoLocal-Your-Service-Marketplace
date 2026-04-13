@@ -29,6 +29,22 @@ router.get("/dashboard", adminWorkspaceController.getDashboard);
 
 router.get("/users", adminWorkspaceController.getUsers);
 router.patch("/users/:id/status", adminWorkspaceController.updateUserStatus);
+router.get(
+  "/verification-requests",
+  adminWorkspaceController.getVerificationRequests
+);
+router.get(
+  "/verification-requests/:id",
+  adminWorkspaceController.getVerificationRequestById
+);
+router.patch(
+  "/verification-requests/:id",
+  adminWorkspaceController.updateVerificationRequestStatus
+);
+router.patch(
+  "/users/:id/verification",
+  adminWorkspaceController.updateUserVerificationStatus
+);
 
 router.get("/bookings", adminWorkspaceController.getBookings);
 router.get("/bookings/summary", adminWorkspaceController.getBookingsSummary);
@@ -37,6 +53,10 @@ router.get("/transactions", adminWorkspaceController.getTransactions);
 router.get(
   "/transactions/summary",
   adminWorkspaceController.getTransactionsSummary
+);
+router.get(
+  "/transactions/:id/invoice",
+  adminWorkspaceController.downloadTransactionInvoice
 );
 
 router.get("/disputes", adminWorkspaceController.getDisputes);
@@ -53,6 +73,9 @@ router.get(
 
 router.get("/settings", adminWorkspaceController.getSettings);
 router.put("/settings", adminWorkspaceController.updateSettings);
+
+// Public settings endpoint that doesn't require admin access
+router.get("/public-settings", adminWorkspaceController.getPublicSettings);
 
 router.get(
   "/settings/advanced",

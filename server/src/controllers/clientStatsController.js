@@ -1,20 +1,21 @@
 // server/src/controllers/clientStatsController.js
 const Booking = require("../models/Booking");
 const Transaction = require("../models/Transaction");
-const Client = require("../models/Client");
-const PlatformSetting = require("../models/PlatformSetting");
+const User = require("../models/User");
+const { getPlatformSettings } = require("../services/platformSettingsService");
 const {
   BOOKING_STATUS,
   isAcceptedBooking,
   normalizeBookingStatus,
 } = require("../utils/bookingStatus");
+const {
+  normalizeTransactionStatus,
+  isPaidTransaction,
+} = require("../utils/transactionStatus");
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const toNumber = (value) => Number(value || 0);
-const normalizeTransactionStatus = (value = "") =>
-  String(value || "").trim().toLowerCase();
-
 const getDayKey = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
@@ -62,9 +63,13 @@ const build6MonthOverview = (bookings = [], transactions = []) => {
   });
 
   transactions.forEach((transaction) => {
-    if (normalizeTransactionStatus(transaction.status) !== "success") return;
+    if (!isPaidTransaction(transaction.status)) return;
     const bucket = seriesMap.get(getMonthKey(new Date(transaction.createdAt)));
-    if (bucket) bucket.spend += toNumber(transaction.amount);
+    if (bucket) {
+      bucket.spend += toNumber(
+        transaction.totalPaidByClient || transaction.amount
+      );
+    }
   });
 
   return buckets.map(({ label, bookings: bookingCount, spend }) => ({
@@ -101,9 +106,13 @@ const build30DayOverview = (bookings = [], transactions = []) => {
   });
 
   transactions.forEach((transaction) => {
-    if (normalizeTransactionStatus(transaction.status) !== "success") return;
+    if (!isPaidTransaction(transaction.status)) return;
     const bucket = findBucket(new Date(transaction.createdAt));
-    if (bucket) bucket.spend += toNumber(transaction.amount);
+    if (bucket) {
+      bucket.spend += toNumber(
+        transaction.totalPaidByClient || transaction.amount
+      );
+    }
   });
 
   return buckets.map(({ label, bookings: bookingCount, spend }) => ({
@@ -168,8 +177,8 @@ const buildEmptyDashboard = (currency = "INR") => ({
 
 const getClientDashboard = async (req, res) => {
   try {
-    const client = await Client.findOne({ userId: req.user._id });
-    const settings = await PlatformSetting.findOne().lean();
+    const client = await User.findOne({ _id: req.user._id, role: 'client' });
+    const settings = await getPlatformSettings();
     const currency = settings?.currency || "INR";
 
     if (!client) {
@@ -218,8 +227,11 @@ const getClientDashboard = async (req, res) => {
             (booking) => isAcceptedBooking(booking.status)
           ).length,
           totalSpent: transactions.reduce((total, transaction) => {
-            return normalizeTransactionStatus(transaction.status) === "success"
-              ? total + toNumber(transaction.amount)
+            return isPaidTransaction(transaction.status)
+              ? total +
+                  toNumber(
+                    transaction.totalPaidByClient || transaction.amount
+                  )
               : total;
           }, 0),
           upcomingMeetings: futureBookings.length,
@@ -240,7 +252,7 @@ const getClientDashboard = async (req, res) => {
 
 const getBookingsStats = async (req, res) => {
   try {
-    const client = await Client.findOne({ userId: req.user._id });
+    const client = await User.findOne({ _id: req.user._id, role: 'client' });
     if (!client) return res.json({ success: true, data: [{ month: "No Data", bookings: 0 }], upcomingCount: 0 });
 
     const bookings = await Booking.find({ clientId: client._id });
@@ -273,17 +285,19 @@ const getBookingsStats = async (req, res) => {
 
 const getSpendingStats = async (req, res) => {
   try {
-    const client = await Client.findOne({ userId: req.user._id });
+    const client = await User.findOne({ _id: req.user._id, role: 'client' });
     if (!client) return res.json({ success: true, data: [{ month: "No Data", spent: 0 }] });
 
-    const transactions = await Transaction.find({ clientId: client._id, status: { $in: ["SUCCESS", "success"] } });
+    const transactions = await Transaction.find({ clientId: client._id });
     
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const spendingByMonth = {};
     
     transactions.forEach(t => {
       const m = months[t.createdAt.getMonth()];
-      spendingByMonth[m] = (spendingByMonth[m] || 0) + t.amount;
+      if (isPaidTransaction(t.status)) {
+        spendingByMonth[m] = (spendingByMonth[m] || 0) + t.amount;
+      }
     });
 
     const data = Object.keys(spendingByMonth).map(m => ({
@@ -299,7 +313,7 @@ const getSpendingStats = async (req, res) => {
 
 const getCategoryStats = async (req, res) => {
   try {
-    const client = await Client.findOne({ userId: req.user._id });
+    const client = await User.findOne({ _id: req.user._id, role: 'client' });
     if (!client) return res.json({ success: true, data: [{ name: "No Services", value: 1 }] });
 
     const bookings = await Booking.find({ clientId: client._id }).populate("serviceId");
@@ -327,7 +341,7 @@ const getCategoryStats = async (req, res) => {
 
 const getClientTransactions = async (req, res) => {
   try {
-    const client = await Client.findOne({ userId: req.user._id });
+    const client = await User.findOne({ _id: req.user._id, role: 'client' });
     if (!client) return res.json({ success: true, data: { items: [], total: 0 } });
 
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -338,7 +352,7 @@ const getClientTransactions = async (req, res) => {
       Transaction.find({ clientId: client._id })
         .populate({
           path: "bookingId",
-          select: "price paymentStatus paymentMethod",
+          select: "price paymentStatus paymentMethod providerId",
           populate: {
             path: "providerId",
             select: "name serviceType",
@@ -353,13 +367,21 @@ const getClientTransactions = async (req, res) => {
 
     const serialized = items.map((tx) => ({
       id: tx._id,
-      amount: toNumber(tx.amount),
-      status: tx.status,
+      amount: toNumber(tx.totalPaidByClient || tx.amount),
+      baseAmount: toNumber(tx.baseAmount),
+      clientPlatformFee: toNumber(tx.clientPlatformFee),
+      providerPlatformFee: toNumber(tx.providerPlatformFee),
+      netToProvider: toNumber(tx.netToProvider),
+      status: normalizeTransactionStatus(tx.status),
       paymentMethod: tx.paymentMethod,
       createdAt: tx.createdAt,
       bookingId: tx.bookingId?._id || tx.bookingId,
       providerName: tx.bookingId?.providerId?.name || "Provider",
-      serviceType: tx.bookingId?.providerId?.serviceType || "Service",
+      serviceType:
+        tx.serviceSnapshot?.services?.map((service) => service.title).join(", ") ||
+        tx.serviceSnapshot?.title ||
+        tx.bookingId?.providerId?.serviceType ||
+        "Service",
     }));
 
     res.json({
