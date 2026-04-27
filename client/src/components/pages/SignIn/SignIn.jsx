@@ -77,6 +77,11 @@ export default function SignIn(props) {
   const [passwordErrorMessage, setPasswordErrorMessage] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [formData, setFormData] = React.useState({
+    email: "",
+    password: "",
+    role: "client",
+  });
 
   // Get message and redirect from location state
   const message = location.state?.message;
@@ -88,6 +93,14 @@ export default function SignIn(props) {
 
   const handleClose = () => {
     setOpen(false);
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
   const handleSubmit = async (event) => {
@@ -103,17 +116,15 @@ export default function SignIn(props) {
     setPasswordError(false);
     setPasswordErrorMessage("");
 
-    const data = new FormData(event.currentTarget);
-
     const payload = {
-      email: data.get("email"),
-      password: data.get("password"),
-      role: data.get("role"),
+      email: formData.email,
+      password: formData.password,
+      role: formData.role,
     };
 
     try {
       const result = await login(payload.email, payload.password, payload.role);
-      
+
       if (result.success) {
         // Handle successful login
         if (redirectTo) {
@@ -142,12 +153,9 @@ export default function SignIn(props) {
   };
 
   const validateInputs = () => {
-    const email = document.getElementById("email");
-    const password = document.getElementById("password");
-
     let isValid = true;
 
-    if (!email.value || !/\S+@\S+\.\S+/.test(email.value)) {
+    if (!formData.email || !/\S+@\S+\.\S+/.test(formData.email)) {
       setEmailError(true);
       setEmailErrorMessage("Please enter a valid email address.");
       isValid = false;
@@ -156,7 +164,7 @@ export default function SignIn(props) {
       setEmailErrorMessage("");
     }
 
-    if (!password.value || password.value.length < 6) {
+    if (!formData.password || formData.password.length < 6) {
       setPasswordError(true);
       setPasswordErrorMessage("Password must be at least 6 characters long.");
       isValid = false;
@@ -205,7 +213,8 @@ export default function SignIn(props) {
               <TextField
                 select
                 name="role"
-                defaultValue="client"
+                value={formData.role}
+                onChange={handleInputChange}
                 slotProps={{
                   select: {
                     native: true,
@@ -227,12 +236,20 @@ export default function SignIn(props) {
                 type="email"
                 name="email"
                 placeholder="your@email.com"
-                autoComplete="email"
+                autoComplete="off"
                 autoFocus
                 required
                 fullWidth
                 variant="outlined"
                 color={emailError ? "error" : "primary"}
+                value={formData.email}
+                onChange={handleInputChange}
+                inputProps={{
+                  autoComplete: "off",
+                  autoCorrect: "off",
+                  autoCapitalize: "off",
+                  spellCheck: "false",
+                }}
               />
             </FormControl>
             <FormControl>
@@ -244,12 +261,19 @@ export default function SignIn(props) {
                 placeholder="••••••"
                 type="password"
                 id="password"
-                autoComplete="current-password"
-                autoFocus
+                autoComplete="new-password"
                 required
                 fullWidth
                 variant="outlined"
                 color={passwordError ? "error" : "primary"}
+                value={formData.password}
+                onChange={handleInputChange}
+                inputProps={{
+                  autoComplete: "new-password",
+                  autoCorrect: "off",
+                  autoCapitalize: "off",
+                  spellCheck: "false",
+                }}
               />
             </FormControl>
             <FormControlLabel

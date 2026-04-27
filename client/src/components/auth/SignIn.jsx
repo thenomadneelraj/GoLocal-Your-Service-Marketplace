@@ -21,7 +21,10 @@ import ForgotPassword from "../pages/SignIn/Components/ForgotPassword";
 import AppTheme from "../shared/AppTheme";
 import ThemeToggle from "../shared/ThemeToggle";
 import { useMaintenance } from "@/components/contexts/MaintenanceContext";
-import { getAccountAccessState, getDashboardPathByRole } from "@/lib/accountAccess";
+import {
+  getAccountAccessState,
+  getDashboardPathByRole,
+} from "@/lib/accountAccess";
 import { SitemarkIcon } from "../pages/SignIn/Components/CustomIconsSI";
 
 const Card = styled(MuiCard)(({ theme }) => ({
@@ -88,6 +91,10 @@ export default function SignIn(props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedRole, setSelectedRole] = useState(preferredRole);
+  const [formData, setFormData] = useState({
+    email: "",
+    password: "",
+  });
 
   useEffect(() => {
     setSelectedRole(preferredRole);
@@ -104,8 +111,8 @@ export default function SignIn(props) {
 
     const normalizedRole = String(user.role || "").toUpperCase();
     const accountAccess = getAccountAccessState(user);
-    const finalTarget = searchQuery 
-      ? `/providers?search=${encodeURIComponent(searchQuery)}` 
+    const finalTarget = searchQuery
+      ? `/providers?search=${encodeURIComponent(searchQuery)}`
       : redirectTo;
 
     if (accountAccess.restricted) {
@@ -135,16 +142,22 @@ export default function SignIn(props) {
     setOpen(false);
   };
 
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
     if (!validateInputs()) return;
 
-    const data = new FormData(event.currentTarget);
-
     const payload = {
-      email: data.get("email"),
-      password: data.get("password"),
+      email: formData.email,
+      password: formData.password,
       role: selectedRole,
     };
 
@@ -156,8 +169,8 @@ export default function SignIn(props) {
       const loggedInRole = String(result.user?.role || "").toUpperCase();
       const accountAccess = getAccountAccessState(result.user);
 
-      const finalTarget = searchQuery 
-        ? `/providers?search=${encodeURIComponent(searchQuery)}` 
+      const finalTarget = searchQuery
+        ? `/providers?search=${encodeURIComponent(searchQuery)}`
         : redirectTo;
 
       if (accountAccess.restricted) {
@@ -185,12 +198,9 @@ export default function SignIn(props) {
   };
 
   const validateInputs = () => {
-    const email = document.getElementById("email");
-    const password = document.getElementById("password");
-
     let isValid = true;
 
-    if (!email.value || !/\S+@\S+\.\S+/.test(email.value)) {
+    if (!formData.email || !/\S+@\S+\.\S+/.test(formData.email)) {
       setEmailError(true);
       setEmailErrorMessage("Please enter a valid email address.");
       isValid = false;
@@ -199,7 +209,7 @@ export default function SignIn(props) {
       setEmailErrorMessage("");
     }
 
-    if (!password.value || password.value.length < 6) {
+    if (!formData.password || formData.password.length < 6) {
       setPasswordError(true);
       setPasswordErrorMessage("Password must be at least 6 characters long.");
       isValid = false;
@@ -250,7 +260,8 @@ export default function SignIn(props) {
 
             {maintenanceMode ? (
               <Alert severity="warning" sx={{ mb: 2 }}>
-                {platformName} is currently in maintenance mode. Only admin sign-in is available right now.
+                {platformName} is currently in maintenance mode. Only admin
+                sign-in is available right now.
               </Alert>
             ) : null}
 
@@ -267,8 +278,12 @@ export default function SignIn(props) {
                   },
                 }}
               >
-                <option value="CLIENT" disabled={maintenanceMode}>Client</option>
-                <option value="PROVIDER" disabled={maintenanceMode}>Service Provider</option>
+                <option value="CLIENT" disabled={maintenanceMode}>
+                  Client
+                </option>
+                <option value="PROVIDER" disabled={maintenanceMode}>
+                  Service Provider
+                </option>
                 <option value="ADMIN">Admin</option>
               </TextField>
             </FormControl>
@@ -282,12 +297,20 @@ export default function SignIn(props) {
                 type="email"
                 name="email"
                 placeholder="your@email.com"
-                autoComplete="email"
+                autoComplete="off"
                 autoFocus
                 required
                 fullWidth
                 variant="outlined"
                 color={emailError ? "error" : "primary"}
+                value={formData.email}
+                onChange={handleInputChange}
+                inputProps={{
+                  autoComplete: "off",
+                  autoCorrect: "off",
+                  autoCapitalize: "off",
+                  spellCheck: "false",
+                }}
               />
             </FormControl>
             <FormControl>
@@ -299,12 +322,19 @@ export default function SignIn(props) {
                 placeholder="••••••"
                 type="password"
                 id="password"
-                autoComplete="current-password"
-                autoFocus
+                autoComplete="new-password"
                 required
                 fullWidth
                 variant="outlined"
                 color={passwordError ? "error" : "primary"}
+                value={formData.password}
+                onChange={handleInputChange}
+                inputProps={{
+                  autoComplete: "new-password",
+                  autoCorrect: "off",
+                  autoCapitalize: "off",
+                  spellCheck: "false",
+                }}
               />
             </FormControl>
             <FormControlLabel

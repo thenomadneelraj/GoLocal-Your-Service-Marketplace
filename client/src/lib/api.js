@@ -80,17 +80,18 @@ const apiWrapper = {
       // Parse URL to determine endpoint
       const urlParts = url.split("/").filter((part) => part);
       const endpoint = urlParts[0];
-      const id = urlParts[1];
+      const subEndpoint = urlParts[1];
+      const id = urlParts[2];
 
       switch (method) {
         case "GET":
-          return this.handleMockGet(endpoint, id, urlParts);
+          return this.handleMockGet(endpoint, subEndpoint, urlParts);
         case "POST":
-          return this.handleMockPost(endpoint, data);
+          return this.handleMockPost(endpoint, subEndpoint, data);
         case "PUT":
-          return this.handleMockPut(endpoint, id, data);
+          return this.handleMockPut(endpoint, subEndpoint, id, data);
         case "DELETE":
-          return this.handleMockDelete(endpoint, id);
+          return this.handleMockDelete(endpoint, subEndpoint);
         default:
           throw new Error(`Unsupported method: ${method}`);
       }
@@ -101,11 +102,11 @@ const apiWrapper = {
   },
 
   // Mock GET handlers
-  async handleMockGet(endpoint, id, urlParts) {
+  async handleMockGet(endpoint, subEndpoint, urlParts) {
     switch (endpoint) {
       case "providers":
-        if (id) {
-          return await mockApi.getProviderDetails(id);
+        if (subEndpoint) {
+          return await mockApi.getProviderDetails(subEndpoint);
         }
         return await mockApi.getProviders();
 
@@ -122,17 +123,17 @@ const apiWrapper = {
         if (urlParts[1] === "provider" && urlParts[2]) {
           return await mockApi.getBookingsByProvider(urlParts[2]);
         }
-        if (id) {
+        if (subEndpoint) {
           // Get specific booking details
-          const booking = mockDB.findOne("bookings", { _id: id });
+          const booking = mockDB.findOne("bookings", { _id: subEndpoint });
           if (!booking) throw new Error("Booking not found");
-          return { data: mockDB.getBookingDetails(id) };
+          return { data: mockDB.getBookingDetails(subEndpoint) };
         }
         break;
 
       case "messages":
-        if (urlParts[1]) {
-          return await mockApi.getMessages(urlParts[1]);
+        if (subEndpoint) {
+          return await mockApi.getMessages(subEndpoint);
         }
         break;
 
@@ -143,11 +144,21 @@ const apiWrapper = {
         break;
 
       case "auth":
-        if (urlParts[1] === "profile") {
+        if (subEndpoint === "profile") {
           const token = sessionStorage.getItem("token");
           if (!token) throw new Error("No token found");
           const userId = token.split("-")[1];
           return await mockApi.getUserProfile(userId);
+        }
+        if (subEndpoint === "platform-status") {
+          return {
+            data: {
+              maintenance: false,
+              message: "Platform operational",
+              version: "1.0.0",
+              lastUpdated: new Date().toISOString(),
+            },
+          };
         }
         break;
 
@@ -158,9 +169,16 @@ const apiWrapper = {
   },
 
   // Mock POST handlers
-  async handleMockPost(endpoint, data) {
+  async handleMockPost(endpoint, subEndpoint, data) {
     switch (endpoint) {
       case "auth":
+        if (subEndpoint === "signIn" && data.email && data.password) {
+          return await mockApi.signIn(data);
+        }
+        if (subEndpoint === "register") {
+          return await mockApi.signUp(data);
+        }
+        // Handle direct auth POST for backward compatibility
         if (data.email && data.password) {
           return await mockApi.signIn(data);
         }
@@ -181,22 +199,22 @@ const apiWrapper = {
   },
 
   // Mock PUT handlers
-  async handleMockPut(endpoint, id, data) {
+  async handleMockPut(endpoint, subEndpoint, id, data) {
     switch (endpoint) {
       case "bookings":
-        if (urlParts[2] === "status") {
+        if (subEndpoint === "status") {
           return await mockApi.updateBookingStatus(id, data.status);
         }
         break;
 
       case "disputes":
-        if (urlParts[2] === "status") {
+        if (subEndpoint === "status") {
           return await mockApi.updateDisputeStatus(id, data.status);
         }
         break;
 
       case "auth":
-        if (urlParts[1] === "profile") {
+        if (subEndpoint === "profile") {
           const token = sessionStorage.getItem("token");
           if (!token) throw new Error("No token found");
           const userId = token.split("-")[1];
@@ -205,7 +223,7 @@ const apiWrapper = {
         break;
 
       case "messages":
-        if (urlParts[2] === "read") {
+        if (subEndpoint === "read") {
           return await mockApi.markMessagesAsRead(id, data.userId);
         }
         break;
@@ -217,7 +235,7 @@ const apiWrapper = {
   },
 
   // Mock DELETE handlers
-  async handleMockDelete(endpoint, id) {
+  async handleMockDelete(endpoint, subEndpoint) {
     // Add delete handlers as needed
     throw new Error(`DELETE not implemented for ${endpoint}`);
   },
