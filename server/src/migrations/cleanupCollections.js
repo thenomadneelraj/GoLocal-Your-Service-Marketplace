@@ -4,13 +4,15 @@ require("dotenv").config();
 const User = require("../models/User");
 const Service = require("../models/Service");
 const Booking = require("../models/Booking");
-const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
 const Notification = require("../models/Notification");
 const Transaction = require("../models/Transaction");
 const Dispute = require("../models/Dispute");
+const Settings = require("../models/Settings");
 const { toBookingPersistenceStatus } = require("../utils/bookingStatus");
-const { toTransactionPersistenceStatus } = require("../utils/transactionStatus");
+const {
+  toTransactionPersistenceStatus,
+} = require("../utils/transactionStatus");
 
 const { Types } = mongoose;
 
@@ -18,11 +20,11 @@ const TARGET_MODELS = {
   users: User,
   services: Service,
   bookings: Booking,
-  conversations: Conversation,
   messages: Message,
   notifications: Notification,
   transactions: Transaction,
   disputes: Dispute,
+  settings: Settings,
 };
 
 const EMPTY_LEGACY_COLLECTIONS = [
@@ -35,6 +37,7 @@ const EMPTY_LEGACY_COLLECTIONS = [
   "payouts",
   "platformsettings",
   "reviews",
+  "conversations",
 ];
 
 const hasCollection = async (db, collectionName) => {
@@ -156,30 +159,17 @@ const sanitizeWithModel = (Model, document) => {
 const buildContext = async (db) => {
   const transactionNewsDocuments = await getCollectionDocuments(
     db,
-    "transactionnews"
-  );
-  const conversationNewsDocuments = await getCollectionDocuments(
-    db,
-    "conversationnews"
+    "transactionnews",
   );
   const transactionDocuments = transactionNewsDocuments.length
     ? transactionNewsDocuments
     : await getCollectionDocuments(db, "transactions");
-  const conversationDocuments = conversationNewsDocuments.length
-    ? conversationNewsDocuments
-    : await getCollectionDocuments(db, "conversations");
 
   return {
     transactionsByBookingId: new Map(
       transactionDocuments
         .filter((doc) => doc?.bookingId)
-        .map((doc) => [String(doc.bookingId), doc])
-    ),
-    conversationParticipants: new Map(
-      conversationDocuments.map((doc) => [
-        String(doc._id),
-        toObjectIdArray(doc.participants),
-      ])
+        .map((doc) => [String(doc.bookingId), doc]),
     ),
   };
 };
@@ -244,13 +234,16 @@ const NEWS_COLLECTION_MAPPERS = {
         title: toTrimmedString(doc.title || doc.name, "Service"),
         description: toTrimmedString(
           doc.description,
-          "Service description unavailable."
+          "Service description unavailable.",
         ),
         category: toTrimmedString(doc.category, "General"),
         status: toTrimmedString(doc.status, "active").toLowerCase(),
         price: toFiniteNumber(doc.price, 0),
         duration: toTrimmedString(doc.duration, "1 hour"),
-        locationType: toTrimmedString(doc.locationType, "offline").toLowerCase(),
+        locationType: toTrimmedString(
+          doc.locationType,
+          "offline",
+        ).toLowerCase(),
         images: Array.isArray(doc.images) ? doc.images : [],
         rating: toFiniteNumber(doc.rating, 0),
         totalBookings: toFiniteNumber(doc.totalBookings, 0),
@@ -274,7 +267,7 @@ const NEWS_COLLECTION_MAPPERS = {
 
       const transaction = context.transactionsByBookingId.get(String(doc._id));
       const transactionStatus = toTransactionPersistenceStatus(
-        transaction?.status || doc.paymentStatus
+        transaction?.status || doc.paymentStatus,
       );
 
       return {
@@ -284,7 +277,7 @@ const NEWS_COLLECTION_MAPPERS = {
         serviceId,
         bookingDate: toDate(
           doc.bookingDate || doc.date || doc.scheduledAt || doc.createdAt,
-          new Date()
+          new Date(),
         ),
         timeSlot: toTrimmedString(doc.timeSlot || doc.time, "Flexible"),
         notes: toTrimmedString(doc.notes),
@@ -295,7 +288,7 @@ const NEWS_COLLECTION_MAPPERS = {
         paymentStatus: toBookingPaymentStatus(transactionStatus),
         paymentMethod: toTrimmedString(
           transaction?.paymentMethod || doc.paymentMethod,
-          "upi"
+          "upi",
         ).toLowerCase(),
         review: doc.review
           ? {
@@ -311,42 +304,21 @@ const NEWS_COLLECTION_MAPPERS = {
       };
     },
   },
-  conversationnews: {
-    target: "conversations",
-    model: TARGET_MODELS.conversations,
-    map: (doc) => ({
-      _id: toObjectId(doc._id),
-      participants: toObjectIdArray(doc.participants),
-      lastMessageAt: toDate(
-        doc.lastMessageAt || doc.updatedAt || doc.createdAt,
-        null
-      ),
-      createdAt: toDate(doc.createdAt, new Date()),
-      updatedAt: toDate(doc.updatedAt, new Date()),
-      __v: toFiniteNumber(doc.__v, 0),
-    }),
-  },
   messagenews: {
     target: "messages",
     model: TARGET_MODELS.messages,
     map: (doc, context) => {
-      const conversationId = toObjectId(doc.conversationId);
+      const bookingId = toObjectId(doc.bookingId || doc.conversationId);
       const sender = toObjectId(doc.sender || doc.senderId);
-      const participants =
-        context.conversationParticipants.get(String(doc.conversationId)) || [];
-      const receiver =
-        toObjectId(doc.receiver || doc.receiverId) ||
-        participants.find(
-          (participantId) => String(participantId) !== String(sender)
-        );
+      const receiver = toObjectId(doc.receiver || doc.receiverId);
 
-      if (!sender || !receiver) {
+      if (!sender || !receiver || !bookingId) {
         return null;
       }
 
       return {
         _id: toObjectId(doc._id),
-        conversationId: conversationId || undefined,
+        bookingId,
         sender,
         receiver,
         content: toTrimmedString(doc.content || doc.message),
@@ -375,7 +347,9 @@ const NEWS_COLLECTION_MAPPERS = {
         type: toTrimmedString(doc.type, "general").toLowerCase(),
         actionUrl: toTrimmedString(doc.actionUrl),
         metadata: {
-          ...(doc.metadata && typeof doc.metadata === "object" ? doc.metadata : {}),
+          ...(doc.metadata && typeof doc.metadata === "object"
+            ? doc.metadata
+            : {}),
           ...(doc.actionText
             ? { actionText: toTrimmedString(doc.actionText) }
             : {}),
@@ -456,12 +430,17 @@ const cleanupCollections = async () => {
     const context = await buildContext(db);
     const summary = [];
 
-    for (const [sourceName, config] of Object.entries(NEWS_COLLECTION_MAPPERS)) {
+    for (const [sourceName, config] of Object.entries(
+      NEWS_COLLECTION_MAPPERS,
+    )) {
       if (!(await hasCollection(db, sourceName))) {
         continue;
       }
 
-      const sourceDocuments = await db.collection(sourceName).find({}).toArray();
+      const sourceDocuments = await db
+        .collection(sourceName)
+        .find({})
+        .toArray();
       if (!sourceDocuments.length) {
         await db.dropCollection(sourceName).catch(() => {});
         summary.push(`${sourceName}: empty, dropped`);
@@ -482,7 +461,7 @@ const cleanupCollections = async () => {
         try {
           const sanitizedDocument = sanitizeWithModel(
             config.model,
-            mappedDocument
+            mappedDocument,
           );
 
           operations.push({
@@ -496,7 +475,7 @@ const cleanupCollections = async () => {
           const details =
             error?.message || error?.toString() || "unknown validation error";
           throw new Error(
-            `Failed to sync ${sourceName} document ${sourceDocument._id}: ${details}`
+            `Failed to sync ${sourceName} document ${sourceDocument._id}: ${details}`,
           );
         }
       }
@@ -507,7 +486,7 @@ const cleanupCollections = async () => {
 
       const targetCount = await config.model.countDocuments();
       summary.push(
-        `${sourceName} -> ${config.target}: ${operations.length} synced, ${skippedCount} skipped, target now ${targetCount}`
+        `${sourceName} -> ${config.target}: ${operations.length} synced, ${skippedCount} skipped, target now ${targetCount}`,
       );
 
       await db.dropCollection(sourceName);
@@ -524,7 +503,7 @@ const cleanupCollections = async () => {
         summary.push(`${collectionName}: empty legacy collection dropped`);
       } else {
         summary.push(
-          `${collectionName}: kept because it still has ${count} document(s)`
+          `${collectionName}: kept because it still has ${count} document(s)`,
         );
       }
     }

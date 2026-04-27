@@ -5,6 +5,8 @@ import App from "./App.jsx";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/components/contexts/AuthContext";
 import { MaintenanceProvider } from "@/components/contexts/MaintenanceContext";
+// Initialize mock system
+import "./mock/index.js";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>

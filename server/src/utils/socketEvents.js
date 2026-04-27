@@ -24,16 +24,17 @@ const LEGACY_EVENT_ALIASES = {
 
 const toIdString = (value) => String(value || "");
 const getUserRoom = (userId) => `user_${toIdString(userId)}`;
-const getConversationRoom = (conversationId) =>
-  `conversation_${toIdString(conversationId)}`;
+const getBookingRoom = (bookingId) => `booking_${toIdString(bookingId)}`;
 
 const SOCKET_SERVICE_URL = String(
-  process.env.WEBSOCKET_SERVICE_URL || "http://localhost:5003"
+  process.env.WEBSOCKET_SERVICE_URL || "http://localhost:5003",
 ).trim();
 const SOCKET_SERVICE_TOKEN = String(
-  process.env.WEBSOCKET_SERVICE_TOKEN || ""
+  process.env.WEBSOCKET_SERVICE_TOKEN || "",
 ).trim();
-const SOCKET_EMIT_TIMEOUT_MS = Number(process.env.SOCKET_EMIT_TIMEOUT_MS || 3000);
+const SOCKET_EMIT_TIMEOUT_MS = Number(
+  process.env.SOCKET_EMIT_TIMEOUT_MS || 3000,
+);
 
 const resolveEmitUrl = () => {
   if (!SOCKET_SERVICE_URL) {
@@ -71,7 +72,7 @@ const postSocketEvent = async (body) => {
       throw new Error(
         `WebSocket service responded with ${response.status}${
           errorBody ? `: ${errorBody}` : ""
-        }`
+        }`,
       );
     }
   } finally {
@@ -95,7 +96,9 @@ const emitSocketEvent = ({
 
   const requestBody = {
     userIds: [...new Set(userIds.map(toIdString).filter(Boolean))],
-    conversationIds: [...new Set(conversationIds.map(toIdString).filter(Boolean))],
+    conversationIds: [
+      ...new Set(conversationIds.map(toIdString).filter(Boolean)),
+    ],
     bookingIds: [...new Set(bookingIds.map(toIdString).filter(Boolean))],
     room,
     rooms,
@@ -112,6 +115,6 @@ const emitSocketEvent = ({
 module.exports = {
   SOCKET_EVENTS,
   getUserRoom,
-  getConversationRoom,
+  getBookingRoom,
   emitSocketEvent,
 };

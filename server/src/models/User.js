@@ -27,7 +27,10 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
-      match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, "Please enter a valid email address"],
+      match: [
+        /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+        "Please enter a valid email address",
+      ],
     },
     password: {
       type: String,
@@ -135,94 +138,6 @@ const userSchema = new mongoose.Schema(
     },
     documents: [String],
     permissions: [String],
-    platformSettings: {
-      platformName: {
-        type: String,
-        trim: true,
-        default: undefined,
-      },
-      supportEmail: {
-        type: String,
-        trim: true,
-        lowercase: true,
-        default: undefined,
-      },
-      currency: {
-        type: String,
-        trim: true,
-        uppercase: true,
-        default: undefined,
-      },
-      commissionPercentage: {
-        type: Number,
-        min: 0,
-        max: 100,
-        default: undefined,
-      },
-      maintenanceMode: {
-        type: Boolean,
-        default: undefined,
-      },
-      maintenanceMessage: {
-        type: String,
-        trim: true,
-        default: undefined,
-      },
-      controlDepth: {
-        type: String,
-        trim: true,
-        default: undefined,
-      },
-      automationProfile: {
-        type: String,
-        trim: true,
-        default: undefined,
-      },
-      reminderWindowLabel: {
-        type: String,
-        trim: true,
-        default: undefined,
-      },
-      exportRetentionDays: {
-        type: Number,
-        min: 1,
-        default: undefined,
-      },
-      manualProviderReview: {
-        type: Boolean,
-        default: undefined,
-      },
-      disputeEscalationHours: {
-        type: Number,
-        min: 1,
-        default: undefined,
-      },
-      bookingReminderHours: {
-        type: Number,
-        min: 1,
-        default: undefined,
-      },
-      websocketMonitoring: {
-        type: Boolean,
-        default: undefined,
-      },
-      lastCacheClearedAt: {
-        type: Date,
-        default: undefined,
-      },
-      clientApprovalBackfilledAt: {
-        type: Date,
-        default: undefined,
-      },
-      lastExportedAt: {
-        type: Date,
-        default: undefined,
-      },
-      lastSecurityAuditAt: {
-        type: Date,
-        default: undefined,
-      },
-    },
     verification: {
       status: {
         type: String,
@@ -325,7 +240,7 @@ const userSchema = new mongoose.Schema(
       default: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 userSchema.pre("save", async function () {
@@ -339,14 +254,14 @@ userSchema.pre("validate", function syncOperationalState() {
   this.bankName = String(this.bankName || "").trim();
   this.accountNumber = sanitizeAccountNumber(this.accountNumber || "");
   this.accountHolderName = String(
-    this.accountHolderName || this.name || ""
+    this.accountHolderName || this.name || "",
   ).trim();
   this.workCategories = Array.from(
     new Set(
       (Array.isArray(this.workCategories) ? this.workCategories : [])
         .map((value) => String(value || "").trim())
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
   const generatedUpiId = generateUpiId({
     phone: this.phone,
@@ -356,12 +271,13 @@ userSchema.pre("validate", function syncOperationalState() {
   if (!this.verification) {
     this.verification = {};
   }
-  this.verification.documents = (Array.isArray(this.verification.documents)
-    ? this.verification.documents
-    : []
+  this.verification.documents = (
+    Array.isArray(this.verification.documents)
+      ? this.verification.documents
+      : []
   ).map((document) => {
     const originalName = String(
-      document?.originalName || document?.name || ""
+      document?.originalName || document?.name || "",
     ).trim();
 
     return {
@@ -374,10 +290,9 @@ userSchema.pre("validate", function syncOperationalState() {
   });
   this.verification.status = normalizeVerificationStatus(
     this.verification.status,
-    this.isVerified
+    this.isVerified,
   );
-  this.isVerified =
-    this.verification.status === VERIFICATION_STATUS.VERIFIED;
+  this.isVerified = this.verification.status === VERIFICATION_STATUS.VERIFIED;
   this.status = normalizeUserStatus(this.status, this.isActive);
   this.isActive = this.status === USER_STATUS.ACTIVE;
   this.approvalStatus = normalizeApprovalStatus(this.approvalStatus, {
@@ -393,17 +308,12 @@ userSchema.index(
     partialFilterExpression: {
       upiId: { $type: "string", $gt: "" },
     },
-  }
+  },
 );
 
-// Indexes for improved admin query performance
+// Essential indexes only
 userSchema.index({ role: 1, approvalStatus: 1 });
-userSchema.index({ role: 1, status: 1 });
 userSchema.index({ createdAt: -1 });
-userSchema.index({ status: 1 });
-userSchema.index({ approvalStatus: 1 });
-userSchema.index({ name: "text", email: "text" });
-userSchema.index({ "verification.status": 1 });
 userSchema.index({ lastLogin: -1 });
 
 userSchema.methods.comparePassword = async function (candidatePassword) {

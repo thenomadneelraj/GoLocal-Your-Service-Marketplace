@@ -1,19 +1,12 @@
 const mongoose = require("mongoose");
-const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
+const Booking = require("../models/Booking");
 const User = require("../models/User");
 const {
   createNotification,
   markNotificationsReadByFilter,
 } = require("../services/notificationService");
-const {
-  SOCKET_EVENTS,
-  emitSocketEvent,
-} = require("../utils/socketEvents");
-const {
-  findConversationByParticipants,
-  findOrCreateConversation,
-} = require("../services/conversationService");
+const { SOCKET_EVENTS, emitSocketEvent } = require("../utils/socketEvents");
 
 const isValidObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(String(value || ""));
@@ -22,17 +15,20 @@ const toObjectIdString = (value) => String(value || "");
 
 const serializeMessage = (message, currentUserId) => {
   const senderId = toObjectIdString(message.sender?._id || message.sender);
-  const receiverId = toObjectIdString(message.receiver?._id || message.receiver);
+  const receiverId = toObjectIdString(
+    message.receiver?._id || message.receiver,
+  );
 
   return {
-    id: message._id,
-    content: message.content,
-    read: Boolean(message.read),
-    createdAt: message.createdAt,
-    updatedAt: message.updatedAt,
+    _id: message._id,
+    bookingId: message.bookingId,
     senderId,
     receiverId,
-    direction: senderId === toObjectIdString(currentUserId) ? "outgoing" : "incoming",
+    content: message.content,
+    read: message.read,
+    createdAt: message.createdAt,
+    updatedAt: message.updatedAt,
+    isFromCurrentUser: senderId === currentUserId,
   };
 };
 
@@ -43,7 +39,11 @@ const buildParticipantDirectory = async (userIds = []) => {
     return new Map();
   }
 
-  const users = await User.find({ _id: { $in: uniqueIds } }).select("email role name profileImage address location serviceType availability").lean();
+  const users = await User.find({ _id: { $in: uniqueIds } })
+    .select(
+      "email role name profileImage address location serviceType availability",
+    )
+    .lean();
 
   return new Map(
     users.map((user) => {
@@ -60,10 +60,13 @@ const buildParticipantDirectory = async (userIds = []) => {
           address: user.address || "",
           location: user.location || "",
           serviceType: user.serviceType || "",
-          availability: typeof user.availability === "boolean" ? user.availability : undefined,
+          availability:
+            typeof user.availability === "boolean"
+              ? user.availability
+              : undefined,
         },
       ];
-    })
+    }),
   );
 };
 
@@ -100,25 +103,16 @@ const findOtherUser = async (otherUserId) => {
 };
 
 const buildConversationKey = (userIds = []) =>
-  [...new Set(userIds.map(toObjectIdString).filter(Boolean))]
-    .sort()
-    .join(":");
+  [...new Set(userIds.map(toObjectIdString).filter(Boolean))].sort().join(":");
 
 const listConversations = async (req, res) => {
   try {
     const currentUserId = req.user._id;
-    const [messages, seededConversations] = await Promise.all([
-      Message.find({
-        $or: [{ sender: currentUserId }, { receiver: currentUserId }],
-      })
-        .sort({ createdAt: -1 })
-        .lean(),
-      Conversation.find({
-        participants: currentUserId,
-      })
-        .sort({ updatedAt: -1, createdAt: -1 })
-        .lean(),
-    ]);
+    const messages = await Message.find({
+      $or: [{ sender: currentUserId }, { receiver: currentUserId }],
+    })
+      .sort({ createdAt: -1 })
+      .lean();
 
     const summaries = new Map();
 
@@ -126,7 +120,7 @@ const listConversations = async (req, res) => {
       const isOutgoing =
         toObjectIdString(message.sender) === toObjectIdString(currentUserId);
       const counterpartId = toObjectIdString(
-        isOutgoing ? message.receiver : message.sender
+        isOutgoing ? message.receiver : message.sender,
       );
 
       if (!counterpartId) {
@@ -136,9 +130,7 @@ const listConversations = async (req, res) => {
       if (!summaries.has(counterpartId)) {
         summaries.set(counterpartId, {
           counterpartId,
-          conversationId:
-            message.conversationId ||
-            buildConversationKey([currentUserId, counterpartId]),
+          bookingId: message.bookingId,
           lastMessage: serializeMessage(message, currentUserId),
           unreadCount: 0,
           lastMessageAt: message.createdAt,
@@ -151,57 +143,30 @@ const listConversations = async (req, res) => {
       }
     });
 
-    seededConversations.forEach((conversation) => {
-      const counterpartId = conversation.participants
-        ?.map(toObjectIdString)
-        .find((participantId) => participantId !== toObjectIdString(currentUserId));
-
-      if (!counterpartId) {
-        return;
-      }
-
-      if (!summaries.has(counterpartId)) {
-        summaries.set(counterpartId, {
-          counterpartId,
-          conversationId: conversation._id,
-          lastMessage: null,
-          unreadCount: 0,
-          lastMessageAt: conversation.updatedAt || conversation.createdAt,
-        });
-        return;
-      }
-
-      const current = summaries.get(counterpartId);
-      current.conversationId = current.conversationId || conversation._id;
-      if (!current.lastMessageAt) {
-        current.lastMessageAt = conversation.updatedAt || conversation.createdAt;
-      }
-    });
-
     const participants = await buildParticipantDirectory([...summaries.keys()]);
 
     const conversations = [...summaries.values()]
       .map((summary) => ({
-        participant:
-          participants.get(summary.counterpartId) || {
-            userId: summary.counterpartId,
-            profileId: null,
-            role: "user",
-            email: "",
-            name: "User",
-            profilePhoto: "",
-            address: "",
-            location: "",
-            serviceType: "",
-          },
+        participant: participants.get(summary.counterpartId) || {
+          userId: summary.counterpartId,
+          profileId: null,
+          role: "user",
+          email: "",
+          name: "User",
+          profilePhoto: "",
+          address: "",
+          location: "",
+          serviceType: "",
+        },
         unreadCount: summary.unreadCount,
-        conversationId: summary.conversationId,
+        bookingId: summary.bookingId,
         lastMessage: summary.lastMessage,
         lastMessageAt: summary.lastMessageAt,
       }))
       .sort(
         (left, right) =>
-          new Date(right.lastMessageAt || 0) - new Date(left.lastMessageAt || 0)
+          new Date(right.lastMessageAt || 0) -
+          new Date(left.lastMessageAt || 0),
       );
 
     res.json({
@@ -216,66 +181,53 @@ const listConversations = async (req, res) => {
 const getConversationThread = async (req, res) => {
   try {
     const currentUserId = req.user._id;
-    const { otherUserId } = req.params;
+    const { bookingId } = req.params;
 
-    if (!isValidObjectId(otherUserId)) {
+    if (!isValidObjectId(bookingId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid conversation target.",
+        message: "Invalid booking ID.",
       });
     }
 
-    if (toObjectIdString(currentUserId) === toObjectIdString(otherUserId)) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot message yourself.",
-      });
-    }
+    const booking = await Booking.findById(bookingId)
+      .select("clientId providerId")
+      .lean();
 
-    const otherUser = await findOtherUser(otherUserId);
-    if (!otherUser) {
+    if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Conversation participant not found.",
+        message: "Booking not found.",
       });
     }
 
-    const pairCheck = ensureClientProviderPair(req.user, otherUser);
-    if (!pairCheck.ok) {
-      return res
-        .status(pairCheck.status)
-        .json({ success: false, message: pairCheck.message });
+    // Verify user is part of this booking
+    if (
+      booking.clientId.toString() !== currentUserId.toString() &&
+      booking.providerId.toString() !== currentUserId.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to view messages for this booking.",
+      });
     }
 
-    const conversation = await findConversationByParticipants([
-      currentUserId,
-      otherUserId,
-    ]);
-
     const [messages, participants] = await Promise.all([
-      Message.find(
-        conversation?._id
-          ? { conversationId: conversation._id }
-          : {
-              $or: [
-                { sender: currentUserId, receiver: otherUserId },
-                { sender: otherUserId, receiver: currentUserId },
-              ],
-            }
-      )
-        .sort({ createdAt: 1 })
-        .lean(),
-      buildParticipantDirectory([otherUserId]),
+      Message.find({ bookingId }).sort({ createdAt: -1 }).lean(),
+      buildParticipantDirectory([booking.clientId, booking.providerId]),
     ]);
 
     res.json({
       success: true,
       data: {
-        conversationId: conversation?._id || null,
-        participant: participants.get(toObjectIdString(otherUserId)) || null,
-        messages: messages.map((message) =>
-          serializeMessage(message, currentUserId)
-        ),
+        bookingId: booking._id,
+        participants: {
+          client: participants.get(booking.clientId.toString()) || null,
+          provider: participants.get(booking.providerId.toString()) || null,
+        },
+        messages: messages
+          .map((message) => serializeMessage(message, currentUserId))
+          .reverse(),
       },
     });
   } catch (error) {
@@ -294,9 +246,10 @@ const getMessageContact = async (req, res) => {
     }
 
     if (toObjectIdString(req.user._id) === toObjectIdString(userId)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "You cannot open a chat with yourself." });
+      return res.status(400).json({
+        success: false,
+        message: "You cannot open a chat with yourself.",
+      });
     }
 
     const otherUser = await findOtherUser(userId);
@@ -326,13 +279,13 @@ const getMessageContact = async (req, res) => {
 const sendMessage = async (req, res) => {
   try {
     const senderId = req.user._id;
-    const { receiverId, content } = req.body;
+    const { bookingId, content } = req.body;
     const trimmedContent = String(content || "").trim();
 
-    if (!isValidObjectId(receiverId)) {
+    if (!isValidObjectId(bookingId)) {
       return res.status(400).json({
         success: false,
-        message: "A valid message recipient is required.",
+        message: "A valid booking ID is required.",
       });
     }
 
@@ -350,32 +303,35 @@ const sendMessage = async (req, res) => {
       });
     }
 
-    if (toObjectIdString(senderId) === toObjectIdString(receiverId)) {
-      return res.status(400).json({
-        success: false,
-        message: "You cannot message yourself.",
-      });
-    }
+    const booking = await Booking.findById(bookingId)
+      .select("clientId providerId")
+      .lean();
 
-    const receiver = await findOtherUser(receiverId);
-    if (!receiver) {
+    if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Recipient not found.",
+        message: "Booking not found.",
       });
     }
 
-    const pairCheck = ensureClientProviderPair(req.user, receiver);
-    if (!pairCheck.ok) {
-      return res
-        .status(pairCheck.status)
-        .json({ success: false, message: pairCheck.message });
+    // Verify user is part of this booking
+    if (
+      booking.clientId.toString() !== senderId.toString() &&
+      booking.providerId.toString() !== senderId.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to send messages for this booking.",
+      });
     }
 
-    const conversation = await findOrCreateConversation([senderId, receiverId]);
+    const receiverId =
+      booking.clientId.toString() === senderId.toString()
+        ? booking.providerId
+        : booking.clientId;
 
     const message = await Message.create({
-      conversationId: conversation?._id || undefined,
+      bookingId,
       sender: senderId,
       receiver: receiverId,
       content: trimmedContent,
@@ -388,7 +344,7 @@ const sendMessage = async (req, res) => {
 
     const payload = {
       message: serializeMessage(savedMessage, senderId),
-      conversationId: conversation?._id || null,
+      bookingId: bookingId,
       receiver: participants.get(toObjectIdString(receiverId)) || null,
       sender: participants.get(toObjectIdString(senderId)) || null,
     };
@@ -404,20 +360,20 @@ const sendMessage = async (req, res) => {
       title: `New message from ${senderProfile?.name || "User"}`,
       message: trimmedContent,
       type: "message",
-      actionUrl: `${receiverRoute}?contact=${toObjectIdString(senderId)}`,
+      actionUrl: `${receiverRoute}?booking=${toObjectIdString(bookingId)}`,
       metadata: {
-        conversationUserId: toObjectIdString(senderId),
+        bookingId: toObjectIdString(bookingId),
         senderId: toObjectIdString(senderId),
       },
     });
 
     emitSocketEvent({
       userIds: [senderId, receiverId],
-      conversationIds: conversation?._id ? [conversation._id] : [],
+      bookingIds: [bookingId],
       eventName: SOCKET_EVENTS.MESSAGE_SENT,
       payload: {
         ...payload,
-        conversationUserId: toObjectIdString(senderId),
+        bookingId: toObjectIdString(bookingId),
       },
     });
 
@@ -434,63 +390,68 @@ const sendMessage = async (req, res) => {
 const markConversationRead = async (req, res) => {
   try {
     const currentUserId = req.user._id;
-    const { otherUserId } = req.params;
+    const { bookingId } = req.params;
 
-    if (!isValidObjectId(otherUserId)) {
+    if (!isValidObjectId(bookingId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid conversation target.",
+        message: "Invalid booking ID.",
       });
     }
 
-    const otherUser = await findOtherUser(otherUserId);
-    if (!otherUser) {
+    const booking = await Booking.findById(bookingId)
+      .select("clientId providerId")
+      .lean();
+
+    if (!booking) {
       return res.status(404).json({
         success: false,
-        message: "Conversation participant not found.",
+        message: "Booking not found.",
       });
     }
 
-    const pairCheck = ensureClientProviderPair(req.user, otherUser);
-    if (!pairCheck.ok) {
-      return res
-        .status(pairCheck.status)
-        .json({ success: false, message: pairCheck.message });
+    // Verify user is part of this booking
+    if (
+      booking.clientId.toString() !== currentUserId.toString() &&
+      booking.providerId.toString() !== currentUserId.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to mark messages for this booking.",
+      });
     }
+
+    const otherUserId =
+      booking.clientId.toString() === currentUserId.toString()
+        ? booking.providerId
+        : booking.clientId;
 
     const result = await Message.updateMany(
       {
-        sender: otherUserId,
+        bookingId,
         receiver: currentUserId,
         read: false,
       },
       {
         $set: { read: true },
-      }
+      },
     );
 
     await markNotificationsReadByFilter({
       userId: currentUserId,
       filter: {
         type: "message",
-        "metadata.conversationUserId": toObjectIdString(otherUserId),
+        "metadata.bookingId": toObjectIdString(bookingId),
       },
     });
 
-    const conversation = await findConversationByParticipants([
-      currentUserId,
-      otherUserId,
-    ]);
-
     emitSocketEvent({
       userIds: [currentUserId, otherUserId],
-      conversationIds: conversation?._id ? [conversation._id] : [],
+      bookingIds: [bookingId],
       eventName: SOCKET_EVENTS.MESSAGE_READ,
       payload: {
-        conversationId: conversation?._id || null,
-        conversationUserId: toObjectIdString(currentUserId),
+        bookingId: toObjectIdString(bookingId),
         readerId: toObjectIdString(currentUserId),
-        counterpartId: toObjectIdString(otherUserId),
       },
     });
 

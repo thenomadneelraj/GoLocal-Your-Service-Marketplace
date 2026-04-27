@@ -45,7 +45,9 @@ const normalizeProvider = (item) => ({
   available: item.available ?? item.availability ?? false,
   image: item.profileImage || item.profilePhoto || item.image || "",
   experience: Number(item.experience || item.yearsExperience || 0),
-  serviceCount: item.serviceCount ?? (Array.isArray(item.services) ? item.services.length : 0),
+  serviceCount:
+    item.serviceCount ??
+    (Array.isArray(item.services) ? item.services.length : 0),
   servicePriceRange: item.servicePriceRange || null,
 });
 
@@ -57,10 +59,16 @@ const ProvidersList = () => {
   const [error, setError] = useState(null);
   const [totalResults, setTotalResults] = useState(0);
 
-  const [searchTerm, setSearchTerm] = useState(searchParams.get("search") || "");
-  const [serviceType, setServiceType] = useState(searchParams.get("type") || "All");
+  const [searchTerm, setSearchTerm] = useState(
+    searchParams.get("search") || "",
+  );
+  const [serviceType, setServiceType] = useState(
+    searchParams.get("type") || "All",
+  );
   const [location, setLocation] = useState(searchParams.get("location") || "");
-  const [sortBy, setSortBy] = useState(searchParams.get("sort") || "recommended");
+  const [sortBy, setSortBy] = useState(
+    searchParams.get("sort") || "recommended",
+  );
   const [page, setPage] = useState(parseInt(searchParams.get("page"), 10) || 1);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -77,7 +85,7 @@ const ProvidersList = () => {
       "Moving",
       "Other",
     ],
-    []
+    [],
   );
 
   useEffect(() => {
@@ -95,7 +103,15 @@ const ProvidersList = () => {
     if (next !== current) {
       setSearchParams(params, { replace: true });
     }
-  }, [searchTerm, serviceType, location, sortBy, page, searchParams, setSearchParams]);
+  }, [
+    searchTerm,
+    serviceType,
+    location,
+    sortBy,
+    page,
+    searchParams,
+    setSearchParams,
+  ]);
 
   const getMockProviders = () => [
     {
@@ -131,7 +147,8 @@ const ProvidersList = () => {
     setError(null);
 
     try {
-      const response = await api.get("/api/providers", {
+      // Use our enhanced API wrapper that supports mock mode
+      const response = await api.get("providers", {
         params: {
           search: searchTerm || undefined,
           serviceType: serviceType !== "All" ? serviceType : undefined,
@@ -145,20 +162,30 @@ const ProvidersList = () => {
         response.data?.providers ||
         response.data?.data?.providers ||
         response.data?.data ||
+        response.data ||
         [];
 
       const normalized = Array.isArray(raw) ? raw.map(normalizeProvider) : [];
 
       setProviders(normalized);
-      setTotalPages(response.data?.totalPages || Math.max(1, Math.ceil(normalized.length / LIMIT)) || 1);
+      setTotalPages(
+        response.data?.totalPages ||
+          Math.max(1, Math.ceil(normalized.length / LIMIT)) ||
+          1,
+      );
       setTotalResults(response.data?.total || normalized.length);
+
+      // If using mock API, show a subtle indicator
+      if (api.useMock) {
+        console.log("🔧 Using mock API data for providers");
+      }
     } catch (err) {
-      console.error("API failed. Using mock data.");
+      console.error("Failed to fetch providers:", err);
       const mockProviders = getMockProviders();
       setProviders(mockProviders);
       setTotalPages(1);
       setTotalResults(mockProviders.length);
-      setError("Server unavailable. Showing demo data.");
+      setError("Failed to load providers. Showing demo data.");
     } finally {
       setLoading(false);
     }
@@ -179,7 +206,9 @@ const ProvidersList = () => {
 
     switch (sortBy) {
       case "rating":
-        return items.sort((a, b) => b.rating - a.rating || b.reviewCount - a.reviewCount);
+        return items.sort(
+          (a, b) => b.rating - a.rating || b.reviewCount - a.reviewCount,
+        );
       case "price-low":
         return items.sort((a, b) => a.hourlyRate - b.hourlyRate);
       case "price-high":
@@ -191,14 +220,14 @@ const ProvidersList = () => {
           (a, b) =>
             Number(b.available) - Number(a.available) ||
             b.rating - a.rating ||
-            b.reviewCount - a.reviewCount
+            b.reviewCount - a.reviewCount,
         );
     }
   }, [providers, sortBy]);
 
   const availableCount = useMemo(
     () => displayedProviders.filter((provider) => provider.available).length,
-    [displayedProviders]
+    [displayedProviders],
   );
 
   const averageRate = useMemo(() => {
@@ -208,15 +237,18 @@ const ProvidersList = () => {
 
     const totalRate = displayedProviders.reduce(
       (sum, provider) => sum + Number(provider.hourlyRate || 0),
-      0
+      0,
     );
 
     return Math.round(totalRate / displayedProviders.length);
   }, [displayedProviders]);
 
   const activeFiltersCount = useMemo(
-    () => [Boolean(searchTerm), serviceType !== "All", Boolean(location)].filter(Boolean).length,
-    [searchTerm, serviceType, location]
+    () =>
+      [Boolean(searchTerm), serviceType !== "All", Boolean(location)].filter(
+        Boolean,
+      ).length,
+    [searchTerm, serviceType, location],
   );
 
   const handlePageChange = (_, value) => {
@@ -296,7 +328,9 @@ const ProvidersList = () => {
           />
 
           <Chip
-            icon={<AutoAwesomeRoundedIcon sx={{ color: "inherit !important" }} />}
+            icon={
+              <AutoAwesomeRoundedIcon sx={{ color: "inherit !important" }} />
+            }
             label="Trusted local marketplace"
             sx={{
               mb: 2.5,
@@ -306,14 +340,29 @@ const ProvidersList = () => {
             }}
           />
 
-          <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: "-0.04em" }}>
+          <Typography
+            variant="h3"
+            sx={{ fontWeight: 800, letterSpacing: "-0.04em" }}
+          >
             Find Service Providers
           </Typography>
-          <Typography sx={{ mt: 1.5, maxWidth: 780, fontSize: { xs: "1rem", md: "1.08rem" }, color: alpha("#ffffff", 0.88) }}>
-            Explore real providers, compare ratings and pricing, and jump straight into booking with a more responsive search experience.
+          <Typography
+            sx={{
+              mt: 1.5,
+              maxWidth: 780,
+              fontSize: { xs: "1rem", md: "1.08rem" },
+              color: alpha("#ffffff", 0.88),
+            }}
+          >
+            Explore real providers, compare ratings and pricing, and jump
+            straight into booking with a more responsive search experience.
           </Typography>
 
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mt: 4 }}>
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={2}
+            sx={{ mt: 4 }}
+          >
             {summaryCards.map((card) => (
               <Box
                 key={card.label}
@@ -328,13 +377,23 @@ const ProvidersList = () => {
                   borderColor: alpha("#ffffff", 0.12),
                 }}
               >
-                <Typography variant="overline" sx={{ display: "block", color: alpha("#ffffff", 0.74), letterSpacing: "0.12em" }}>
+                <Typography
+                  variant="overline"
+                  sx={{
+                    display: "block",
+                    color: alpha("#ffffff", 0.74),
+                    letterSpacing: "0.12em",
+                  }}
+                >
                   {card.label}
                 </Typography>
                 <Typography variant="h5" sx={{ fontWeight: 800 }}>
                   {card.value}
                 </Typography>
-                <Typography variant="body2" sx={{ color: alpha("#ffffff", 0.76), mt: 0.5 }}>
+                <Typography
+                  variant="body2"
+                  sx={{ color: alpha("#ffffff", 0.76), mt: 0.5 }}
+                >
                   {card.helper}
                 </Typography>
               </Box>
@@ -447,7 +506,11 @@ const ProvidersList = () => {
           <Stack
             direction={{ xs: "column", lg: "row" }}
             spacing={2}
-            sx={{ mt: 2.25, alignItems: { xs: "stretch", lg: "center" }, justifyContent: "space-between" }}
+            sx={{
+              mt: 2.25,
+              alignItems: { xs: "stretch", lg: "center" },
+              justifyContent: "space-between",
+            }}
           >
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {serviceTypes.slice(1, 8).map((type) => {
@@ -477,7 +540,9 @@ const ProvidersList = () => {
                   value={sortBy}
                   label="Sort by"
                   onChange={(event) => setSortBy(event.target.value)}
-                  startAdornment={<SortRoundedIcon sx={{ mr: 1, color: "text.secondary" }} />}
+                  startAdornment={
+                    <SortRoundedIcon sx={{ mr: 1, color: "text.secondary" }} />
+                  }
                 >
                   <MenuItem value="recommended">Recommended</MenuItem>
                   <MenuItem value="rating">Top rated</MenuItem>
@@ -509,7 +574,11 @@ const ProvidersList = () => {
           <Grid container spacing={3}>
             {Array.from(new Array(6)).map((_, index) => (
               <Grid key={index} size={{ xs: 12, sm: 6, xl: 4 }}>
-                <Skeleton variant="rectangular" height={380} sx={{ borderRadius: 5 }} />
+                <Skeleton
+                  variant="rectangular"
+                  height={380}
+                  sx={{ borderRadius: 5 }}
+                />
               </Grid>
             ))}
           </Grid>
@@ -529,9 +598,14 @@ const ProvidersList = () => {
               No providers found
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>
-              Try another service type, broaden the location, or clear your current filters.
+              Try another service type, broaden the location, or clear your
+              current filters.
             </Typography>
-            <Button variant="contained" onClick={handleResetFilters} sx={{ borderRadius: 999, fontWeight: 700 }}>
+            <Button
+              variant="contained"
+              onClick={handleResetFilters}
+              sx={{ borderRadius: 999, fontWeight: 700 }}
+            >
               Reset Search
             </Button>
           </Paper>
@@ -540,11 +614,20 @@ const ProvidersList = () => {
             <Stack
               direction={{ xs: "column", md: "row" }}
               spacing={1.5}
-              sx={{ mb: 2.5, alignItems: { xs: "flex-start", md: "center" }, justifyContent: "space-between" }}
+              sx={{
+                mb: 2.5,
+                alignItems: { xs: "flex-start", md: "center" },
+                justifyContent: "space-between",
+              }}
             >
               <Box>
-                <Typography variant="h5" sx={{ fontWeight: 800, color: "#0f172a" }}>
-                  {totalResults || displayedProviders.length} provider{(totalResults || displayedProviders.length) === 1 ? "" : "s"} found
+                <Typography
+                  variant="h5"
+                  sx={{ fontWeight: 800, color: "#0f172a" }}
+                >
+                  {totalResults || displayedProviders.length} provider
+                  {(totalResults || displayedProviders.length) === 1 ? "" : "s"}{" "}
+                  found
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {activeFiltersCount

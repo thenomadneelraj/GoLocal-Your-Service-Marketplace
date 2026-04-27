@@ -76,9 +76,9 @@ const bookingSchema = new mongoose.Schema(
     address: {
       type: String,
       trim: true,
-      required: function() {
-        return this.locationType === "offline"; 
-      }
+      required: function () {
+        return this.locationType === "offline";
+      },
     },
     price: {
       type: Number,
@@ -120,15 +120,13 @@ const bookingSchema = new mongoose.Schema(
       },
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-// Indexes for improved query performance
+// Essential indexes only
+bookingSchema.index({ clientId: 1, createdAt: -1 });
+bookingSchema.index({ providerId: 1, createdAt: -1 });
 bookingSchema.index({ status: 1, createdAt: -1 });
-bookingSchema.index({ clientId: 1 });
-bookingSchema.index({ providerId: 1 });
-bookingSchema.index({ serviceId: 1 });
-bookingSchema.index({ paymentStatus: 1 });
 bookingSchema.index({ bookingDate: 1 });
 
 module.exports = mongoose.model("Booking", bookingSchema);

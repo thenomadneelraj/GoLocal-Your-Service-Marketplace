@@ -1,7 +1,7 @@
 require("dotenv").config();
 
 const app = require("./app");
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const connectDB = require("./config/db");
 const { ensureSingleAdmin } = require("./services/adminBootstrapService");
 const {
@@ -11,10 +11,18 @@ const { ensureVerificationUploadDir } = require("./utils/verificationFiles");
 
 const startServer = async () => {
   try {
-    await connectDB();
-    await ensureSingleAdmin();
+    // Try to connect to DB but don't fail if it's not available
+    try {
+      await connectDB();
+      await ensureSingleAdmin();
+      await backfillClientApprovalStatus();
+    } catch (dbError) {
+      console.warn(
+        `⚠️ Database connection failed, starting server without DB: ${dbError.message}`,
+      );
+    }
+
     ensureVerificationUploadDir();
-    await backfillClientApprovalStatus();
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
