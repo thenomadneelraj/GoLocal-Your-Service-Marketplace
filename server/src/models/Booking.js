@@ -55,6 +55,33 @@ const bookingSchema = new mongoose.Schema(
         },
       },
     ],
+    services: [
+      {
+        title: {
+          type: String,
+          trim: true,
+          default: "",
+        },
+        price: {
+          type: Number,
+          min: 0,
+          default: 0,
+        },
+      },
+    ],
+    totalAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    date: {
+      type: Date,
+    },
+    time: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     bookingDate: {
       type: Date,
       required: true,
@@ -101,6 +128,11 @@ const bookingSchema = new mongoose.Schema(
       enum: ["upi", "cod"],
       default: "upi",
     },
+    transactionId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     review: {
       rating: {
         type: Number,
@@ -122,6 +154,27 @@ const bookingSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+bookingSchema.pre("validate", function syncContractAliases() {
+  if (!this.services?.length && this.selectedServices?.length) {
+    this.services = this.selectedServices.map((service) => ({
+      title: service.title,
+      price: service.price,
+    }));
+  }
+
+  if (!this.totalAmount) {
+    this.totalAmount = this.price || 0;
+  }
+
+  if (!this.date && this.bookingDate) {
+    this.date = this.bookingDate;
+  }
+
+  if (!this.time && this.timeSlot) {
+    this.time = this.timeSlot;
+  }
+});
 
 // Essential indexes only
 bookingSchema.index({ clientId: 1, createdAt: -1 });

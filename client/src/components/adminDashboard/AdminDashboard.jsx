@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  DollarSign,
-  LineChart as LineChartIcon,
-  ReceiptText,
-  UserRoundCog,
+  BriefcaseBusiness,
+  CreditCard,
+  Eye,
   Users,
+  UserRound,
 } from "lucide-react";
+
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
   Cell,
-  Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -19,229 +19,498 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAdminDashboard } from "@/lib/cachedAdminApi";
+
+import {
+  fetchAdminDashboard,
+  fetchAdminUsers,
+} from "@/lib/cachedAdminApi";
+
+import {
+  mockAdminDashboard,
+  mockAdminUsers,
+} from "@/lib/mockWorkspaceData";
+
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+
 import {
   AdminEmptyState,
   AdminLoadingState,
   AdminPageShell,
-  AdminPanel,
-  AdminStatCard,
   formatAdminCurrency,
 } from "./AdminWorkspaceCommon";
-import DataOriginBadge from "@/components/shared/DataOriginBadge";
-import { mockAdminDashboard } from "@/lib/mockWorkspaceData";
 
-const CATEGORY_COLORS = ["#f59e0b", "#f97316", "#fbbf24", "#fed7aa", "#fb923c"];
+import { useAuth } from "@/components/contexts/AuthContext";
+import { useSocketEvent } from "@/components/contexts/WebSocketContext";
+
+const CATEGORY_COLORS = [
+  "#2fb8ff",
+  "#31d279",
+  "#ffbf1f",
+  "#ff4f7b",
+  "#7c6dff",
+];
+
+const ACTIVITY_DOTS = ["bg-sky-400", "bg-emerald-400", "bg-indigo-400", "bg-rose-400"];
+
+const formatCompactCurrency = (value = 0, currency = "INR") => {
+  const amount = Number(value || 0);
+
+  if (currency === "INR" && amount >= 100000) {
+    return `INR ${(amount / 100000).toFixed(2)}L`;
+  }
+
+  if (amount >= 1000000) {
+    return formatAdminCurrency(amount / 1000000, currency).replace(/\.00$/, "") + "M";
+  }
+
+  return formatAdminCurrency(amount, currency).replace(/\.00$/, "");
+};
+
+function DashboardCard({ title, value, change, icon, tone = "text-primary" }) {
+  return (
+    <article className="rounded-lg border border-border/80 bg-card/70 p-4 shadow-[0_18px_48px_-36px_rgb(0_0_0/0.65)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">{title}</p>
+          <p className="mt-3 text-2xl font-bold tracking-tight text-foreground">
+            {value}
+          </p>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            <span className="font-semibold text-emerald-400">{change}</span>{" "}
+            vs today
+          </p>
+        </div>
+        <span className={`grid h-10 w-10 place-items-center rounded-full bg-muted/40 ${tone}`}>
+          {createElement(icon, { size: 18 })}
+        </span>
+      </div>
+    </article>
+  );
+}
 
 export default function AdminDashboard() {
+  const { user } = useAuth();
   const [data, setData] = useState(null);
+  const [usersPayload, setUsersPayload] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        setLoading(true);
-        const result = await fetchAdminDashboard();
-        // Handle both cached and non-cached responses
-        setData(result.data?.data || result.data || null);
-      } finally {
-        setLoading(false);
-      }
-    };
+  /**
+   * Load dashboard analytics
+   */
+  const loadDashboard = useCallback(async () => {
+    try {
+      setLoading(true);
 
-    loadDashboard();
+      const result = await fetchAdminDashboard();
+
+      setData(result?.data?.data || result?.data || null);
+    } catch (error) {
+      console.error("Failed to load dashboard:", error);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const summary = data?.summary || {};
-  const charts = data?.charts || {};
-  const hasGrowthData = (charts.growth || []).some(
+  /**
+   * Load users
+   */
+  const loadUsers = useCallback(async () => {
+    try {
+      const response = await fetchAdminUsers({}, true);
+
+      setUsersPayload(response?.data?.data || null);
+    } catch (error) {
+      console.error("Failed to load users for dashboard:", error);
+    }
+  }, []);
+
+  /**
+   * Initial load
+   */
+  useEffect(() => {
+    loadDashboard();
+    loadUsers();
+  }, [loadDashboard, loadUsers]);
+
+  /**
+   * Socket realtime updates
+   * IMPORTANT:
+   * Hooks MUST NOT be below conditional returns
+   */
+  useSocketEvent("user_updated", loadUsers);
+  useSocketEvent("user_status_updated", loadUsers);
+
+  /**
+   * Safe fallback values
+   */
+  const summary = useMemo(() => data?.summary || {}, [data]);
+  const charts = useMemo(() => data?.charts || {}, [data]);
+
+  const currency = data?.meta?.currency || mockAdminDashboard?.meta?.currency || "INR";
+
+  /**
+   * Merge real + mock users
+   */
+  const items = useMemo(() => usersPayload?.items || [], [usersPayload]);
+
+  const layeredItems = useMemo(() => {
+    return mergeLayeredCollections(items, mockAdminUsers, {
+      getId: (user) => user.id || user._id,
+    });
+  }, [items]);
+
+  /**
+   * Dashboard summary calculations
+   */
+  const mockSummaryUsers = useMemo(
+    () => ({
+      totalUsers: mockAdminUsers.length,
+      pendingApproval: mockAdminUsers.filter(
+        (user) => user.approvalStatus === "pending",
+      ).length,
+      approved: mockAdminUsers.filter(
+        (user) => user.approvalStatus === "approved",
+      ).length,
+      rejected: mockAdminUsers.filter(
+        (user) => user.approvalStatus === "rejected",
+      ).length,
+      suspended: mockAdminUsers.filter(
+        (user) => user.status === "suspended",
+      ).length,
+    }),
+    [],
+  );
+
+  const layeredSummaryUsers = useMemo(() => {
+    const realItems = layeredItems.filter(
+      (item) => item.dataOrigin !== "mock",
+    );
+
+    const mockItemsOnly = layeredItems.filter(
+      (item) => item.dataOrigin === "mock",
+    );
+
+    if (realItems.length > 0) {
+      return {
+        totalUsers: realItems.length + mockItemsOnly.length,
+
+        pendingApproval: realItems.filter(
+          (item) => item.approvalStatus === "pending",
+        ).length,
+
+        approved: realItems.filter(
+          (item) => item.approvalStatus === "approved",
+        ).length,
+
+        rejected: realItems.filter(
+          (item) => item.approvalStatus === "rejected",
+        ).length,
+
+        suspended: realItems.filter(
+          (item) => item.status === "suspended",
+        ).length,
+      };
+    }
+
+    return mockSummaryUsers;
+  }, [layeredItems, mockSummaryUsers]);
+
+  const resolvedSummary = useMemo(
+    () => ({
+      ...summary,
+
+      totalUsers:
+        layeredSummaryUsers.totalUsers ?? summary.totalUsers ?? 0,
+
+      pendingProviders:
+        layeredSummaryUsers.pendingApproval ??
+        summary.pendingProviders ??
+        0,
+    }),
+    [summary, layeredSummaryUsers],
+  );
+
+  const providerCount = useMemo(
+    () => layeredItems.filter((item) => item.role === "provider").length,
+    [layeredItems],
+  );
+
+  const clientCount = useMemo(
+    () => layeredItems.filter((item) => item.role === "client").length,
+    [layeredItems],
+  );
+
+  /**
+   * Category chart data
+   */
+  const categoryData = useMemo(() => {
+    return (charts?.categoryDistribution || []).filter(
+      (item) => item?.value > 0,
+    );
+  }, [charts]);
+
+  /**
+   * Growth chart fallback
+   */
+  const hasGrowthData = (charts?.growth || []).some(
     (entry) =>
       Number(entry?.users || 0) > 0 ||
       Number(entry?.revenue || 0) > 0 ||
-      Number(entry?.bookings || 0) > 0
-  );
-  const hasSummaryData =
-    (summary.totalUsers || 0) > 0 ||
-    (summary.pendingProviders || 0) > 0 ||
-    (summary.revenue || 0) > 0 ||
-    (summary.bookingsTracked || 0) > 0;
-  const resolvedSummary = hasSummaryData ? summary : mockAdminDashboard.summary;
-  const resolvedCharts = hasGrowthData ? charts : mockAdminDashboard.charts;
-  const currency = data?.meta?.currency || mockAdminDashboard.meta.currency || "USD";
-
-  const categoryData = useMemo(
-    () => (resolvedCharts.categoryDistribution || []).filter((item) => item.value > 0),
-    [resolvedCharts.categoryDistribution]
+      Number(entry?.bookings || 0) > 0,
   );
 
+  const resolvedCharts = hasGrowthData
+    ? charts
+    : mockAdminDashboard.charts;
+
+  const platformOverviewData = useMemo(
+    () =>
+      (resolvedCharts.growth || []).map((entry) => ({
+        month: entry.month,
+        users: Number(entry.users || 0),
+        revenue: Number(entry.revenue || 0),
+        bookings: Number(entry.bookings || 0),
+      })),
+    [resolvedCharts],
+  );
+
+  const recentActivity = useMemo(() => {
+    const recentUsers = layeredItems.slice(0, 2).map((item) => ({
+      label:
+        item.role === "provider"
+          ? "New provider registered"
+          : "New client registered",
+      time: item.joinedLabel || "2 min ago",
+    }));
+
+    return [
+      ...recentUsers,
+      {
+        label: `New booking: ${resolvedSummary.bookingsTracked || 0} tracked`,
+        time: "1 hour ago",
+      },
+      {
+        label: `Disputes open: ${resolvedSummary.openDisputes || 0}`,
+        time: "2 hours ago",
+      },
+    ].slice(0, 4);
+  }, [layeredItems, resolvedSummary.bookingsTracked, resolvedSummary.openDisputes]);
+
+  /**
+   * Loading state
+   */
   if (loading) {
     return <AdminLoadingState label="Loading dashboard workspace..." />;
   }
 
+  /**
+   * Empty state
+   */
   if (!data) {
-    return <AdminEmptyState title="Dashboard unavailable" description="Admin analytics could not be loaded right now." />;
+    return (
+      <AdminEmptyState
+        title="Dashboard unavailable"
+        description="Admin analytics could not be loaded right now."
+      />
+    );
   }
 
   return (
     <AdminPageShell
-      title="Dashboard"
-      description="Platform control across users, provider approvals, bookings, revenue, disputes, and operational alerts."
-      actions={<DataOriginBadge origin={hasSummaryData ? "real" : "mock"} liveLabel="Live first" sampleLabel="Sample fallback" />}
+      title={
+        <>
+          Good Evening,{" "}
+          <span className="text-primary">{user?.name || "Admin"}</span>
+        </>
+      }
+      description="Here's what's happening on your platform today."
     >
+      <div className="border-y border-border/80 py-4">
+        <div className="flex flex-wrap gap-6 text-xs font-semibold">
+          {["Overview", "User Management", "Analytics & Reports"].map((tab, index) => (
+            <button
+              key={tab}
+              type="button"
+              className={`border-b py-2 transition-colors ${
+                index === 0
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AdminStatCard
-          icon={Users}
-          title="Total users"
+        <DashboardCard
+          title="Total Users"
           value={resolvedSummary.totalUsers ?? 0}
-          subtitle="Active accounts across admin, client, and provider roles."
+          change="+3.4%"
+          icon={Users}
+          tone="text-indigo-400"
         />
-        <AdminStatCard
-          icon={UserRoundCog}
-          title="Providers pending review"
-          value={resolvedSummary.pendingProviders ?? 0}
-          subtitle="Accounts still waiting for approval and verification."
-          tone="text-blue-600"
+        <DashboardCard
+          title="Providers"
+          value={providerCount || resolvedSummary.pendingProviders || 0}
+          change="+12%"
+          icon={BriefcaseBusiness}
+          tone="text-emerald-400"
         />
-        <AdminStatCard
-          icon={DollarSign}
-          title="Platform revenue"
-          value={formatAdminCurrency(resolvedSummary.revenue ?? 0, currency)}
-          subtitle="Recognized from successful transactions."
-          tone="text-emerald-600"
+        <DashboardCard
+          title="Clients"
+          value={clientCount || 0}
+          change="+5%"
+          icon={UserRound}
+          tone="text-sky-400"
         />
-        <AdminStatCard
-          icon={ReceiptText}
-          title="Bookings tracked"
-          value={resolvedSummary.bookingsTracked ?? 0}
-          subtitle={`${resolvedSummary.openDisputes ?? 0} open disputes being monitored.`}
-          tone="text-violet-600"
+        <DashboardCard
+          title="Revenue"
+          value={formatCompactCurrency(resolvedSummary.revenue ?? 0, currency)}
+          change="+12%"
+          icon={CreditCard}
+          tone="text-primary"
         />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.65fr_1fr]">
-        <AdminPanel
-          title="User Growth"
-          description="Clients and providers joining the platform over the last six months."
-        >
-          <div className="h-[290px]">
+      <div className="grid gap-5 xl:grid-cols-[1.7fr_0.9fr]">
+        <section className="rounded-lg border border-border/80 bg-card/70 p-4">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-foreground">Platform Overview</h2>
+            <Eye size={16} className="text-muted-foreground" />
+          </div>
+          <div className="h-[330px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={resolvedCharts.growth || []}>
-                <defs>
-                  <linearGradient id="dashboardUsers" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.38} />
-                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="dashboardBookings" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="#fb923c" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#fb923c" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.24)" vertical={false} />
-                <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
-                <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+              <LineChart data={platformOverviewData}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="hsl(var(--border) / 0.45)"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="month"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                />
+                <YAxis
+                  yAxisId="left"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                />
                 <Tooltip
                   contentStyle={{
-                    borderRadius: "1rem",
-                    border: "1px solid rgba(226, 232, 240, 0.8)",
-                    boxShadow: "0 20px 45px -30px rgba(15, 23, 42, 0.35)",
+                    background: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: 8,
+                    color: "hsl(var(--popover-foreground))",
                   }}
                 />
-                <Legend />
-                <Area type="monotone" dataKey="users" stroke="#f59e0b" fill="url(#dashboardUsers)" strokeWidth={2.5} name="Users" />
-                <Area type="monotone" dataKey="bookings" stroke="#fb923c" fill="url(#dashboardBookings)" strokeWidth={2.1} name="Bookings" />
-              </AreaChart>
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="users"
+                  stroke="#2fb8ff"
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: "#2fb8ff", stroke: "hsl(var(--background))", strokeWidth: 2 }}
+                  activeDot={{ r: 6 }}
+                  name="Users"
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#ffbf1f"
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: "#ffbf1f", stroke: "hsl(var(--background))", strokeWidth: 2 }}
+                  activeDot={{ r: 6 }}
+                  name="Revenue"
+                />
+              </LineChart>
             </ResponsiveContainer>
           </div>
-        </AdminPanel>
+        </section>
 
-        <AdminPanel
-          title="Category Distribution"
-          description="High-level service mix by category."
-        >
-          <div className="h-[290px]">
-            {categoryData.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Tooltip />
-                  <Pie
-                    data={categoryData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="45%"
-                    innerRadius={58}
-                    outerRadius={92}
-                    paddingAngle={4}
-                  >
-                    {categoryData.map((entry, index) => (
-                      <Cell key={entry.name} fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Legend verticalAlign="bottom" height={36} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <AdminEmptyState
-                title="No category data yet"
-                description="Service categories will appear here when providers add live services."
-              />
-            )}
-          </div>
-        </AdminPanel>
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <AdminPanel
-          title="Revenue Growth"
-          description="Revenue recognized from successful transaction history."
-        >
-          <div className="space-y-3">
-            {(resolvedCharts.growth || []).map((entry) => (
-              <div
-                key={`${entry.month}-revenue`}
-                className="admin-card-soft flex items-center justify-between gap-3"
-              >
-                <div>
-                  <p className="text-sm font-semibold text-foreground">{entry.month}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Successful transaction revenue recognized this month.
+        <div className="space-y-5">
+          <section className="rounded-lg border border-border/80 bg-card/70 p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-foreground">Recent Activity</h2>
+              <button type="button" className="text-[10px] font-semibold text-primary">
+                View All
+              </button>
+            </div>
+            <div className="space-y-4">
+              {recentActivity.map((activity, index) => (
+                <div key={`${activity.label}-${index}`} className="flex items-center gap-3">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${ACTIVITY_DOTS[index % ACTIVITY_DOTS.length]}`} />
+                  <p className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                    {activity.label}
                   </p>
-                </div>
-                <p className="text-sm font-semibold text-foreground">
-                  {formatAdminCurrency(entry.revenue || 0, currency)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </AdminPanel>
-
-        <AdminPanel
-          title="Booking Trends"
-          description="Recent booking volume tracked from the live backend workspace."
-        >
-          <div className="space-y-3">
-            {(resolvedCharts.growth || []).map((entry) => (
-              <div
-                key={`${entry.month}-bookings`}
-                className="admin-card-soft flex items-center justify-between gap-3"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="admin-icon-wrap text-orange-500">
-                    <LineChartIcon size={16} />
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {activity.time}
                   </span>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{entry.month}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Bookings created during this reporting window.
-                    </p>
-                  </div>
                 </div>
-                <p className="text-sm font-semibold text-foreground">{entry.bookings || 0}</p>
-              </div>
-            ))}
-          </div>
-        </AdminPanel>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-border/80 bg-card/70 p-4">
+            <h2 className="text-sm font-bold text-foreground">Bookings by Category</h2>
+            <div className="mt-4 h-[220px]">
+              {categoryData.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--popover))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 8,
+                      }}
+                    />
+                    <Pie
+                      data={categoryData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="48%"
+                      innerRadius={58}
+                      outerRadius={82}
+                      paddingAngle={4}
+                    >
+                      {categoryData.map((entry, index) => (
+                        <Cell
+                          key={entry.name}
+                          fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <AdminEmptyState
+                  title="No category data yet"
+                  description="Categories appear when providers add services."
+                />
+              )}
+            </div>
+          </section>
+        </div>
       </div>
     </AdminPageShell>
   );
 }
+
+
+
+
+

@@ -25,22 +25,26 @@ const STATUS_META = {
   not_submitted: {
     label: "Not submitted",
     accent: "bg-muted/30 border-border/40 text-muted-foreground",
-    description: "Upload all required verification documents to start the review.",
+    description:
+      "Upload all required verification documents to start the review.",
   },
   under_review: {
     label: "Under review",
     accent: "bg-amber-500/10 border-amber-500/20 text-amber-700",
-    description: "Your documents were submitted and are waiting for admin review.",
+    description:
+      "Your documents were submitted and are waiting for admin review.",
   },
   verified: {
     label: "Verified",
     accent: "bg-emerald-500/10 border-emerald-500/20 text-emerald-700",
-    description: "Your verification has been approved and the trust badge is active.",
+    description:
+      "Your verification has been approved and the trust badge is active.",
   },
   rejected: {
     label: "Rejected",
     accent: "bg-rose-500/10 border-rose-500/20 text-rose-700",
-    description: "Admin rejected the previous submission. Re-upload your documents to try again.",
+    description:
+      "Admin rejected the previous submission. Re-upload your documents to try again.",
   },
 };
 
@@ -66,13 +70,7 @@ const formatDateTime = (value) => {
   });
 };
 
-function UploadTile({
-  documentConfig,
-  file,
-  onRemove,
-  onPick,
-  inputRef,
-}) {
+function UploadTile({ documentConfig, file, onRemove, onPick, inputRef }) {
   const Icon = documentConfig.icon || FileText;
 
   return (
@@ -98,8 +96,12 @@ function UploadTile({
             <CheckCircle2 size={34} />
           </div>
           <div>
-            <p className="text-sm font-semibold text-foreground">{documentConfig.label}</p>
-            <p className="mt-1 truncate text-xs text-muted-foreground">{file.name}</p>
+            <p className="text-sm font-semibold text-foreground">
+              {documentConfig.label}
+            </p>
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {file.name}
+            </p>
             <p className="mt-1 text-[11px] font-medium text-emerald-700">
               {formatFileSize(file.size)}
             </p>
@@ -121,7 +123,9 @@ function UploadTile({
             <Icon size={34} />
           </div>
           <div>
-            <p className="text-sm font-semibold text-foreground">{documentConfig.label}</p>
+            <p className="text-sm font-semibold text-foreground">
+              {documentConfig.label}
+            </p>
             <p className="mt-2 text-xs leading-6 text-muted-foreground">
               {documentConfig.description}
             </p>
@@ -155,10 +159,12 @@ export default function VerificationWorkspace({
   const loadVerification = async () => {
     try {
       setLoading(true);
-      const response = await api.get("/api/auth/verification");
+      const response = await api.get("/auth/verification");
       setPayload(response.data?.data || null);
     } catch (error) {
-      toast.error(error.response?.data?.message || "Could not load verification status.");
+      toast.error(
+        error.response?.data?.message || "Could not load verification status.",
+      );
     } finally {
       setLoading(false);
     }
@@ -185,13 +191,15 @@ export default function VerificationWorkspace({
     };
   }, [refreshProfile, user?.id, user?.role]);
 
-  const status = payload?.verificationStatus || (user?.isVerified ? "verified" : "not_submitted");
+  const status =
+    payload?.verificationStatus ||
+    (user?.isVerified ? "verified" : "not_submitted");
   const statusMeta = STATUS_META[status] || STATUS_META.not_submitted;
   const storedDocuments = payload?.documents || [];
 
   const uploadedKinds = useMemo(
     () => new Set(Object.keys(files).filter((key) => files[key])),
-    [files]
+    [files],
   );
 
   const requiredCount = requiredDocuments.length;
@@ -226,7 +234,9 @@ export default function VerificationWorkspace({
   };
 
   const submitVerification = async () => {
-    const missing = requiredDocuments.filter((documentConfig) => !files[documentConfig.kind]);
+    const missing = requiredDocuments.filter(
+      (documentConfig) => !files[documentConfig.kind],
+    );
 
     if (missing.length) {
       toast.error("Missing required documents", {
@@ -242,7 +252,7 @@ export default function VerificationWorkspace({
         formData.append(documentConfig.kind, files[documentConfig.kind]);
       });
 
-      await api.post("/api/auth/verification", formData, {
+      await api.post("/auth/verification", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
@@ -252,7 +262,9 @@ export default function VerificationWorkspace({
       await loadVerification();
       toast.success("Verification submitted successfully.");
     } catch (error) {
-      toast.error(error.response?.data?.message || "Could not submit verification.");
+      toast.error(
+        error.response?.data?.message || "Could not submit verification.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -287,7 +299,9 @@ export default function VerificationWorkspace({
             </p>
           </div>
 
-          <div className={`rounded-[1.5rem] border px-6 py-4 ${statusMeta.accent}`}>
+          <div
+            className={`rounded-[1.5rem] border px-6 py-4 ${statusMeta.accent}`}
+          >
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">
               Verification status
             </p>
@@ -346,9 +360,12 @@ export default function VerificationWorkspace({
               <AlertCircle size={22} />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Verification needs resubmission</h2>
+              <h2 className="text-lg font-semibold text-foreground">
+                Verification needs resubmission
+              </h2>
               <p className="mt-2 text-sm leading-7 text-muted-foreground">
-                {payload?.rejectionReason || "Admin rejected the previous document set. Upload clearer or corrected files and submit again."}
+                {payload?.rejectionReason ||
+                  "Admin rejected the previous document set. Upload clearer or corrected files and submit again."}
               </p>
             </div>
           </div>
@@ -364,7 +381,8 @@ export default function VerificationWorkspace({
                   Required documents
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Submit all required files to send your verification packet for review.
+                  Submit all required files to send your verification packet for
+                  review.
                 </p>
               </div>
               <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-semibold text-primary">
@@ -394,7 +412,11 @@ export default function VerificationWorkspace({
             <div className="mt-8">
               <Button
                 onClick={submitVerification}
-                disabled={submitting || status === "under_review" || status === "verified"}
+                disabled={
+                  submitting ||
+                  status === "under_review" ||
+                  status === "verified"
+                }
                 className="h-14 rounded-[1.5rem] px-8 text-sm font-semibold"
               >
                 {submitting ? (
@@ -427,7 +449,8 @@ export default function VerificationWorkspace({
                   Submitted documents
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Review the exact files currently stored in your verification packet.
+                  Review the exact files currently stored in your verification
+                  packet.
                 </p>
               </div>
             </div>
@@ -473,7 +496,9 @@ export default function VerificationWorkspace({
                     >
                       <Icon size={18} />
                     </div>
-                    <p className="text-sm font-medium text-foreground">{item.label}</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {item.label}
+                    </p>
                   </div>
                 );
               })}
@@ -491,8 +516,14 @@ export default function VerificationWorkspace({
             </div>
             <ul className="mt-6 space-y-4 text-sm leading-7 text-muted-foreground">
               <li>Upload clear, readable document files with visible edges.</li>
-              <li>Accepted formats are image files and PDF documents up to 5MB each.</li>
-              <li>Admin can approve or reject the packet from the Account Verification workspace.</li>
+              <li>
+                Accepted formats are image files and PDF documents up to 5MB
+                each.
+              </li>
+              <li>
+                Admin can approve or reject the packet from the Account
+                Verification workspace.
+              </li>
               <li>{secureMessage}</li>
             </ul>
           </section>

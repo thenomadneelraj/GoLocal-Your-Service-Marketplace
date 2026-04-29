@@ -132,11 +132,11 @@ export default function SignIn(props) {
         } else {
           // Navigate based on role
           if (payload.role === "admin") {
-            navigate("/admin-dashboard");
+            navigate("/admin");
           } else if (payload.role === "provider") {
             navigate("/provider-dashboard");
           } else {
-            navigate("/");
+            navigate("/dashboard");
           }
         }
       } else {

@@ -116,7 +116,7 @@ export default function MessagesWorkspace() {
     } catch (err) {
       setError(
         err.response?.data?.message ||
-          "Could not load conversations right now."
+          "Could not load conversations right now.",
       );
     } finally {
       setLoadingConversations(false);
@@ -144,7 +144,7 @@ export default function MessagesWorkspace() {
       setError("");
 
       const hasUnreadIncoming = nextMessages.some(
-        (message) => message.direction === "incoming" && !message.read
+        (message) => message.direction === "incoming" && !message.read,
       );
 
       if (hasUnreadIncoming) {
@@ -155,7 +155,7 @@ export default function MessagesWorkspace() {
       setSelectedParticipant(null);
       setMessages([]);
       setError(
-        err.response?.data?.message || "Could not load this conversation."
+        err.response?.data?.message || "Could not load this conversation.",
       );
     } finally {
       if (!options.silent) {
@@ -196,12 +196,7 @@ export default function MessagesWorkspace() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("contact", selectedUserId);
     setSearchParams(nextParams, { replace: true });
-  }, [
-    requestedUserId,
-    searchParams,
-    selectedUserId,
-    setSearchParams,
-  ]);
+  }, [requestedUserId, searchParams, selectedUserId, setSearchParams]);
 
   useEffect(() => {
     if (!selectedUserId || !user?.id) return;
@@ -242,7 +237,9 @@ export default function MessagesWorkspace() {
   }, [messages.length]);
 
   const filteredConversations = useMemo(() => {
-    const query = String(search || "").trim().toLowerCase();
+    const query = String(search || "")
+      .trim()
+      .toLowerCase();
 
     if (!query) {
       return conversations;
@@ -250,14 +247,19 @@ export default function MessagesWorkspace() {
 
     return conversations.filter((conversation) => {
       const participant = conversation.participant || {};
-      return [participant.name, participant.email, participant.serviceType, participant.location]
+      return [
+        participant.name,
+        participant.email,
+        participant.serviceType,
+        participant.location,
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query));
     });
   }, [conversations, search]);
 
   const activeConversation = conversations.find(
-    (conversation) => conversation.participant?.userId === selectedUserId
+    (conversation) => conversation.participant?.userId === selectedUserId,
   );
   const activeParticipant =
     activeConversation?.participant || selectedParticipant || null;
@@ -272,7 +274,7 @@ export default function MessagesWorkspace() {
     try {
       setSending(true);
       setError("");
-      await api.post("/api/messages", {
+      await api.post("/messages", {
         receiverId: selectedUserId,
         content: draft.trim(),
       });
@@ -280,9 +282,7 @@ export default function MessagesWorkspace() {
       await loadConversations(selectedUserId);
       await loadThread(selectedUserId, { silent: true });
     } catch (err) {
-      setError(
-        err.response?.data?.message || "Message could not be sent."
-      );
+      setError(err.response?.data?.message || "Message could not be sent.");
     } finally {
       setSending(false);
     }
@@ -357,8 +357,7 @@ export default function MessagesWorkspace() {
                 {filteredConversations.map((conversation) => {
                   const participant = conversation.participant || {};
                   const isActive =
-                    participant.userId &&
-                    participant.userId === selectedUserId;
+                    participant.userId && participant.userId === selectedUserId;
 
                   return (
                     <button
@@ -397,7 +396,8 @@ export default function MessagesWorkspace() {
                             </div>
                           </div>
                           <p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                            {conversation.lastMessage?.content || "Start the conversation"}
+                            {conversation.lastMessage?.content ||
+                              "Start the conversation"}
                           </p>
                         </div>
                       </div>
@@ -478,7 +478,9 @@ export default function MessagesWorkspace() {
                               : "rounded-bl-md border border-border/60 bg-card text-foreground"
                           }`}
                         >
-                          <p className="whitespace-pre-wrap">{message.content}</p>
+                          <p className="whitespace-pre-wrap">
+                            {message.content}
+                          </p>
                           <div
                             className={`mt-2 text-[11px] ${
                               isOutgoing
@@ -523,7 +525,8 @@ export default function MessagesWorkspace() {
                   />
                   <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/50 pt-3">
                     <p className="text-xs text-muted-foreground">
-                      Messages are saved to the database and synced for both users.
+                      Messages are saved to the database and synced for both
+                      users.
                     </p>
                     <button
                       type="submit"

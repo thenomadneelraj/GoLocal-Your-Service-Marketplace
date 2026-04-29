@@ -1,13 +1,21 @@
 const normalizeUserStatus = (value = "", fallbackIsActive = true) => {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (["active", "suspended", "rejected"].includes(normalized)) {
     return normalized;
   }
   return fallbackIsActive === false ? "suspended" : "active";
 };
 
-const normalizeApprovalStatus = (value = "", role = "", legacyApproved = true) => {
-  const normalized = String(value || "").trim().toLowerCase();
+const normalizeApprovalStatus = (
+  value = "",
+  role = "",
+  legacyApproved = true,
+) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (["pending", "approved", "rejected"].includes(normalized)) {
     return normalized;
   }
@@ -37,7 +45,7 @@ export const getAccountAccessState = (user) => {
   const approvalStatus = normalizeApprovalStatus(
     user?.approvalStatus,
     role,
-    user?.isApproved !== false
+    user?.isApproved !== false,
   );
   const isActive = status === "active";
   const approvalRequired = role === "CLIENT" || role === "PROVIDER";
@@ -99,7 +107,9 @@ export const getAccountAccessState = (user) => {
       canCreateBookings: false,
       canRespondToBookings: false,
       title:
-        role === "PROVIDER" ? "Provider account rejected" : "Client account rejected",
+        role === "PROVIDER"
+          ? "Provider account rejected"
+          : "Client account rejected",
       description:
         role === "PROVIDER"
           ? "Your provider account was rejected by admin. Contact the admin for next steps."
@@ -160,7 +170,7 @@ export const isRestrictedRouteAllowed = (user, pathname = "") => {
   if (normalizedRole === "PROVIDER") {
     return [
       "/provider-dashboard",
-      "/provider/availability",
+      "/provider/workspace",
       "/provider/settings",
       "/provider/profile",
       "/provider/verification",

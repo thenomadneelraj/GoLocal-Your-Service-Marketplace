@@ -38,20 +38,24 @@ export default function BookingPaymentPage() {
         setLoading(true);
         const [bookingResponse, profileResponse] = await Promise.all([
           fetchBookingById(bookingId),
-          api.get("/api/auth/profile"),
+          api.get("/auth/profile"),
         ]);
         if (!mounted) return;
         setBooking(bookingResponse.data?.data?.booking || null);
-        setUserProfile(profileResponse.data?.data?.user || profileResponse.data?.user || null);
-        const platformStatusResponse = await api.get("/api/auth/platform-status");
+        setUserProfile(
+          profileResponse.data?.data?.user ||
+            profileResponse.data?.user ||
+            null,
+        );
+        const platformStatusResponse = await api.get("/auth/platform-status");
         setCommissionPercentage(
-          Number(platformStatusResponse.data?.data?.commissionPercentage || 5)
+          Number(platformStatusResponse.data?.data?.commissionPercentage || 5),
         );
       } catch (nextError) {
         if (!mounted) return;
         setError(
           nextError.response?.data?.message ||
-            "Could not load the payment step for this booking."
+            "Could not load the payment step for this booking.",
         );
       } finally {
         if (mounted) {
@@ -68,9 +72,11 @@ export default function BookingPaymentPage() {
   }, [bookingId]);
 
   const baseAmount = Number(booking?.price || 0);
-  const clientPlatformFee = Math.round((baseAmount * commissionPercentage) * 100) / 100;
+  const clientPlatformFee =
+    Math.round(baseAmount * commissionPercentage * 100) / 100;
   const totalPaid = baseAmount + clientPlatformFee;
-  const providerDeduction = Math.round((baseAmount * commissionPercentage) * 100) / 100;
+  const providerDeduction =
+    Math.round(baseAmount * commissionPercentage * 100) / 100;
   const providerNet = Math.max(0, baseAmount - providerDeduction);
   const generatedUpiId = useMemo(() => {
     const phone = String(userProfile?.phone || "").replace(/\D/g, "");
@@ -96,7 +102,9 @@ export default function BookingPaymentPage() {
     }
 
     if (paymentMethod === "upi" && !generatedUpiId) {
-      toast.error("Add your bank name and phone number in personal information before paying with UPI.");
+      toast.error(
+        "Add your bank name and phone number in personal information before paying with UPI.",
+      );
       navigate("/settings");
       return;
     }
@@ -107,13 +115,12 @@ export default function BookingPaymentPage() {
       toast.success(
         paymentMethod === "upi"
           ? "Payment confirmed and booking sent to the provider."
-          : "Cash on delivery selected and booking sent to the provider."
+          : "Cash on delivery selected and booking sent to the provider.",
       );
       navigate("/client/payments");
     } catch (nextError) {
       const message =
-        nextError.response?.data?.message ||
-        "Could not confirm this payment.";
+        nextError.response?.data?.message || "Could not confirm this payment.";
       setError(message);
       toast.error(message);
     } finally {
@@ -143,7 +150,8 @@ export default function BookingPaymentPage() {
     <section className="rounded-[2rem] border border-border/70 bg-card/92 p-8 shadow-[0_28px_80px_-48px_rgba(15,23,42,0.58)]">
       <h1 className="mb-2 text-3xl font-semibold text-foreground">Payment</h1>
       <p className="mb-6 text-sm text-muted-foreground">
-        Complete the transaction before the booking request reaches the provider.
+        Complete the transaction before the booking request reaches the
+        provider.
       </p>
 
       <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
@@ -151,15 +159,30 @@ export default function BookingPaymentPage() {
           <div className="rounded-[1.5rem] border border-border/70 bg-muted/25 p-5">
             <h2 className="text-lg font-semibold text-foreground">Booking</h2>
             <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-              <p><span className="font-medium text-foreground">Provider:</span> {booking.providerId?.name || "Provider"}</p>
-              <p><span className="font-medium text-foreground">Works:</span> {servicesLabel}</p>
-              <p><span className="font-medium text-foreground">Schedule:</span> {new Date(booking.bookingDate).toLocaleDateString("en-IN")} at {booking.timeSlot}</p>
-              <p><span className="font-medium text-foreground">Address:</span> {booking.address}</p>
+              <p>
+                <span className="font-medium text-foreground">Provider:</span>{" "}
+                {booking.providerId?.name || "Provider"}
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Works:</span>{" "}
+                {servicesLabel}
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Schedule:</span>{" "}
+                {new Date(booking.bookingDate).toLocaleDateString("en-IN")} at{" "}
+                {booking.timeSlot}
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Address:</span>{" "}
+                {booking.address}
+              </p>
             </div>
           </div>
 
           <div className="rounded-[1.5rem] border border-border/70 bg-muted/25 p-5">
-            <h2 className="text-lg font-semibold text-foreground">Choose payment method</h2>
+            <h2 className="text-lg font-semibold text-foreground">
+              Choose payment method
+            </h2>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {[
                 { id: "upi", label: "UPI" },
@@ -181,22 +204,51 @@ export default function BookingPaymentPage() {
             </div>
 
             <div className="mt-4 rounded-xl border border-border/60 bg-card px-4 py-3 text-sm text-muted-foreground">
-              <p><span className="font-medium text-foreground">Bank Name:</span> {userProfile?.bankName || "Not added yet"}</p>
-              <p className="mt-1"><span className="font-medium text-foreground">Generated UPI ID:</span> {generatedUpiId || "Add phone and bank name in personal information"}</p>
+              <p>
+                <span className="font-medium text-foreground">Bank Name:</span>{" "}
+                {userProfile?.bankName || "Not added yet"}
+              </p>
+              <p className="mt-1">
+                <span className="font-medium text-foreground">
+                  Generated UPI ID:
+                </span>{" "}
+                {generatedUpiId ||
+                  "Add phone and bank name in personal information"}
+              </p>
             </div>
           </div>
         </div>
 
         <div className="rounded-[1.5rem] border border-border/70 bg-muted/20 p-5">
-          <h2 className="text-lg font-semibold text-foreground">Transaction summary</h2>
+          <h2 className="text-lg font-semibold text-foreground">
+            Transaction summary
+          </h2>
           <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-            <p><span className="font-medium text-foreground">Base amount:</span> {formatCurrency(baseAmount)}</p>
-            <p><span className="font-medium text-foreground">Platform fee ({commissionPercentage}%):</span> {formatCurrency(clientPlatformFee)}</p>
+            <p>
+              <span className="font-medium text-foreground">Base amount:</span>{" "}
+              {formatCurrency(baseAmount)}
+            </p>
+            <p>
+              <span className="font-medium text-foreground">
+                Platform fee ({commissionPercentage}%):
+              </span>{" "}
+              {formatCurrency(clientPlatformFee)}
+            </p>
             <p className="border-t border-border/60 pt-3 text-base font-semibold text-foreground">
               Total to pay: {formatCurrency(totalPaid)}
             </p>
-            <p><span className="font-medium text-foreground">Provider deduction ({commissionPercentage}%):</span> {formatCurrency(providerDeduction)}</p>
-            <p><span className="font-medium text-foreground">Provider receives:</span> {formatCurrency(providerNet)}</p>
+            <p>
+              <span className="font-medium text-foreground">
+                Provider deduction ({commissionPercentage}%):
+              </span>{" "}
+              {formatCurrency(providerDeduction)}
+            </p>
+            <p>
+              <span className="font-medium text-foreground">
+                Provider receives:
+              </span>{" "}
+              {formatCurrency(providerNet)}
+            </p>
           </div>
 
           {error ? (
@@ -207,7 +259,9 @@ export default function BookingPaymentPage() {
 
           {!clientAccess.canCreateBookings ? (
             <p className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-              <span className="font-semibold">{clientAccess.title || "Account approval pending."}</span>{" "}
+              <span className="font-semibold">
+                {clientAccess.title || "Account approval pending."}
+              </span>{" "}
               {clientAccess.description}
             </p>
           ) : null}
@@ -216,8 +270,15 @@ export default function BookingPaymentPage() {
             <Button variant="outline" asChild>
               <Link to="/client/payments">Cancel</Link>
             </Button>
-            <Button onClick={handlePay} disabled={submitting || !clientAccess.canCreateBookings}>
-              {submitting ? "Processing..." : paymentMethod === "upi" ? `Pay ${formatCurrency(totalPaid)}` : "Confirm COD Booking"}
+            <Button
+              onClick={handlePay}
+              disabled={submitting || !clientAccess.canCreateBookings}
+            >
+              {submitting
+                ? "Processing..."
+                : paymentMethod === "upi"
+                  ? `Pay ${formatCurrency(totalPaid)}`
+                  : "Confirm COD Booking"}
             </Button>
           </div>
         </div>

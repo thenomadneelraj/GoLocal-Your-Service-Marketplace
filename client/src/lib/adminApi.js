@@ -13,89 +13,86 @@ const buildQuery = (params = {}) => {
   return query ? `?${query}` : "";
 };
 
-export const fetchAdminDashboard = () => api.get("/api/admin/dashboard");
+export const fetchAdminDashboard = () => api.get("/admin/dashboard");
 
 export const fetchAdminUsers = (params = {}) =>
-  api.get(`/api/admin/users${buildQuery(params)}`);
+  api.get(`/admin/users${buildQuery(params)}`);
 
 export const updateAdminUserStatus = (id, payload) =>
-  api.patch(`/api/admin/users/${id}/status`, payload);
+  api.patch(`/admin/users/${id}/status`, payload);
 
 export const updateAdminUserVerification = (id, payload) =>
-  api.patch(`/api/admin/users/${id}/verification`, payload);
+  api.patch(`/admin/users/${id}/verification`, payload);
 
 export const fetchAdminVerificationRequests = (params = {}) =>
-  api.get(`/api/admin/verification-requests${buildQuery(params)}`);
+  api.get(`/admin/verification-requests${buildQuery(params)}`);
 
 export const fetchAdminVerificationRequest = (id) =>
-  api.get(`/api/admin/verification-requests/${id}`);
+  api.get(`/admin/verification-requests/${id}`);
 
 export const updateAdminVerificationRequest = (id, payload) =>
-  api.patch(`/api/admin/verification-requests/${id}`, payload);
+  api.patch(`/admin/verification-requests/${id}`, payload);
 
 export const fetchAdminBookings = (params = {}) =>
-  api.get(`/api/admin/bookings${buildQuery(params)}`);
+  api.get(`/admin/bookings${buildQuery(params)}`);
 
 export const fetchAdminBookingsSummary = () =>
-  api.get("/api/admin/bookings/summary");
+  api.get("/admin/bookings/summary");
 
 export const fetchAdminTransactions = (params = {}) =>
-  api.get(`/api/admin/transactions${buildQuery(params)}`);
+  api.get(`/admin/transactions${buildQuery(params)}`);
 
 export const fetchAdminTransactionsSummary = () =>
-  api.get("/api/admin/transactions/summary");
+  api.get("/admin/transactions/summary");
 
 export const fetchAdminDisputes = (params = {}) =>
-  api.get(`/api/admin/disputes${buildQuery(params)}`);
+  api.get(`/admin/disputes${buildQuery(params)}`);
 
 export const fetchAdminDisputesSummary = () =>
-  api.get("/api/admin/disputes/summary");
+  api.get("/admin/disputes/summary");
 
 export const updateAdminDisputeStatus = (id, payload) =>
-  api.patch(`/api/admin/disputes/${id}/status`, payload);
+  api.patch(`/admin/disputes/${id}/status`, payload);
 
 export const fetchAdminContactMessages = (params = {}) =>
-  api.get(`/api/admin/contact-messages${buildQuery(params)}`);
+  api.get(`/admin/contact-messages${buildQuery(params)}`);
 
-export const fetchAdminSettings = () => api.get("/api/admin/settings");
+export const fetchAdminSettings = () => api.get("/admin/settings");
 
 export const updateAdminSettings = (payload) =>
-  api.put("/api/admin/settings", payload);
+  api.put("/admin/settings", payload);
 
 export const fetchPlatformSettings = fetchAdminSettings;
 
 export const updatePlatformSettings = updateAdminSettings;
 
-export const fetchPublicSettings = () => api.get("/api/public/settings");
+export const fetchPublicSettings = () => api.get("/public/settings");
 
 export const fetchAdminAdvancedSettings = () =>
-  api.get("/api/admin/settings/advanced");
+  api.get("/admin/settings/advanced");
 
 export const updateAdminAdvancedSettings = (payload) =>
-  api.put("/api/admin/settings/advanced", payload);
+  api.put("/admin/settings/advanced", payload);
 
-export const fetchAdminCacheSettings = () =>
-  api.get("/api/admin/settings/cache");
+export const fetchAdminCacheSettings = () => api.get("/admin/settings/cache");
 
 export const refreshAdminCache = () =>
-  api.post("/api/admin/settings/cache/refresh");
+  api.post("/admin/settings/cache/refresh");
 
-export const clearAdminCache = () =>
-  api.post("/api/admin/settings/cache/clear");
+export const clearAdminCache = () => api.post("/admin/settings/cache/clear");
 
-export const fetchAdminExportSettings = () =>
-  api.get("/api/admin/settings/export");
+export const fetchAdminExportSettings = () => api.get("/admin/settings/export");
 
 export const downloadAdminExport = (payload) =>
-  api.post("/api/admin/settings/export", payload, {
+  api.post("/admin/settings/export", payload, {
     responseType: "blob",
   });
 
 export const fetchAdminSecuritySettings = () =>
-  api.get("/api/admin/settings/security");
+  api.get("/admin/settings/security");
 
 export const runAdminSecurityAudit = () =>
-  api.post("/api/admin/settings/security/audit-snapshot");
+  api.post("/admin/settings/security/audit-snapshot");
 
 export const submitContactMessage = (payload) =>
-  api.post("/api/contact-messages", payload);
+  api.post("/contact-messages", payload);

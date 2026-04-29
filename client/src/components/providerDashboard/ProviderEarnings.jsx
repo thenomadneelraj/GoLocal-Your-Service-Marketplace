@@ -1,392 +1,533 @@
-import { useEffect, useState, useCallback, useMemo, memo } from "react";
-import { useAuth } from "@/components/contexts/AuthContext";
-import api from "@/lib/api";
-import { toast } from "sonner";
-import DashboardLayout from "@/components/layouts/DashboardLayout";
-import { Button } from "@/components/ui/button";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  DollarSign,
+  IndianRupee,
+  ArrowUpRight,
+  ArrowDownLeft,
   TrendingUp,
-  TrendingDown,
-  Calendar,
+  Wallet,
+  CreditCard,
+  History,
+  Banknote,
+  MoreVertical,
   Download,
   Filter,
   Search,
-  CreditCard,
-  BanknoteIcon,
-  Wallet,
-  ArrowUpRight,
-  ArrowDownRight,
+  CheckCircle2,
   Clock,
+  Loader2,
+  RefreshCcw,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import api from "@/lib/api";
+import { toast } from "sonner";
+import {
+  initiateSocketConnection,
+  subscribeToNotifications,
+  disconnectSocket,
+} from "@/lib/socket";
+import { useAuth } from "@/components/contexts/AuthContext";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockProviderPayouts } from "@/lib/mockWorkspaceData";
 
-const formatCurrency = (amount, currency = "INR") => {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-  }).format(amount);
-};
+const formatCurrency = (amount) =>
+  `₹${Number(amount || 0).toLocaleString("en-IN")}`;
 
-const formatDate = (date) => {
-  return new Date(date).toLocaleDateString("en-US", {
-    year: "numeric",
+const formatDate = (value) => {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "2-digit",
     month: "short",
-    day: "numeric",
+    year: "numeric",
   });
 };
 
-// Memoized PaymentMethodIcon component
-const PaymentMethodIcon = memo(function PaymentMethodIcon({ method }) {
-  const icons = {
-    card: <CreditCard className="w-4 h-4" />,
-    cash: <BanknoteIcon className="w-4 h-4" />,
-    bank: <Wallet className="w-4 h-4" />,
-  };
-  return icons[method] || <Wallet className="w-4 h-4" />;
-});
+const STATUS_COLORS = {
+  paid: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+  pending: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+};
 
 export default function ProviderEarnings() {
   const { user } = useAuth();
-  const [earnings, setEarnings] = useState([]);
-  const [summary, setSummary] = useState({
-    totalEarnings: 0,
-    thisMonth: 0,
-    lastMonth: 0,
-    pendingAmount: 0,
-    completedJobs: 0,
-    averageJobValue: 0,
-  });
+  const [payouts, setPayouts] = useState([]);
+  const [totalEarnings, setTotalEarnings] = useState(0);
+  const [pendingAmount, setPendingAmount] = useState(0);
+  const [lastPaidAmount, setLastPaidAmount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState("all");
+  const [downloadFormat, setDownloadFormat] = useState("csv");
+  const LIMIT = 10;
 
-  // Memoized loadEarnings function
-  const loadEarnings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await api.get(`/providers/stats/payouts?timeRange=${timeRange}`);
-      const transactions = response.data?.items || [];
-      setEarnings(transactions);
-      
-      // Calculate summary
-      const now = new Date();
-      const thisMonth = now.getMonth();
-      const thisYear = now.getFullYear();
-      
-      const thisMonthEarnings = transactions
-        .filter(t => {
-          const date = new Date(t.createdAt);
-          return date.getMonth() === thisMonth && date.getFullYear() === thisYear;
-        })
-        .reduce((sum, t) => sum + (t.amount || 0), 0);
-      
-      const lastMonthEarnings = transactions
-        .filter(t => {
-          const date = new Date(t.createdAt);
-          return date.getMonth() === (thisMonth - 1) && date.getFullYear() === thisYear;
-        })
-        .reduce((sum, t) => sum + (t.amount || 0), 0);
-
-      const pendingAmount = transactions
-        .filter(t => t.status === "pending")
-        .reduce((sum, t) => sum + (t.amount || 0), 0);
-
-      const completedJobs = transactions
-        .filter(t => t.status === "paid")
-        .length;
-
-      const totalEarnings = transactions
-        .filter(t => t.status === "paid")
-        .reduce((sum, t) => sum + (t.amount || 0), 0);
-
-      const averageJobValue = completedJobs > 0 ? totalEarnings / completedJobs : 0;
-
-      setSummary({
-        totalEarnings,
-        thisMonth: thisMonthEarnings,
-        lastMonth: lastMonthEarnings,
-        pendingAmount,
-        completedJobs,
-        averageJobValue,
-      });
-    } catch (error) {
-      toast.error("Failed to load earnings");
-      console.error("Error loading earnings:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [timeRange]);
+  const fetchPayouts = useCallback(
+    async (pg = 1) => {
+      try {
+        setLoading(true);
+        const res = await api.get(
+          `/api/providers/stats/payouts?page=${pg}&limit=${LIMIT}`
+        );
+        const data = res.data?.data || {};
+        setPayouts(data.items || []);
+        setTotalEarnings(data.totalEarnings || 0);
+        setPendingAmount(data.pendingAmount || 0);
+        setLastPaidAmount(data.lastPaidAmount || 0);
+        setTotalPages(data.pages || 1);
+        setTotalCount(data.total || 0);
+        setPage(pg);
+      } catch (err) {
+        console.error("Failed to fetch earnings:", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    loadEarnings();
-  }, [loadEarnings]);
+    fetchPayouts(1);
+  }, [fetchPayouts]);
 
-  // Memoized filtered earnings calculation
-  const filteredEarnings = useMemo(() => {
-    if (!searchTerm) return earnings;
-    
-    const term = searchTerm.toLowerCase();
-    return earnings.filter(earning => {
-      return (
-        earning.bookingId?.serviceId?.name?.toLowerCase().includes(term) ||
-        earning.clientId?.name?.toLowerCase().includes(term) ||
-        earning.transactionId?.toLowerCase().includes(term)
-      );
+  // Real-time: listen for payment-related notifications
+  useEffect(() => {
+    if (!user?.id) return;
+    initiateSocketConnection(user.id, user.role);
+
+    const unsub = subscribeToNotifications((err, payload) => {
+      if (err) return;
+      if (payload?.notification?.type === "payment") {
+        fetchPayouts(1);
+      }
     });
-  }, [earnings, searchTerm]);
 
-  const handleWithdraw = useCallback(async () => {
+    return () => {
+      unsub();
+      disconnectSocket();
+    };
+  }, [user?.id, fetchPayouts]);
+
+  const handleRequestPayout = () => {
+    toast.info("Provider earnings are released automatically once COD bookings are completed.");
+  };
+
+  const handleExport = async () => {
     try {
-      // This would integrate with a payment system
-      toast.info("Withdrawal feature coming soon!");
+      const response = await api.get(
+        `/api/providers/stats/payouts/export?format=${downloadFormat}`,
+        { responseType: "blob" }
+      );
+      const contentType =
+        downloadFormat === "pdf"
+          ? "application/pdf"
+          : downloadFormat === "xlsx"
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : "text/csv;charset=utf-8;";
+      const extension = downloadFormat === "xlsx" ? "xlsx" : downloadFormat;
+      const blob = new Blob([response.data], { type: contentType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `provider-earnings-${Date.now()}.${extension}`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success("Earnings export downloaded successfully.");
     } catch (error) {
-      toast.error("Failed to process withdrawal");
+      toast.error("Could not download the earnings export.");
     }
-  }, []);
+  };
 
-  const downloadStatement = useCallback(async () => {
-    try {
-      // Generate CSV or PDF statement
-      const csvContent = [
-        ["Date", "Transaction ID", "Client", "Service", "Amount", "Status", "Payment Method"],
-        ...filteredEarnings.map(earning => [
-          formatDate(earning.createdAt),
-          earning.transactionId,
-          earning.clientId?.name || "N/A",
-          earning.bookingId?.serviceId?.name || "N/A",
-          earning.amount,
-          earning.status,
-          earning.paymentMethod
-        ])
-      ].map(row => row.join(",")).join("\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `earnings-statement-${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      
-      toast.success("Statement downloaded successfully");
-    } catch (error) {
-      toast.error("Failed to download statement");
-      console.error("Error downloading statement:", error);
-    }
-  }, [filteredEarnings]);
+  const layeredPayouts = useMemo(
+    () =>
+      mergeLayeredCollections(payouts, mockProviderPayouts, {
+        getId: (payout) => payout.id,
+      }),
+    [payouts]
+  );
+  const fallbackTotalEarnings = layeredPayouts
+    .filter((payout) => payout.status === "paid")
+    .reduce((sum, payout) => sum + Number(payout.netAmount || 0), 0);
+  const fallbackPendingAmount = layeredPayouts
+    .filter((payout) => payout.status === "pending")
+    .reduce((sum, payout) => sum + Number(payout.netAmount || 0), 0);
+  const resolvedTotalEarnings = totalEarnings || fallbackTotalEarnings;
+  const resolvedPendingAmount = pendingAmount || fallbackPendingAmount;
+  const resolvedLastPaidAmount =
+    lastPaidAmount ||
+    layeredPayouts.find((payout) => payout.status === "paid")?.netAmount ||
+    0;
+  const filteredPayouts = layeredPayouts.filter((p) => {
+    const matchesTab = activeTab === "all" || p.status === activeTab;
+    const matchesSearch =
+      !searchQuery ||
+      p.serviceTitle?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      String(p.id).toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesTab && matchesSearch;
+  });
 
   return (
-    <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">My Earnings</h1>
-            <p className="text-muted-foreground mt-1 max-w-md text-sm font-medium leading-relaxed">
-              Track your income, view transaction history, and manage withdrawals.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              onClick={downloadStatement}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Download Statement
-            </Button>
-            <Button
-              onClick={handleWithdraw}
-              className="flex items-center gap-2"
-            >
-              <DollarSign className="w-4 h-4" />
-              Withdraw
-            </Button>
+    <div className="space-y-6 pb-10 font-sans">
+      {/* Header Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {/* Wallet Balance */}
+        <div className="lg:col-span-2 relative bg-card/60 p-8 rounded-[2rem] border border-border/60 backdrop-blur-xl overflow-hidden group shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent pointer-events-none" />
+          <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none group-hover:bg-emerald-500/20 transition-all duration-700" />
+
+          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-8 h-full">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 bg-emerald-500/10 text-emerald-600 px-3 py-1.5 rounded-xl w-fit text-[10px] font-black uppercase tracking-widest border border-emerald-500/20 shadow-xs">
+                <Wallet size={12} />
+                Total Earnings
+              </div>
+              <div>
+                {loading ? (
+                  <div className="h-14 w-48 animate-pulse bg-muted/40 rounded-2xl" />
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h1 className="text-5xl font-black tracking-tight text-foreground italic">
+                        {formatCurrency(resolvedTotalEarnings)}
+                      </h1>
+                      <DataOriginBadge
+                        origin={totalEarnings > 0 ? "real" : "mock"}
+                        liveLabel="Live"
+                        sampleLabel="Sample"
+                      />
+                    </div>
+                    <p className="text-muted-foreground mt-2 text-[10px] font-bold flex items-center gap-2 uppercase tracking-widest leading-none">
+                      <TrendingUp size={14} className="text-emerald-500" />
+                      {layeredPayouts.length} payout record{layeredPayouts.length !== 1 ? "s" : ""}
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+
+          <div className="flex flex-col gap-2 min-w-[160px]">
+              <select
+                value={downloadFormat}
+                onChange={(event) => setDownloadFormat(event.target.value)}
+                className="h-11 rounded-xl border border-border/60 bg-card px-3 text-xs font-semibold"
+              >
+                <option value="csv">CSV</option>
+                <option value="xlsx">XLSX</option>
+                <option value="pdf">PDF</option>
+              </select>
+              <Button
+                size="lg"
+                className="rounded-xl h-11 text-xs font-black uppercase tracking-widest bg-emerald-500 hover:bg-emerald-600 shadow-md gap-2"
+                onClick={handleRequestPayout}
+              >
+                <Banknote size={16} />
+                Request Payout
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="rounded-xl h-11 text-xs font-black uppercase tracking-widest border-border/60 hover:bg-muted/50 gap-2 shadow-xs"
+                onClick={handleExport}
+              >
+                <Download size={16} />
+                Export
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <div className="bg-card rounded-lg p-6 border border-border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Total Earnings</h3>
-              <DollarSign className="w-5 h-5 text-green-600" />
+        {/* Stats */}
+        <div className="grid grid-cols-1 gap-4">
+          <div className="bg-card/40 border border-border/60 rounded-[2rem] p-6 group hover:border-emerald-500/40 transition-all duration-300 backdrop-blur-sm shadow-xs h-full flex flex-col justify-center">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-600 border border-orange-500/20 shadow-xs">
+                <Clock size={18} />
+              </div>
+              <ArrowUpRight size={16} className="text-muted-foreground" />
             </div>
-            <p className="text-2xl font-bold text-green-600">{formatCurrency(summary.totalEarnings)}</p>
-          </div>
-
-          <div className="bg-card rounded-lg p-6 border border-border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">This Month</h3>
-              <TrendingUp className="w-5 h-5 text-blue-600" />
-            </div>
-            <p className="text-2xl font-bold text-blue-600">{formatCurrency(summary.thisMonth)}</p>
-            {summary.lastMonth > 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {summary.thisMonth > summary.lastMonth ? (
-                  <span className="text-green-600">↑ {((summary.thisMonth - summary.lastMonth) / summary.lastMonth * 100).toFixed(1)}% from last month</span>
-                ) : (
-                  <span className="text-red-600">↓ {((summary.lastMonth - summary.thisMonth) / summary.lastMonth * 100).toFixed(1)}% from last month</span>
-                )}
+            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">
+              Pending Amount
+            </p>
+            {loading ? (
+              <div className="h-8 w-24 animate-pulse bg-muted/40 rounded-xl" />
+            ) : (
+              <p className="text-2xl font-black leading-none italic">
+                {formatCurrency(resolvedPendingAmount)}
               </p>
             )}
           </div>
-
-          <div className="bg-card rounded-lg p-6 border border-border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Pending Amount</h3>
-              <Clock className="w-5 h-5 text-yellow-600" />
-            </div>
-            <p className="text-2xl font-bold text-yellow-600">{formatCurrency(summary.pendingAmount)}</p>
-          </div>
-
-          <div className="bg-card rounded-lg p-6 border border-border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-muted-foreground">Completed Jobs</h3>
-              <Calendar className="w-5 h-5 text-purple-600" />
-            </div>
-            <p className="text-2xl font-bold text-purple-600">{summary.completedJobs}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Avg: {formatCurrency(summary.averageJobValue)} per job
-            </p>
-          </div>
-        </div>
-
-        {/* Time Range Filter */}
-        <div className="bg-card rounded-lg p-6 border border-border">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center justify-between">
-            <div className="flex gap-2">
-              <Button
-                variant={timeRange === "all" ? "default" : "outline"}
-                onClick={() => setTimeRange("all")}
-                size="sm"
-              >
-                All Time
-              </Button>
-              <Button
-                variant={timeRange === "30d" ? "default" : "outline"}
-                onClick={() => setTimeRange("30d")}
-                size="sm"
-              >
-                Last 30 Days
-              </Button>
-              <Button
-                variant={timeRange === "90d" ? "default" : "outline"}
-                onClick={() => setTimeRange("90d")}
-                size="sm"
-              >
-                Last 90 Days
-              </Button>
-            </div>
-            
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Search by client, service, or transaction ID..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-full p-3 border border-border rounded-lg bg-background"
-                />
+          <div className="bg-card/40 border border-border/60 rounded-[2rem] p-6 group hover:border-emerald-500/40 transition-all duration-300 backdrop-blur-sm shadow-xs h-full flex flex-col justify-center">
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600 border border-indigo-500/20 shadow-xs">
+                <History size={18} />
               </div>
+              <Download size={16} className="text-muted-foreground" />
             </div>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-none mb-1">
+              Last Paid
+            </p>
+            {loading ? (
+              <div className="h-8 w-24 animate-pulse bg-muted/40 rounded-xl" />
+            ) : (
+              <p className="text-2xl font-black leading-none italic">
+                {formatCurrency(resolvedLastPaidAmount)}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Transaction table */}
+      <div className="space-y-6">
+        <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-600 border border-emerald-500/20 shadow-xs">
+              <History size={20} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold tracking-tight">
+                Earnings History
+              </h2>
+              <p className="text-[10px] text-muted-foreground mt-0.5 font-medium italic opacity-70">
+                Completed and pending payouts.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full xl:w-auto">
+            {/* Filter tabs */}
+            <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-xl border border-border/40">
+              {["all", "paid", "pending"].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                    activeTab === tab
+                      ? "bg-background text-emerald-600 shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative group flex-1 xl:w-72">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search history..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-10 pl-9 pr-4 rounded-xl border border-border/60 bg-card/50 focus:bg-background outline-none transition-all text-xs shadow-xs"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-xl border-border/60"
+              onClick={() => fetchPayouts(1)}
+            >
+              <RefreshCcw size={16} className="text-muted-foreground" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-xl border-border/60"
+              onClick={handleExport}
+            >
+              <Download size={16} className="text-muted-foreground" />
+            </Button>
           </div>
         </div>
 
-        {/* Earnings Table */}
-        <div className="bg-card rounded-lg border border-border">
-          <div className="p-6 border-b border-border">
-            <h2 className="text-xl font-bold text-foreground">Transaction History</h2>
-          </div>
-          
+        <div className="overflow-hidden bg-card/30 border border-border/60 rounded-[2rem] backdrop-blur-sm shadow-xs">
           {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-              <p className="text-muted-foreground mt-2">Loading transactions...</p>
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="animate-spin text-emerald-500" size={32} />
             </div>
-          ) : filteredEarnings.length > 0 ? (
+          ) : filteredPayouts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <IndianRupee size={40} className="mb-4 opacity-20" />
+              <p className="text-sm font-bold">No earnings yet</p>
+              <p className="text-[10px] mt-1 italic opacity-70">
+                Payouts are generated when bookings are marked complete.
+              </p>
+            </div>
+          ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-muted/20">
-                  <tr>
-                    <th className="text-left p-4 text-sm font-semibold text-foreground">Date</th>
-                    <th className="text-left p-4 text-sm font-semibold text-foreground">Transaction ID</th>
-                    <th className="text-left p-4 text-sm font-semibold text-foreground">Client</th>
-                    <th className="text-left p-4 text-sm font-semibold text-foreground">Service</th>
-                    <th className="text-right p-4 text-sm font-semibold text-foreground">Amount</th>
-                    <th className="text-left p-4 text-sm font-semibold text-foreground">Status</th>
-                    <th className="text-left p-4 text-sm font-semibold text-foreground">Payment Method</th>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-muted/30 border-b border-border/40">
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80">
+                      Descriptor
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Date
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Gross
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Commission
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Net
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-center">
+                      Status
+                    </th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-80 text-right">
+                      Action
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/40">
-                  {filteredEarnings.map((earning) => (
-                    <tr key={earning._id} className="hover:bg-muted/10">
-                      <td className="p-4 text-sm">{formatDate(earning.createdAt)}</td>
-                      <td className="p-4 text-sm font-mono">{earning.transactionId}</td>
-                      <td className="p-4 text-sm">{earning.clientId?.name || "N/A"}</td>
-                      <td className="p-4 text-sm">{earning.bookingId?.serviceId?.name || "N/A"}</td>
-                      <td className="p-4 text-sm text-right font-semibold">{formatCurrency(earning.amount)}</td>
-                      <td className="p-4">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${
-                          earning.status === "paid" 
-                            ? "bg-green-100 text-green-600"
-                            : "bg-yellow-100 text-yellow-600"
-                        }`}>
-                          {earning.status === "paid" ? "Completed" : "Pending"}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <PaymentMethodIcon method={earning.paymentMethod} />
-                          <span className="text-sm">{earning.paymentMethod}</span>
+                <tbody className="divide-y divide-border/20">
+                  {filteredPayouts.map((p) => (
+                    <tr
+                      key={p.id}
+                      className="group hover:bg-emerald-500/5 transition-all duration-300"
+                    >
+                      <td className="px-8 py-4">
+                        <div className="flex items-center gap-4">
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center border shadow-xs ${
+                              p.status === "paid"
+                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                : "bg-orange-500/10 text-orange-600 border-orange-500/20"
+                            }`}
+                          >
+                            {p.status === "paid" ? (
+                              <ArrowDownLeft size={16} />
+                            ) : (
+                              <Clock size={16} />
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-xs font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight line-clamp-1">
+                                {p.serviceTitle || "Service Booking"}
+                              </p>
+                              <DataOriginBadge origin={p.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                            </div>
+                            <p className="text-[9px] text-muted-foreground mt-0.5 font-bold tracking-widest opacity-60">
+                              #{String(p.id).slice(-8).toUpperCase()}
+                            </p>
+                          </div>
                         </div>
+                      </td>
+                      <td className="px-8 py-4 text-center text-[10px] font-bold text-muted-foreground">
+                        {formatDate(p.createdAt)}
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <p className="text-sm font-black italic text-emerald-600">
+                          {formatCurrency(p.amount)}
+                        </p>
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <p className="text-xs font-bold text-rose-600">
+                          -{formatCurrency(p.commission)}
+                        </p>
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <p className="text-sm font-black italic text-foreground">
+                          {formatCurrency(p.netAmount)}
+                        </p>
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <div
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-widest ${
+                            STATUS_COLORS[p.status] || STATUS_COLORS.pending
+                          }`}
+                        >
+                          {p.status === "paid" ? (
+                            <CheckCircle2 size={8} />
+                          ) : (
+                            <Clock size={8} />
+                          )}
+                          {p.status}
+                        </div>
+                      </td>
+                      <td className="px-8 py-4 text-right">
+                        {p.dataOrigin === "mock" ? (
+                          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                            Sample only
+                          </span>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="rounded-lg h-8 px-3 hover:bg-emerald-500/10 hover:text-emerald-600"
+                            onClick={async () => {
+                              try {
+                                const response = await api.get(
+                                  `/api/providers/stats/payouts/${p.id}/invoice?format=${downloadFormat}`,
+                                  { responseType: "blob" }
+                                );
+                                const extension =
+                                  downloadFormat === "xlsx" ? "xlsx" : downloadFormat;
+                                const blob = new Blob([response.data]);
+                                const url = URL.createObjectURL(blob);
+                                const link = document.createElement("a");
+                                link.href = url;
+                                link.setAttribute(
+                                  "download",
+                                  `provider-invoice-${p.id}.${extension}`
+                                );
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                URL.revokeObjectURL(url);
+                                toast.success("Invoice downloaded successfully.");
+                              } catch (error) {
+                                toast.error("Could not download the invoice.");
+                              }
+                            }}
+                          >
+                            <Download size={14} className="mr-2" />
+                            Invoice
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : (
-            <div className="p-8 text-center">
-              <div className="text-muted-foreground">
-                <Wallet className="w-16 h-16 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold mb-2">No transactions found</h3>
-                <p className="text-sm">Try adjusting your search or time range filter</p>
-              </div>
-            </div>
           )}
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="bg-gradient-to-r from-green-500/10 to-green-500/5 rounded-lg p-6 border border-green-500/20">
-            <div className="flex items-center gap-3">
-              <ArrowUpRight className="w-8 h-8 text-green-600" />
-              <div>
-                <h3 className="font-semibold text-foreground">Monthly Growth</h3>
-                <p className="text-2xl font-bold text-green-600">
-                  {summary.lastMonth > 0 ? (
-                    <span>+{((summary.thisMonth - summary.lastMonth) / summary.lastMonth * 100).toFixed(1)}%</span>
-                  ) : (
-                    <span>0%</span>
-                  )}
-                </p>
-              </div>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-2">
+            <p className="text-xs text-muted-foreground">
+              Page {page} of {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => fetchPayouts(page - 1)}
+                disabled={page <= 1 || loading}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => fetchPayouts(page + 1)}
+                disabled={page >= totalPages || loading}
+              >
+                Next
+              </Button>
             </div>
           </div>
-
-          <div className="bg-gradient-to-r from-blue-500/10 to-blue-500/5 rounded-lg p-6 border border-blue-500/20">
-            <div className="flex items-center gap-3">
-              <ArrowDownRight className="w-8 h-8 text-blue-600" />
-              <div>
-                <h3 className="font-semibold text-foreground">Available Balance</h3>
-                <p className="text-2xl font-bold text-blue-600">{formatCurrency(summary.totalEarnings - summary.pendingAmount)}</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
-    </DashboardLayout>
+    </div>
   );
 }

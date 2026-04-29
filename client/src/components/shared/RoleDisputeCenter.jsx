@@ -52,7 +52,9 @@ export default function RoleDisputeCenter({ role = "client" }) {
       const response = await api.get("/api/disputes");
       const nextThreads = response.data?.data?.threads || [];
       setThreads(nextThreads);
-      setSelectedThreadKey((current) => current || nextThreads[0]?.threadKey || "");
+      setSelectedThreadKey(
+        (current) => current || nextThreads[0]?.threadKey || "",
+      );
     } catch (error) {
       toast.error(error.response?.data?.message || "Could not load disputes.");
     } finally {
@@ -62,7 +64,9 @@ export default function RoleDisputeCenter({ role = "client" }) {
 
   const loadBookings = async () => {
     try {
-      const response = await api.get("/api/bookings?status=accepted,completed&limit=50");
+      const response = await api.get(
+        "/api/bookings?status=accepted,completed&limit=50",
+      );
       setBookings(response.data?.data?.items || []);
     } catch (error) {
       toast.error("Could not load eligible bookings.");
@@ -79,14 +83,14 @@ export default function RoleDisputeCenter({ role = "client" }) {
         getId: (thread) => thread.threadKey,
         getTimestamp: (thread) => thread.latestAt || thread.createdAt,
       }),
-    [role, threads]
+    [role, threads],
   );
   const layeredBookings = useMemo(
     () =>
       mergeLayeredCollections(bookings, mockDisputeBookings[role] || [], {
         getId: (booking) => booking._id || booking.id,
       }),
-    [bookings, role]
+    [bookings, role],
   );
 
   const layeredActiveThread = useMemo(
@@ -94,7 +98,7 @@ export default function RoleDisputeCenter({ role = "client" }) {
       layeredThreads.find((thread) => thread.threadKey === selectedThreadKey) ||
       layeredThreads[0] ||
       null,
-    [layeredThreads, selectedThreadKey]
+    [layeredThreads, selectedThreadKey],
   );
 
   useEffect(() => {
@@ -121,7 +125,7 @@ export default function RoleDisputeCenter({ role = "client" }) {
 
     try {
       setSubmitting(true);
-      await api.post("/api/disputes", form);
+      await api.post("/disputes", form);
       toast.success("Dispute filed successfully.");
       setShowModal(false);
       setForm({
@@ -145,7 +149,8 @@ export default function RoleDisputeCenter({ role = "client" }) {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dispute Center</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Review active reports, file website issues, and keep disputes grouped in one thread per context.
+            Review active reports, file website issues, and keep disputes
+            grouped in one thread per context.
           </p>
         </div>
         <Button onClick={openModal}>File New Dispute</Button>
@@ -158,10 +163,13 @@ export default function RoleDisputeCenter({ role = "client" }) {
           </p>
           <div className="space-y-2">
             {loading ? (
-              <p className="px-3 py-10 text-sm text-muted-foreground">Loading disputes...</p>
+              <p className="px-3 py-10 text-sm text-muted-foreground">
+                Loading disputes...
+              </p>
             ) : layeredThreads.length === 0 ? (
               <p className="px-3 py-10 text-sm text-muted-foreground">
-                No disputes yet. Use the button above to report a provider, client, or website issue.
+                No disputes yet. Use the button above to report a provider,
+                client, or website issue.
               </p>
             ) : (
               layeredThreads.map((thread) => (
@@ -177,8 +185,14 @@ export default function RoleDisputeCenter({ role = "client" }) {
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-foreground">{thread.threadTitle}</p>
-                      <DataOriginBadge origin={thread.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                      <p className="text-sm font-semibold text-foreground">
+                        {thread.threadTitle}
+                      </p>
+                      <DataOriginBadge
+                        origin={thread.dataOrigin}
+                        liveLabel="Live"
+                        sampleLabel="Sample"
+                      />
                     </div>
                     <span
                       className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${
@@ -189,7 +203,9 @@ export default function RoleDisputeCenter({ role = "client" }) {
                     </span>
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {thread.items.length} report{thread.items.length === 1 ? "" : "s"} | {thread.latestLabel}
+                    {thread.items.length} report
+                    {thread.items.length === 1 ? "" : "s"} |{" "}
+                    {thread.latestLabel}
                   </p>
                 </button>
               ))
@@ -203,8 +219,14 @@ export default function RoleDisputeCenter({ role = "client" }) {
               <div className="flex items-center justify-between gap-4 border-b border-border/50 pb-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xl font-semibold text-foreground">{layeredActiveThread.threadTitle}</h2>
-                    <DataOriginBadge origin={layeredActiveThread.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                    <h2 className="text-xl font-semibold text-foreground">
+                      {layeredActiveThread.threadTitle}
+                    </h2>
+                    <DataOriginBadge
+                      origin={layeredActiveThread.dataOrigin}
+                      liveLabel="Live"
+                      sampleLabel="Sample"
+                    />
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {layeredActiveThread.targetType === "platform"
@@ -219,12 +241,23 @@ export default function RoleDisputeCenter({ role = "client" }) {
 
               <div className="mt-5 space-y-4">
                 {layeredActiveThread.items.map((item) => (
-                  <article key={item.id} className="rounded-[1.5rem] border border-border/60 bg-muted/20 p-5">
+                  <article
+                    key={item.id}
+                    className="rounded-[1.5rem] border border-border/60 bg-muted/20 p-5"
+                  >
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-base font-semibold text-foreground">{item.subject}</p>
-                          <DataOriginBadge origin={item.dataOrigin || layeredActiveThread.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                          <p className="text-base font-semibold text-foreground">
+                            {item.subject}
+                          </p>
+                          <DataOriginBadge
+                            origin={
+                              item.dataOrigin || layeredActiveThread.dataOrigin
+                            }
+                            liveLabel="Live"
+                            sampleLabel="Sample"
+                          />
                         </div>
                         <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
                           {item.reason} | {item.roleLabel}
@@ -239,13 +272,35 @@ export default function RoleDisputeCenter({ role = "client" }) {
                       </span>
                     </div>
 
-                    <p className="mt-4 text-sm leading-7 text-muted-foreground">{item.description}</p>
+                    <p className="mt-4 text-sm leading-7 text-muted-foreground">
+                      {item.description}
+                    </p>
 
                     <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-                      <p><span className="font-medium text-foreground">Created:</span> {item.createdLabel}</p>
-                      <p><span className="font-medium text-foreground">Booking:</span> {item.bookingLabel}</p>
-                      <p><span className="font-medium text-foreground">Reporter:</span> {item.reporterName}</p>
-                      <p><span className="font-medium text-foreground">Target:</span> {item.targetUserName}</p>
+                      <p>
+                        <span className="font-medium text-foreground">
+                          Created:
+                        </span>{" "}
+                        {item.createdLabel}
+                      </p>
+                      <p>
+                        <span className="font-medium text-foreground">
+                          Booking:
+                        </span>{" "}
+                        {item.bookingLabel}
+                      </p>
+                      <p>
+                        <span className="font-medium text-foreground">
+                          Reporter:
+                        </span>{" "}
+                        {item.reporterName}
+                      </p>
+                      <p>
+                        <span className="font-medium text-foreground">
+                          Target:
+                        </span>{" "}
+                        {item.targetUserName}
+                      </p>
                     </div>
 
                     {item.resolutionNote ? (
@@ -259,7 +314,8 @@ export default function RoleDisputeCenter({ role = "client" }) {
             </>
           ) : (
             <div className="py-20 text-center text-muted-foreground">
-              Select a dispute thread to view the full conversation-style history.
+              Select a dispute thread to view the full conversation-style
+              history.
             </div>
           )}
         </section>
@@ -268,7 +324,9 @@ export default function RoleDisputeCenter({ role = "client" }) {
       {showModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl rounded-[2rem] border border-border/70 bg-card p-8 shadow-2xl">
-            <h2 className="text-2xl font-semibold text-foreground">File dispute</h2>
+            <h2 className="text-2xl font-semibold text-foreground">
+              File dispute
+            </h2>
             <div className="mt-6 grid gap-4">
               <select
                 value={form.targetType}
@@ -284,21 +342,32 @@ export default function RoleDisputeCenter({ role = "client" }) {
                 <option value={role === "provider" ? "client" : "provider"}>
                   Report {role === "provider" ? "client" : "provider"}
                 </option>
-                <option value="platform">Report website / platform issue</option>
+                <option value="platform">
+                  Report website / platform issue
+                </option>
               </select>
 
               {form.targetType !== "platform" ? (
                 <select
                   value={form.bookingId}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, bookingId: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      bookingId: event.target.value,
+                    }))
                   }
                   className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
                 >
                   <option value="">Select booking</option>
                   {layeredBookings.map((booking) => (
                     <option key={booking._id} value={booking._id}>
-                      {(booking.providerId?.name || booking.clientId?.name || "User")} | {(booking.serviceId?.title || booking.selectedServices?.[0]?.title || "Service")}
+                      {booking.providerId?.name ||
+                        booking.clientId?.name ||
+                        "User"}{" "}
+                      |{" "}
+                      {booking.serviceId?.title ||
+                        booking.selectedServices?.[0]?.title ||
+                        "Service"}
                     </option>
                   ))}
                 </select>
@@ -309,7 +378,10 @@ export default function RoleDisputeCenter({ role = "client" }) {
                 placeholder="Subject"
                 value={form.subject}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, subject: event.target.value }))
+                  setForm((current) => ({
+                    ...current,
+                    subject: event.target.value,
+                  }))
                 }
                 className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
               />
@@ -317,7 +389,10 @@ export default function RoleDisputeCenter({ role = "client" }) {
               <select
                 value={form.reason}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, reason: event.target.value }))
+                  setForm((current) => ({
+                    ...current,
+                    reason: event.target.value,
+                  }))
                 }
                 className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm outline-none focus:border-primary"
               >

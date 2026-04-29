@@ -14,6 +14,7 @@ const messageRoutes = require("./routes/message");
 const notificationRoutes = require("./routes/notification");
 const transactionRoutes = require("./routes/transaction");
 const serviceRoutes = require("./routes/service");
+const { attachResponseMeta } = require("./middleware/responseMeta");
 
 
 const app = express();
@@ -24,6 +25,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use("/uploads", express.static(path.resolve(__dirname, "../uploads")));
+app.use(attachResponseMeta);
 
 // Root Route
 app.get("/", (req, res) => {

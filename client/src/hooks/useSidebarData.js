@@ -9,7 +9,7 @@ const useSidebarData = () => {
     if (!user) return;
 
     try {
-      const response = await api.get("/api/user/sidebar-data");
+      const response = await api.get("/user/sidebar-data");
       return response.data;
     } catch (error) {
       console.error("Failed to fetch sidebar data:", error);

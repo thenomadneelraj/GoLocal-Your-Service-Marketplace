@@ -428,7 +428,7 @@ const getDashboard = async (req, res) => {
       services,
       openDisputes,
     ] = await Promise.all([
-      User.find().select("role approvalStatus createdAt"),
+      User.find({ role: { $ne: "admin" } }).select("role approvalStatus createdAt"),
       Booking.find().sort({ createdAt: 1 }).select("status price createdAt"),
       Transaction.find()
         .sort({ createdAt: 1 })
@@ -685,6 +685,53 @@ const updateUserStatus = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "A status or action is required.",
+      });
+    }
+
+    if (existingUser.isMock) {
+      const nextStatus =
+        requestedStatus === "approved"
+          ? USER_STATUS.ACTIVE
+          : requestedStatus === "rejected"
+            ? USER_STATUS.REJECTED
+            : requestedStatus === "suspended"
+              ? USER_STATUS.SUSPENDED
+              : normalizeUserStatus(requestedStatus, existingUser.isActive);
+      const nextApprovalStatus =
+        requestedStatus === "approved"
+          ? APPROVAL_STATUS.APPROVED
+          : requestedStatus === "rejected"
+            ? APPROVAL_STATUS.REJECTED
+            : existingUser.approvalStatus;
+
+      const nextUser = await User.findByIdAndUpdate(
+        id,
+        {
+          status: nextStatus,
+          isActive: nextStatus === USER_STATUS.ACTIVE,
+          approvalStatus: nextApprovalStatus,
+        },
+        { new: true, runValidators: true }
+      ).select("-password");
+
+      emitSocketEvent({
+        rooms: ["role_admin"],
+        eventName: SOCKET_EVENTS.USER_STATUS_UPDATED,
+        payload: {
+          userId: id,
+          status: nextStatus,
+          approvalStatus: nextApprovalStatus,
+          dataOrigin: "mock",
+          isMock: true,
+          message: "Mock user status updated.",
+        },
+      });
+
+      return res.json({
+        success: true,
+        message: "Mock user status updated successfully.",
+        data: buildUserRow(nextUser),
+        meta: { source: "mock" },
       });
     }
 

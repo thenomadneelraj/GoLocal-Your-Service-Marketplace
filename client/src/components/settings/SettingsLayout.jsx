@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { User as UserIcon, Lock, AlertTriangle, Save, Trash2, CheckCircle2, XCircle, Wrench, Percent } from "lucide-react";
+import {
+  User as UserIcon,
+  Lock,
+  AlertTriangle,
+  Save,
+  Trash2,
+  CheckCircle2,
+  XCircle,
+  Wrench,
+  Percent,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "../../lib/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -7,14 +17,22 @@ import { Button } from "../ui/button";
 import { resolveMediaUrl } from "@/lib/media";
 import { toast } from "sonner";
 import { queueFlashToast } from "@/lib/flashToast";
-import {
-  fetchPlatformSettings,
-  updatePlatformSettings,
-} from "@/lib/adminApi";
+import { fetchPlatformSettings, updatePlatformSettings } from "@/lib/adminApi";
 import { useMaintenance } from "@/components/contexts/MaintenanceContext";
 
-const SERVICE_TYPES = ["Plumbing", "Electrical", "Cleaning", "Painting", "Carpentry", "AC Repair", "Appliance Repair", "Moving", "Other"];
-const INPUT = "w-full rounded-xl border border-input bg-background/80 px-4 py-2.5 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground/80 focus:border-primary/45 focus:ring-2 focus:ring-primary/15";
+const SERVICE_TYPES = [
+  "Plumbing",
+  "Electrical",
+  "Cleaning",
+  "Painting",
+  "Carpentry",
+  "AC Repair",
+  "Appliance Repair",
+  "Moving",
+  "Other",
+];
+const INPUT =
+  "w-full rounded-xl border border-input bg-background/80 px-4 py-2.5 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground/80 focus:border-primary/45 focus:ring-2 focus:ring-primary/15";
 const BASE_TABS = [
   { id: "profile", label: "Profile Information", icon: UserIcon },
   { id: "security", label: "Password & Security", icon: Lock },
@@ -27,14 +45,20 @@ const splitName = (value = "") => {
 };
 
 const joinName = (firstName = "", lastName = "") =>
-  [firstName, lastName].map((item) => String(item || "").trim()).filter(Boolean).join(" ").trim();
+  [firstName, lastName]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
 
 const toProviderForm = (data = {}) => ({
   serviceType: data.serviceType || "Other",
   location: data.location || "",
   address: data.address || "",
-  hourlyRate: data.hourlyRate === 0 || data.hourlyRate ? String(data.hourlyRate) : "",
-  experience: data.experience === 0 || data.experience ? String(data.experience) : "",
+  hourlyRate:
+    data.hourlyRate === 0 || data.hourlyRate ? String(data.hourlyRate) : "",
+  experience:
+    data.experience === 0 || data.experience ? String(data.experience) : "",
   availability: data.availability ?? data.available ?? true,
   bio: data.bio || "",
   workCategoriesText: Array.isArray(data.workCategories)
@@ -44,8 +68,7 @@ const toProviderForm = (data = {}) => ({
 
 const toPlatformForm = (data = {}) => ({
   platformName: data.platformName || "GoLocal",
-  commissionPercentage:
-    data.commissionPercentage ?? data.commissionRate ?? 10,
+  commissionPercentage: data.commissionPercentage ?? data.commissionRate ?? 10,
   maintenanceMode: Boolean(data.maintenanceMode),
 });
 
@@ -96,7 +119,11 @@ export default function SettingsLayout({ role }) {
   });
   const [providerForm, setProviderForm] = useState(toProviderForm());
   const [platformForm, setPlatformForm] = useState(toPlatformForm());
-  const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
   useEffect(() => {
@@ -134,19 +161,21 @@ export default function SettingsLayout({ role }) {
           lastName: name.lastName,
           phone: data.phone || prev.phone || "",
           address: data.address || prev.address || "",
-          profilePhoto: data.profileImage || data.profilePhoto || prev.profilePhoto || "",
+          profilePhoto:
+            data.profileImage || data.profilePhoto || prev.profilePhoto || "",
           bankName: data.bankName || prev.bankName || "",
           accountNumber: data.accountNumber || prev.accountNumber || "",
           accountHolderName:
-            data.accountHolderName ||
-            data.name ||
-            prev.accountHolderName ||
-            "",
+            data.accountHolderName || data.name || prev.accountHolderName || "",
         }));
         setProviderForm(toProviderForm(data));
       } catch (err) {
         if (!ignore) {
-          setMessage({ type: "error", text: err.response?.data?.message || "Could not load provider details." });
+          setMessage({
+            type: "error",
+            text:
+              err.response?.data?.message || "Could not load provider details.",
+          });
         }
       } finally {
         if (!ignore) setDetailsLoading(false);
@@ -193,10 +222,13 @@ export default function SettingsLayout({ role }) {
     };
   }, [isAdmin]);
 
-  const previewPhoto = useMemo(() => resolveMediaUrl(profileForm.profilePhoto), [profileForm.profilePhoto]);
+  const previewPhoto = useMemo(
+    () => resolveMediaUrl(profileForm.profilePhoto),
+    [profileForm.profilePhoto],
+  );
   const generatedUpiId = useMemo(
     () => buildGeneratedUpiId(profileForm.phone, profileForm.bankName),
-    [profileForm.phone, profileForm.bankName]
+    [profileForm.phone, profileForm.bankName],
   );
 
   const handlePhotoChange = (event) => {
@@ -218,7 +250,10 @@ export default function SettingsLayout({ role }) {
     event.preventDefault();
     const fullName = joinName(profileForm.firstName, profileForm.lastName);
     if (!fullName) {
-      setMessage({ type: "error", text: "Please enter at least a first name." });
+      setMessage({
+        type: "error",
+        text: "Please enter at least a first name.",
+      });
       return;
     }
     setLoading(true);
@@ -231,8 +266,7 @@ export default function SettingsLayout({ role }) {
           profilePhoto: profileForm.profilePhoto,
           bankName: profileForm.bankName.trim(),
           accountNumber: profileForm.accountNumber.trim(),
-          accountHolderName:
-            profileForm.accountHolderName.trim() || fullName,
+          accountHolderName: profileForm.accountHolderName.trim() || fullName,
           serviceType: providerForm.serviceType,
           location: providerForm.location.trim(),
           address: providerForm.address.trim(),
@@ -251,16 +285,20 @@ export default function SettingsLayout({ role }) {
           ...user,
           name: data.name || fullName,
           phone: data.phone || profileForm.phone,
-          profilePhoto: data.profileImage || data.profilePhoto || profileForm.profilePhoto,
+          profilePhoto:
+            data.profileImage || data.profilePhoto || profileForm.profilePhoto,
           bankName: data.bankName || profileForm.bankName,
           accountNumber: data.accountNumber || profileForm.accountNumber,
           accountHolderName:
             data.accountHolderName || profileForm.accountHolderName || fullName,
           upiId: data.upiId || generatedUpiId,
         });
-        setMessage({ type: "success", text: "Provider profile updated successfully!" });
+        setMessage({
+          type: "success",
+          text: "Provider profile updated successfully!",
+        });
       } else {
-        const response = await api.put("/api/auth/profile", {
+        const response = await api.put("/auth/profile", {
           firstName: profileForm.firstName.trim(),
           lastName: profileForm.lastName.trim(),
           phone: profileForm.phone.trim(),
@@ -268,15 +306,17 @@ export default function SettingsLayout({ role }) {
           profilePhoto: profileForm.profilePhoto,
           bankName: profileForm.bankName.trim(),
           accountNumber: profileForm.accountNumber.trim(),
-          accountHolderName:
-            profileForm.accountHolderName.trim() || fullName,
+          accountHolderName: profileForm.accountHolderName.trim() || fullName,
         });
         const nextUser = response.data?.data?.user ?? response.data?.user;
         if (nextUser) setUserData(nextUser);
         setMessage({ type: "success", text: "Profile updated successfully!" });
       }
     } catch (err) {
-      setMessage({ type: "error", text: err.response?.data?.message || err.message });
+      setMessage({
+        type: "error",
+        text: err.response?.data?.message || err.message,
+      });
     } finally {
       setLoading(false);
     }
@@ -291,11 +331,21 @@ export default function SettingsLayout({ role }) {
     setLoading(true);
     setMessage({ type: "", text: "" });
     try {
-      await api.put("/api/auth/password", { currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword });
-      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      await api.put("/auth/password", {
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
       setMessage({ type: "success", text: "Password changed successfully!" });
     } catch (err) {
-      setMessage({ type: "error", text: err.response?.data?.message || err.message });
+      setMessage({
+        type: "error",
+        text: err.response?.data?.message || err.message,
+      });
     } finally {
       setLoading(false);
     }
@@ -311,7 +361,7 @@ export default function SettingsLayout({ role }) {
     }
     setLoading(true);
     try {
-      await api.delete("/api/auth/account");
+      await api.delete("/auth/account");
       queueFlashToast({
         type: "success",
         message: "Your account has been deleted successfully.",
@@ -338,7 +388,11 @@ export default function SettingsLayout({ role }) {
       return;
     }
 
-    if (!Number.isFinite(nextCommission) || nextCommission < 0 || nextCommission > 100) {
+    if (
+      !Number.isFinite(nextCommission) ||
+      nextCommission < 0 ||
+      nextCommission > 100
+    ) {
       setMessage({
         type: "error",
         text: "Commission percentage must be between 0 and 100.",
@@ -383,7 +437,9 @@ export default function SettingsLayout({ role }) {
       <div className="w-full lg:w-72 shrink-0">
         <div className="bg-card/40 border border-border/60 rounded-[2rem] p-4 backdrop-blur-sm shadow-xs space-y-2 sticky top-24">
           <div className="px-4 py-3 mb-2">
-            <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground opacity-60 italic">Settings</h2>
+            <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground opacity-60 italic">
+              Settings
+            </h2>
           </div>
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -391,21 +447,26 @@ export default function SettingsLayout({ role }) {
             return (
               <button
                 key={tab.id}
-                onClick={() => { setActiveTab(tab.id); setMessage({ type: "", text: "" }); }}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setMessage({ type: "", text: "" });
+                }}
                 className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all relative group overflow-hidden ${
-                  isActive 
-                    ? "text-primary bg-primary/10 border border-primary/20 shadow-xs italic" 
+                  isActive
+                    ? "text-primary bg-primary/10 border border-primary/20 shadow-xs italic"
                     : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                 }`}
               >
                 {isActive && (
-                  <motion.div 
-                    layoutId="settings-active-tab-indicator" 
+                  <motion.div
+                    layoutId="settings-active-tab-indicator"
                     className="absolute inset-0 bg-primary/5 -z-10"
                     transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                   />
                 )}
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${isActive ? "bg-primary/20 text-primary shadow-xs" : "bg-muted/40 text-muted-foreground group-hover:scale-110"}`}>
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${isActive ? "bg-primary/20 text-primary shadow-xs" : "bg-muted/40 text-muted-foreground group-hover:scale-110"}`}
+                >
                   <Icon size={16} />
                 </div>
                 <span>{tab.label}</span>
@@ -419,30 +480,38 @@ export default function SettingsLayout({ role }) {
       <div className="flex-1 min-w-0">
         <AnimatePresence mode="wait">
           {message.text ? (
-            <motion.div 
-              initial={{ opacity: 0, y: -10, scale: 0.95 }} 
-              animate={{ opacity: 1, y: 0, scale: 1 }} 
-              exit={{ opacity: 0, y: -10, scale: 0.95 }} 
+            <motion.div
+              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.95 }}
               className={`mb-6 p-5 rounded-[1.5rem] flex items-center gap-4 border shadow-sm ${
-                message.type === "success" 
-                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400" 
+                message.type === "success"
+                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400"
                   : "bg-rose-500/10 border-rose-500/20 text-rose-700 dark:text-rose-400"
               }`}
             >
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${message.type === "success" ? "bg-emerald-500/20" : "bg-rose-500/20"}`}>
-                {message.type === "success" ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${message.type === "success" ? "bg-emerald-500/20" : "bg-rose-500/20"}`}
+              >
+                {message.type === "success" ? (
+                  <CheckCircle2 size={20} />
+                ) : (
+                  <XCircle size={20} />
+                )}
               </div>
-              <p className="text-xs font-black uppercase tracking-tight italic">{message.text}</p>
+              <p className="text-xs font-black uppercase tracking-tight italic">
+                {message.text}
+              </p>
             </motion.div>
           ) : null}
         </AnimatePresence>
 
-        <motion.div 
-          key={activeTab} 
-          initial={{ opacity: 0, x: 20 }} 
-          animate={{ opacity: 1, x: 0 }} 
-          exit={{ opacity: 0, x: -20 }} 
-          transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }} 
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
           className="bg-card/40 backdrop-blur-xl border border-border/60 shadow-sm rounded-[2rem] overflow-hidden"
         >
           {activeTab === "profile" && (
@@ -452,102 +521,289 @@ export default function SettingsLayout({ role }) {
                   <UserIcon size={24} />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black tracking-tight italic">{isProvider ? "Provider Bio" : "Account Profile"}</h3>
-                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-[0.2em] opacity-60">Manage your public information</p>
+                  <h3 className="text-2xl font-black tracking-tight italic">
+                    {isProvider ? "Provider Bio" : "Account Profile"}
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-[0.2em] opacity-60">
+                    Manage your public information
+                  </p>
                 </div>
               </div>
 
               {detailsLoading ? (
                 <div className="py-20 flex flex-col items-center justify-center gap-4 opacity-50">
                   <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-                  <p className="text-[11px] font-black uppercase tracking-widest italic">Syncing details...</p>
+                  <p className="text-[11px] font-black uppercase tracking-widest italic">
+                    Syncing details...
+                  </p>
                 </div>
               ) : (
                 <form onSubmit={handleProfileSubmit} className="space-y-10">
                   <div className="flex flex-col gap-6 rounded-[1.5rem] border border-border/40 bg-muted/20 p-6 sm:flex-row sm:items-center">
                     <div className="relative inline-block shrink-0">
                       <div className="h-28 w-28 rounded-full overflow-hidden border-2 border-primary/20 bg-muted/40 flex items-center justify-center shadow-lg">
-                        {previewPhoto ? <img src={previewPhoto} alt="Profile" className="h-full w-full object-cover" /> : <UserIcon size={40} className="text-muted-foreground opacity-40" />}
+                        {previewPhoto ? (
+                          <img
+                            src={previewPhoto}
+                            alt="Profile"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <UserIcon
+                            size={40}
+                            className="text-muted-foreground opacity-40"
+                          />
+                        )}
                       </div>
                       <label className="absolute bottom-1 right-1 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
-                        <span className="text-lg font-bold leading-none pb-0.5">+</span>
-                        <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+                        <span className="text-lg font-bold leading-none pb-0.5">
+                          +
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handlePhotoChange}
+                        />
                       </label>
                     </div>
                     <div className="flex-1 space-y-3">
-                      <h4 className="text-xs font-black uppercase tracking-widest text-foreground italic">Branding Image</h4>
+                      <h4 className="text-xs font-black uppercase tracking-widest text-foreground italic">
+                        Branding Image
+                      </h4>
                       <p className="text-[10px] text-muted-foreground font-medium leading-relaxed opacity-80 max-w-sm">
-                        High-quality square images work best. This visual is seen by clients in search results and booking confirmations.
+                        High-quality square images work best. This visual is
+                        seen by clients in search results and booking
+                        confirmations.
                       </p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">First Name</label>
-                      <input type="text" required value={profileForm.firstName} onChange={(event) => setProfileForm((prev) => ({ ...prev, firstName: event.target.value }))} className={INPUT} />
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                        First Name
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={profileForm.firstName}
+                        onChange={(event) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            firstName: event.target.value,
+                          }))
+                        }
+                        className={INPUT}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Last Name</label>
-                      <input type="text" value={profileForm.lastName} onChange={(event) => setProfileForm((prev) => ({ ...prev, lastName: event.target.value }))} className={INPUT} />
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                        Last Name
+                      </label>
+                      <input
+                        type="text"
+                        value={profileForm.lastName}
+                        onChange={(event) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            lastName: event.target.value,
+                          }))
+                        }
+                        className={INPUT}
+                      />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Business Mobile</label>
-                      <input type="tel" value={profileForm.phone} onChange={(event) => setProfileForm((prev) => ({ ...prev, phone: event.target.value }))} className={INPUT} />
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                        Business Mobile
+                      </label>
+                      <input
+                        type="tel"
+                        value={profileForm.phone}
+                        onChange={(event) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            phone: event.target.value,
+                          }))
+                        }
+                        className={INPUT}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Registered Email</label>
-                      <input type="email" value={user?.email || ""} disabled className={`${INPUT} cursor-not-allowed opacity-50 font-medium italic`} />
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                        Registered Email
+                      </label>
+                      <input
+                        type="email"
+                        value={user?.email || ""}
+                        disabled
+                        className={`${INPUT} cursor-not-allowed opacity-50 font-medium italic`}
+                      />
                     </div>
                   </div>
 
                   {!isProvider && (
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Physical Address</label>
-                      <input type="text" placeholder="Service location..." value={profileForm.address} onChange={(event) => setProfileForm((prev) => ({ ...prev, address: event.target.value }))} className={INPUT} />
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                        Physical Address
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Service location..."
+                        value={profileForm.address}
+                        onChange={(event) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            address: event.target.value,
+                          }))
+                        }
+                        className={INPUT}
+                      />
                     </div>
                   )}
 
                   {isProvider && (
                     <div className="grid grid-cols-1 gap-8 rounded-[2rem] border border-border/40 bg-muted/10 p-8 md:grid-cols-2">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Professional Category</label>
-                        <select value={providerForm.serviceType} onChange={(event) => setProviderForm((prev) => ({ ...prev, serviceType: event.target.value }))} className={INPUT}>
-                          {SERVICE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Professional Category
+                        </label>
+                        <select
+                          value={providerForm.serviceType}
+                          onChange={(event) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              serviceType: event.target.value,
+                            }))
+                          }
+                          className={INPUT}
+                        >
+                          {SERVICE_TYPES.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
                         </select>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Live Status</label>
-                        <select value={providerForm.availability ? "available" : "unavailable"} onChange={(event) => setProviderForm((prev) => ({ ...prev, availability: event.target.value === "available" }))} className={INPUT}>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Live Status
+                        </label>
+                        <select
+                          value={
+                            providerForm.availability
+                              ? "available"
+                              : "unavailable"
+                          }
+                          onChange={(event) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              availability: event.target.value === "available",
+                            }))
+                          }
+                          className={INPUT}
+                        >
                           <option value="available">Accepting Requests</option>
-                          <option value="unavailable">Paused (Hidden from Search)</option>
+                          <option value="unavailable">
+                            Paused (Hidden from Search)
+                          </option>
                         </select>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">City / Hub</label>
-                        <input type="text" placeholder="City, State" value={providerForm.location} onChange={(event) => setProviderForm((prev) => ({ ...prev, location: event.target.value }))} className={INPUT} />
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          City / Hub
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="City, State"
+                          value={providerForm.location}
+                          onChange={(event) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              location: event.target.value,
+                            }))
+                          }
+                          className={INPUT}
+                        />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Service Radius / Address</label>
-                        <input type="text" placeholder="Street or hub address..." value={providerForm.address} onChange={(event) => setProviderForm((prev) => ({ ...prev, address: event.target.value }))} className={INPUT} />
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Service Radius / Address
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Street or hub address..."
+                          value={providerForm.address}
+                          onChange={(event) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              address: event.target.value,
+                            }))
+                          }
+                          className={INPUT}
+                        />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Base Hourly Rate (₹)</label>
-                        <input type="number" min="0" step="1" placeholder="999" value={providerForm.hourlyRate} onChange={(event) => setProviderForm((prev) => ({ ...prev, hourlyRate: event.target.value }))} className={`${INPUT} font-black italic`} />
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Base Hourly Rate (₹)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="999"
+                          value={providerForm.hourlyRate}
+                          onChange={(event) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              hourlyRate: event.target.value,
+                            }))
+                          }
+                          className={`${INPUT} font-black italic`}
+                        />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Field Experience (Years)</label>
-                        <input type="number" min="0" step="1" placeholder="5" value={providerForm.experience} onChange={(event) => setProviderForm((prev) => ({ ...prev, experience: event.target.value }))} className={`${INPUT} font-black italic`} />
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Field Experience (Years)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="5"
+                          value={providerForm.experience}
+                          onChange={(event) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              experience: event.target.value,
+                            }))
+                          }
+                          className={`${INPUT} font-black italic`}
+                        />
                       </div>
                       <div className="space-y-2 md:col-span-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Value Proposition (Bio)</label>
-                        <textarea value={providerForm.bio} onChange={(event) => setProviderForm((prev) => ({ ...prev, bio: event.target.value }))} placeholder="Explain why clients should choose your expertise..." className={`${INPUT} min-h-[140px] resize-y font-medium leading-relaxed italic`} />
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Value Proposition (Bio)
+                        </label>
+                        <textarea
+                          value={providerForm.bio}
+                          onChange={(event) =>
+                            setProviderForm((prev) => ({
+                              ...prev,
+                              bio: event.target.value,
+                            }))
+                          }
+                          placeholder="Explain why clients should choose your expertise..."
+                          className={`${INPUT} min-h-[140px] resize-y font-medium leading-relaxed italic`}
+                        />
                       </div>
                       <div className="space-y-2 md:col-span-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Work Categories</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Work Categories
+                        </label>
                         <input
                           type="text"
                           placeholder="Plumbing, Electrical, AC Repair"
@@ -561,7 +817,8 @@ export default function SettingsLayout({ role }) {
                           className={INPUT}
                         />
                         <p className="text-[10px] text-muted-foreground italic">
-                          These categories power your public profile tags. Use commas to add multiple works.
+                          These categories power your public profile tags. Use
+                          commas to add multiple works.
                         </p>
                       </div>
                     </div>
@@ -569,15 +826,20 @@ export default function SettingsLayout({ role }) {
 
                   <div className="rounded-[2rem] border border-border/40 bg-muted/10 p-8 space-y-6">
                     <div>
-                      <h4 className="text-xs font-black uppercase tracking-widest text-foreground italic">Payment Details</h4>
+                      <h4 className="text-xs font-black uppercase tracking-widest text-foreground italic">
+                        Payment Details
+                      </h4>
                       <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
-                        Add your bank name and account details. Your UPI ID is generated automatically as `phone@bankname`.
+                        Add your bank name and account details. Your UPI ID is
+                        generated automatically as `phone@bankname`.
                       </p>
                     </div>
 
                     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Bank Name</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Bank Name
+                        </label>
                         <input
                           type="text"
                           value={profileForm.bankName}
@@ -591,11 +853,20 @@ export default function SettingsLayout({ role }) {
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Generated UPI ID</label>
-                        <input type="text" value={generatedUpiId || "Add phone and bank name"} readOnly className={`${INPUT} cursor-not-allowed opacity-70`} />
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Generated UPI ID
+                        </label>
+                        <input
+                          type="text"
+                          value={generatedUpiId || "Add phone and bank name"}
+                          readOnly
+                          className={`${INPUT} cursor-not-allowed opacity-70`}
+                        />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Account Number</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Account Number
+                        </label>
                         <input
                           type="text"
                           value={profileForm.accountNumber}
@@ -609,7 +880,9 @@ export default function SettingsLayout({ role }) {
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Name on Account</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                          Name on Account
+                        </label>
                         <input
                           type="text"
                           value={profileForm.accountHolderName}
@@ -626,9 +899,9 @@ export default function SettingsLayout({ role }) {
                   </div>
 
                   <div className="pt-8 border-t border-border/20">
-                    <Button 
-                      type="submit" 
-                      disabled={loading} 
+                    <Button
+                      type="submit"
+                      disabled={loading}
                       className="w-full sm:w-auto h-12 rounded-2xl px-10 text-[11px] font-black uppercase tracking-widest italic shadow-xl shadow-primary/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
                     >
                       {loading ? (
@@ -723,8 +996,10 @@ export default function SettingsLayout({ role }) {
                           Hold the website during maintenance
                         </h4>
                         <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                          When enabled, clients and providers cannot browse public pages, open dashboards,
-                          create bookings, use chat, or access their workspace until maintenance mode is turned off.
+                          When enabled, clients and providers cannot browse
+                          public pages, open dashboards, create bookings, use
+                          chat, or access their workspace until maintenance mode
+                          is turned off.
                         </p>
                       </div>
 
@@ -742,7 +1017,9 @@ export default function SettingsLayout({ role }) {
                             : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 shadow-emerald-500/10"
                         }`}
                       >
-                        {platformForm.maintenanceMode ? "Maintenance On" : "Maintenance Off"}
+                        {platformForm.maintenanceMode
+                          ? "Maintenance On"
+                          : "Maintenance Off"}
                       </button>
                     </div>
 
@@ -752,7 +1029,8 @@ export default function SettingsLayout({ role }) {
                           Blocked While On
                         </p>
                         <p className="mt-3 text-sm font-semibold text-foreground">
-                          Public browsing, sign-up, client dashboards, provider dashboards, bookings, messaging, and notifications.
+                          Public browsing, sign-up, client dashboards, provider
+                          dashboards, bookings, messaging, and notifications.
                         </p>
                       </div>
                       <div className="rounded-[1.5rem] border border-border/40 bg-card/50 p-5">
@@ -760,7 +1038,8 @@ export default function SettingsLayout({ role }) {
                           Still Allowed
                         </p>
                         <p className="mt-3 text-sm font-semibold text-foreground">
-                          Admin sign-in and admin control panels stay available so you can manage the platform.
+                          Admin sign-in and admin control panels stay available
+                          so you can manage the platform.
                         </p>
                       </div>
                     </div>
@@ -797,28 +1076,76 @@ export default function SettingsLayout({ role }) {
                   <Lock size={24} />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black tracking-tight italic">Vault Access</h3>
-                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-[0.2em] opacity-60">Update your security credentials</p>
+                  <h3 className="text-2xl font-black tracking-tight italic">
+                    Vault Access
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-[0.2em] opacity-60">
+                    Update your security credentials
+                  </p>
                 </div>
               </div>
-              
-              <form onSubmit={handlePasswordSubmit} className="space-y-8 max-w-xl">
+
+              <form
+                onSubmit={handlePasswordSubmit}
+                className="space-y-8 max-w-xl"
+              >
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Current Password</label>
-                  <input type="password" required value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))} className={INPUT} />
+                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                    Current Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={passwordForm.currentPassword}
+                    onChange={(event) =>
+                      setPasswordForm((prev) => ({
+                        ...prev,
+                        currentPassword: event.target.value,
+                      }))
+                    }
+                    className={INPUT}
+                  />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">New Secure Password</label>
-                  <input type="password" required minLength={8} value={passwordForm.newPassword} onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))} className={INPUT} />
+                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                    New Secure Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={passwordForm.newPassword}
+                    onChange={(event) =>
+                      setPasswordForm((prev) => ({
+                        ...prev,
+                        newPassword: event.target.value,
+                      }))
+                    }
+                    className={INPUT}
+                  />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Confirm New Password</label>
-                  <input type="password" required minLength={8} value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} className={INPUT} />
+                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                    Confirm New Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={passwordForm.confirmPassword}
+                    onChange={(event) =>
+                      setPasswordForm((prev) => ({
+                        ...prev,
+                        confirmPassword: event.target.value,
+                      }))
+                    }
+                    className={INPUT}
+                  />
                 </div>
                 <div className="pt-6 border-t border-border/20">
-                  <Button 
-                    type="submit" 
-                    disabled={loading} 
+                  <Button
+                    type="submit"
+                    disabled={loading}
                     className="w-full sm:w-auto h-12 rounded-2xl px-10 text-[11px] font-black uppercase tracking-widest italic shadow-xl shadow-primary/20"
                   >
                     {loading ? "Updating..." : "Authorize Update"}
@@ -835,35 +1162,50 @@ export default function SettingsLayout({ role }) {
                   <AlertTriangle size={24} />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black tracking-tight text-rose-600 italic">Termination Zone</h3>
-                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-[0.2em] opacity-60">Permanent account deletion</p>
+                  <h3 className="text-2xl font-black tracking-tight text-rose-600 italic">
+                    Termination Zone
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-[0.2em] opacity-60">
+                    Permanent account deletion
+                  </p>
                 </div>
               </div>
 
               <div className="space-y-8 max-w-xl">
                 <div className="p-6 rounded-[1.5rem] bg-rose-500/5 border border-rose-500/20">
                   <p className="text-xs font-bold leading-relaxed text-rose-800 dark:text-rose-400">
-                    Deleting your workspace is irreversible. All career history, client connections, and financial records associated with <span className="underline italic text-rose-600">{user?.email}</span> will be purged.
+                    Deleting your workspace is irreversible. All career history,
+                    client connections, and financial records associated with{" "}
+                    <span className="underline italic text-rose-600">
+                      {user?.email}
+                    </span>{" "}
+                    will be purged.
                   </p>
                 </div>
-                
+
                 <form onSubmit={handleDeleteAccount} className="space-y-6">
                   <div className="space-y-3">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">Identity Verification</label>
-                    <p className="text-[10px] text-muted-foreground italic mb-2">Type <span className="font-black text-rose-600">DELETE</span> to authorize permanent removal:</p>
-                    <input 
-                      type="text" 
-                      required 
-                      value={deleteConfirm} 
-                      onChange={(event) => setDeleteConfirm(event.target.value)} 
-                      placeholder="Type DELETE..." 
-                      className={`${INPUT} border-rose-500/30 focus:border-rose-500 focus:ring-rose-500/30 font-black italic text-rose-600 uppercase tracking-widest`} 
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Identity Verification
+                    </label>
+                    <p className="text-[10px] text-muted-foreground italic mb-2">
+                      Type{" "}
+                      <span className="font-black text-rose-600">DELETE</span>{" "}
+                      to authorize permanent removal:
+                    </p>
+                    <input
+                      type="text"
+                      required
+                      value={deleteConfirm}
+                      onChange={(event) => setDeleteConfirm(event.target.value)}
+                      placeholder="Type DELETE..."
+                      className={`${INPUT} border-rose-500/30 focus:border-rose-500 focus:ring-rose-500/30 font-black italic text-rose-600 uppercase tracking-widest`}
                     />
                   </div>
                   <div className="pt-4">
-                    <Button 
-                      type="submit" 
-                      disabled={loading || deleteConfirm !== "DELETE"} 
+                    <Button
+                      type="submit"
+                      disabled={loading || deleteConfirm !== "DELETE"}
                       className="w-full sm:w-auto h-12 rounded-2xl px-10 text-[11px] font-black uppercase tracking-widest italic bg-rose-600 hover:bg-rose-700 text-white shadow-xl shadow-rose-500/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
                     >
                       <Trash2 size={14} className="mr-2" />

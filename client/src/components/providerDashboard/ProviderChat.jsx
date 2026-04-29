@@ -58,7 +58,8 @@ const formatMessageTime = (value) => {
 export default function ProviderChat() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const contactParam = searchParams.get("client") || searchParams.get("contact");
+  const contactParam =
+    searchParams.get("client") || searchParams.get("contact");
 
   const [conversations, setConversations] = useState([]);
   const [loadingConvos, setLoadingConvos] = useState(true);
@@ -159,8 +160,8 @@ export default function ProviderChat() {
       if (err) return;
       setMessages((prev) =>
         prev.map((m) =>
-          String(m.senderId) === String(user?.id) ? { ...m, read: true } : m
-        )
+          String(m.senderId) === String(user?.id) ? { ...m, read: true } : m,
+        ),
       );
     });
 
@@ -178,8 +179,8 @@ export default function ProviderChat() {
     setParticipant(convo.participant);
     setConversations((prev) =>
       prev.map((c) =>
-        c.participant?.userId === otherUserId ? { ...c, unreadCount: 0 } : c
-      )
+        c.participant?.userId === otherUserId ? { ...c, unreadCount: 0 } : c,
+      ),
     );
   };
 
@@ -202,7 +203,7 @@ export default function ProviderChat() {
 
     try {
       setSending(true);
-      const res = await api.post("/api/messages", {
+      const res = await api.post("/messages", {
         receiverId: activeUserId,
         content,
       });
@@ -210,8 +211,8 @@ export default function ProviderChat() {
       if (savedMsg) {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === optimistic.id ? { ...savedMsg, direction: "outgoing" } : m
-          )
+            m.id === optimistic.id ? { ...savedMsg, direction: "outgoing" } : m,
+          ),
         );
       }
       fetchConversations();
@@ -232,7 +233,7 @@ export default function ProviderChat() {
 
   const totalUnread = conversations.reduce(
     (sum, c) => sum + (c.unreadCount || 0),
-    0
+    0,
   );
 
   return (
@@ -405,7 +406,9 @@ export default function ProviderChat() {
                     {participant?.name || "Client"}
                   </h2>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-70 italic leading-none">
-                    {participant?.role === "CLIENT" ? "Verified Client" : "User"}
+                    {participant?.role === "CLIENT"
+                      ? "Verified Client"
+                      : "User"}
                   </span>
                 </div>
               </div>

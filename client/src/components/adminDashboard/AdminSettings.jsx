@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { HardDrive, ShieldCheck, Upload, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/contexts/AuthContext";
+import { useMaintenance } from "@/components/contexts/MaintenanceContext";
 import { fetchAdminSettings, updateAdminSettings } from "@/lib/adminApi";
 import {
   AdminLoadingState,
@@ -27,6 +28,7 @@ const EMPTY_FORM = {
 
 export default function AdminSettings() {
   const { refreshProfile } = useAuth();
+  const { refreshStatus } = useMaintenance();
   const [form, setForm] = useState(EMPTY_FORM);
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -73,6 +75,7 @@ export default function AdminSettings() {
       const response = await updateAdminSettings(form);
       toast.success(response.data?.message || "Settings saved.");
       await refreshProfile({ silent: true });
+      await refreshStatus({ silent: true });
       await loadSettings();
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to save settings.");

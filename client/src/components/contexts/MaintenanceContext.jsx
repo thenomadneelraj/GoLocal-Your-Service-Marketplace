@@ -30,7 +30,7 @@ export const MaintenanceProvider = ({ children }) => {
     }
 
     try {
-      const response = await api.get("/api/auth/platform-status");
+      const response = await api.get("/auth/platform-status");
       const nextStatus = response.data?.data || {};
 
       setStatus({
@@ -42,6 +42,7 @@ export const MaintenanceProvider = ({ children }) => {
       });
       hasLoggedConnectionIssueRef.current = false;
     } catch (error) {
+      console.error("❌ Platform status error:", error);
       setStatus((current) => ({
         maintenanceMode: Boolean(current?.maintenanceMode),
         platformName: current?.platformName || DEFAULT_STATUS.platformName,
@@ -52,7 +53,7 @@ export const MaintenanceProvider = ({ children }) => {
 
       if (!hasLoggedConnectionIssueRef.current) {
         console.warn(
-          "Platform status is temporarily unavailable. Using default maintenance settings."
+          "Platform status is temporarily unavailable. Using default maintenance settings.",
         );
         hasLoggedConnectionIssueRef.current = true;
       }

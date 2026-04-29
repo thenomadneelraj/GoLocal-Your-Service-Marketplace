@@ -2,11 +2,27 @@ import axios from "axios";
 import mockApi, { shouldUseMock } from "../mock/mockApi.js";
 import mockDB from "../mock/db.js";
 
+const normalizeApiUrl = (url = "") => {
+  return String(url)
+    .replace(/^\/?api(\/|$)/i, "/")
+    .replace(/\/\/{2,}/g, "/");
+};
+
+const apiBaseUrl = (
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  ""
+).replace(/\/$/, "");
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "",
+  baseURL: apiBaseUrl,
 });
 
 api.interceptors.request.use((config) => {
+  if (config.url) {
+    config.url = normalizeApiUrl(config.url);
+  }
+
   const token = sessionStorage.getItem("token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -43,30 +59,70 @@ const apiWrapper = {
   // Original axios instance for real API calls
   axios: api,
 
+  // Helper method to detect admin requests
+  isAdminRequest(url, data = null) {
+    // Check URL for admin endpoints
+    if (url.includes("/admin/")) {
+      console.log(" Admin request detected by URL:", url);
+      return true;
+    }
+
+    // Check authentication data for admin role
+    if (data && data.role) {
+      const isAdmin =
+        data.role.toLowerCase() === "admin" || data.role === "ADMIN";
+      console.log(" Admin request detected by role:", {
+        role: data.role,
+        isAdmin,
+      });
+      return isAdmin;
+    }
+
+    // Platform status should always use real backend (admin-controlled)
+    if (url.includes("/platform-status")) {
+      return true;
+    }
+
+    return false;
+  },
+
   // Wrapper methods that choose between real and mock API
   async get(url, config) {
-    if (this.useMock) {
+    if (this.useMock && !this.isAdminRequest(url)) {
       return this.handleMockRequest("GET", url, null, config);
     }
     return api.get(url, config);
   },
 
   async post(url, data, config) {
-    if (this.useMock) {
+    console.log(`📤 API POST: ${url}`, { data, useMock: this.useMock });
+    const isAdminReq = this.isAdminRequest(url, data);
+    console.log(`🔍 Is admin request: ${isAdminReq}`);
+
+    if (this.useMock && !isAdminReq) {
+      console.log(`🔧 Using mock API for: ${url}`);
       return this.handleMockRequest("POST", url, data, config);
     }
+
+    if (isAdminReq && this.useMock) {
+      console.log(`🌐 Admin request with mock mode - using real API only`);
+      console.log(`🌐 Using real API for admin request: ${url}`);
+      return await api.post(url, data, config);
+    }
+
+    console.log(`🌐 Using real API for: ${url}`);
     return api.post(url, data, config);
   },
 
   async put(url, data, config) {
-    if (this.useMock) {
+    if (this.useMock && !this.isAdminRequest(url)) {
       return this.handleMockRequest("PUT", url, data, config);
     }
     return api.put(url, data, config);
   },
 
   async delete(url, config) {
-    if (this.useMock) {
+    if (this.useMock && !this.isAdminRequest(url)) {
       return this.handleMockRequest("DELETE", url, null, config);
     }
     return api.delete(url, config);
@@ -150,17 +206,24 @@ const apiWrapper = {
           const userId = token.split("-")[1];
           return await mockApi.getUserProfile(userId);
         }
-        if (subEndpoint === "platform-status") {
-          return {
-            data: {
-              maintenance: false,
-              message: "Platform operational",
-              version: "1.0.0",
-              lastUpdated: new Date().toISOString(),
-            },
-          };
-        }
         break;
+
+      case "notifications":
+        return {
+          data: {
+            data: {
+              items: [],
+              unreadCount: 0,
+              total: 0,
+            },
+          },
+        };
+
+      case "admin":
+        // Admin should never use mock data - always use real backend
+        throw new Error(
+          "Admin endpoints require real backend - no mock data available",
+        );
 
       default:
         throw new Error(`Unknown GET endpoint: ${endpoint}`);
@@ -222,6 +285,9 @@ const apiWrapper = {
         }
         break;
 
+      case "admin":
+        return this.handleAdminPatch(subEndpoint, id, data);
+
       case "messages":
         if (subEndpoint === "read") {
           return await mockApi.markMessagesAsRead(id, data.userId);
@@ -232,6 +298,33 @@ const apiWrapper = {
         throw new Error(`Unknown PUT endpoint: ${endpoint}`);
     }
     throw new Error(`Invalid PUT request: ${endpoint}`);
+  },
+
+  // Admin PATCH handlers
+  async handleAdminPatch(subEndpoint, id, data) {
+    console.log(`🔧 Mock Admin API: PATCH ${subEndpoint}/${id}`, data);
+
+    switch (subEndpoint) {
+      case "users":
+        if (urlParts[2] === "status") {
+          const updatedUser = mockDB.update("users", id, {
+            approvalStatus: data.status,
+            isActive: data.isActive !== undefined ? data.isActive : true,
+          });
+          return { data: { data: updatedUser } };
+        }
+        if (urlParts[2] === "verification") {
+          const updatedUser = mockDB.update("users", id, {
+            isVerified: data.isVerified,
+            verificationDocuments: data.verificationDocuments,
+          });
+          return { data: { data: updatedUser } };
+        }
+        break;
+
+      default:
+        throw new Error(`Unknown admin PATCH endpoint: ${subEndpoint}`);
+    }
   },
 
   // Mock DELETE handlers

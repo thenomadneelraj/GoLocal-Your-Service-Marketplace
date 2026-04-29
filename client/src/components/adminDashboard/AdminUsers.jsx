@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { Ban, CheckCircle2, Mail, RefreshCw, ShieldX, UserRound } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Ban,
+  CheckCircle2,
+  RefreshCw,
+  ShieldX,
+  UserRound,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   downloadAdminExport,
@@ -15,179 +21,119 @@ import {
   AdminSelectField,
   AdminStatCard,
   AdminStatusBadge,
-  formatAdminDateTime,
   downloadBlobFile,
+  formatAdminDateTime,
 } from "./AdminWorkspaceCommon";
-import DataOriginBadge from "@/components/shared/DataOriginBadge";
-import { mergeLayeredCollections } from "@/lib/dataLayering";
-import { mockAdminUsers } from "@/lib/mockWorkspaceData";
 import { useSocketEvent } from "@/components/contexts/WebSocketContext";
 
+const DEFAULT_FILTERS = {
+  search: "",
+  role: "all",
+  status: "all",
+};
+
+const getUserStatusValue = (user) =>
+  ["suspended", "rejected"].includes(user.status)
+    ? user.status
+    : user.approvalStatus === "approved"
+      ? user.status
+      : user.approvalStatus;
+
 export default function AdminUsers() {
-  const [filters, setFilters] = useState({
-    search: "",
-    role: "all",
-    status: "all",
-  });
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState("");
   const [payload, setPayload] = useState(null);
   const [downloadFormat, setDownloadFormat] = useState("csv");
 
-  // Load users function must be defined before it's referenced in useCallback
-  const loadUsers = async (nextFilters = filters, forceRefresh = false) => {
+  const loadUsers = useCallback(async (nextFilters = DEFAULT_FILTERS, forceRefresh = false) => {
     try {
       setLoading(true);
       const response = await fetchAdminUsers(nextFilters, forceRefresh);
-      setPayload(response.data?.data || null);
+      setPayload(response.data?.data || response.data || null);
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to load users.");
+      setPayload({ summary: {}, items: [] });
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Handle real-time user updates via WebSocket
-  const handleUserUpdate = useCallback((payload) => {
-    console.log("[AdminUsers] Received user update:", payload);
-    
-    // Invalidate cache and refresh the users list when updates occur
-    invalidateCache.users();
-    loadUsers(filters, true);
-    
-    if (payload.message) {
-      toast.success(payload.message);
-    }
-  }, [filters, loadUsers]);
+  const handleUserUpdate = useCallback(
+    (eventPayload) => {
+      invalidateCache.users();
+      loadUsers(filters, true);
+
+      if (eventPayload?.message) {
+        toast.success(eventPayload.message);
+      }
+    },
+    [filters, loadUsers],
+  );
 
   useSocketEvent("user_updated", handleUserUpdate);
   useSocketEvent("user_status_updated", handleUserUpdate);
 
   useEffect(() => {
-    loadUsers(undefined, true);
-  }, []);
+    loadUsers(DEFAULT_FILTERS, true);
+  }, [loadUsers]);
 
-  // Always call hooks before any conditional returns
-  const summary = payload?.summary || {};
-  const items = payload?.items || [];
-  const layeredItems = useMemo(
-    () =>
-      mergeLayeredCollections(items, mockAdminUsers, {
-        getId: (user) => user.id,
-      }),
-    [items]
+  const users = useMemo(() => payload?.items || [], [payload]);
+  const hasActiveFilters =
+    filters.search !== "" || filters.role !== "all" || filters.status !== "all";
+
+  const calculatedSummary = useMemo(
+    () => ({
+      totalUsers: users.length,
+      pendingApproval: users.filter((user) => user.approvalStatus === "pending")
+        .length,
+      approved: users.filter((user) => user.approvalStatus === "approved")
+        .length,
+      rejected: users.filter(
+        (user) => user.approvalStatus === "rejected" || user.status === "rejected",
+      ).length,
+      suspended: users.filter((user) => user.status === "suspended").length,
+    }),
+    [users],
   );
-  const mockSummary = {
-    totalUsers: mockAdminUsers.length,
-    pendingApproval: mockAdminUsers.filter((user) => user.approvalStatus === "pending").length,
-    approved: mockAdminUsers.filter((user) => user.approvalStatus === "approved").length,
-    rejected: mockAdminUsers.filter((user) => user.approvalStatus === "rejected").length,
-    suspended: mockAdminUsers.filter((user) => user.status === "suspended").length,
-  };
 
-  // Check if any filters are active
-  const hasActiveFilters = filters.search !== "" || filters.role !== "all" || filters.status !== "all";
-
-  // Calculate summary from layered items to ensure consistency between stats and list
-  const layeredSummary = useMemo(() => {
-    const realItems = layeredItems.filter(item => item.dataOrigin !== 'mock');
-    const mockItemsOnly = layeredItems.filter(item => item.dataOrigin === 'mock');
-    
-    // If we have real items, use their summary; otherwise use mock summary
-    if (realItems.length > 0) {
-      return {
-        totalUsers: realItems.length + (hasActiveFilters ? 0 : mockItemsOnly.length),
-        pendingApproval: realItems.filter((item) => item.approvalStatus === "pending").length,
-        approved: realItems.filter((item) => item.approvalStatus === "approved").length,
-        rejected: realItems.filter((item) => item.approvalStatus === "rejected").length,
-        suspended: realItems.filter((item) => item.status === "suspended").length,
-      };
-    }
-    return mockSummary;
-  }, [layeredItems, mockSummary, hasActiveFilters]);
-  
-  const resolvedSummary = hasActiveFilters ? layeredSummary : (summary.totalUsers ? summary : layeredSummary);
-
-  if (loading && !payload) {
-    return <AdminLoadingState label="Loading user approvals..." />;
-  }
+  const summary =
+    !hasActiveFilters && payload?.summary?.totalUsers !== undefined
+      ? payload.summary
+      : calculatedSummary;
 
   const handleFilterChange = (key, value) => {
     const nextFilters = { ...filters, [key]: value };
     setFilters(nextFilters);
-    loadUsers(nextFilters, false);
+    loadUsers(nextFilters, true);
+  };
+
+  const handleRefresh = () => {
+    invalidateCache.users();
+    loadUsers(filters, true);
   };
 
   const handleAction = async (userId, status) => {
-    const targetUser = (payload?.items || []).find((user) => user.id === userId);
-    if (targetUser?.dataOrigin === "mock") {
-      toast.info("Sample users are read-only.");
-      return;
-    }
-
     if (status === "rejected") {
       const confirmed = window.confirm(
-        "This will permanently delete the user and all their associated data. Are you sure?"
+        "This will permanently delete the user and all their associated data. Are you sure?",
       );
       if (!confirmed) return;
     }
 
     try {
       setActionId(`${userId}:${status}`);
-      
-      // Optimistically update the UI immediately
-      setPayload((prev) => {
-        if (!prev) return prev;
-        
-        // For rejection, remove the user from the list entirely
-        if (status === "rejected") {
-          const nextItems = prev.items.filter((user) => user.id !== userId);
-          return {
-            ...prev,
-            items: nextItems,
-            summary: {
-              ...prev.summary,
-              totalUsers: Math.max(0, prev.summary.totalUsers - 1),
-              rejected: Math.max(0, (prev.summary.rejected || 0) + 1),
-            },
-          };
-        }
-        
-        // For other statuses, update the user's status
-        const nextItems = prev.items.map((user) => {
-          if (user.id === userId) {
-            return {
-              ...user,
-              approvalStatus: status === "approved" ? "approved" : status,
-              status: status === "approved" ? "active" : status,
-            };
-          }
-          return user;
-        });
-
-        return {
-          ...prev,
-          items: nextItems,
-        };
-      });
-
-      // Sync with backend
-      const response = await updateAdminUserStatus(userId, { status });
-      toast.success(response.data?.message || "User updated successfully.");
-
-      // Invalidate cache and refresh to ensure we get latest data from DB
+      await updateAdminUserStatus(userId, { status });
+      toast.success("User updated successfully.");
       invalidateCache.users();
+      invalidateCache.dashboard();
       await loadUsers(filters, true);
     } catch (error) {
-      // Revert optimistic update on error
       toast.error(error.response?.data?.message || "Failed to update user.");
-      invalidateCache.users();
-      await loadUsers(filters, true);
     } finally {
       setActionId("");
     }
   };
-
 
   const handleExport = async () => {
     try {
@@ -198,50 +144,66 @@ export default function AdminUsers() {
       const fileName = downloadBlobFile(response, `users.${downloadFormat}`);
       toast.success(`${fileName} downloaded successfully.`);
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to download export.");
+      toast.error(
+        error.response?.data?.message || "Failed to download export.",
+      );
     }
   };
 
-  const handleRefresh = () => {
-    loadUsers(filters, true);
-  };
+  if (loading && !payload) {
+    return <AdminLoadingState label="Loading user approvals..." />;
+  }
 
   return (
     <AdminPageShell
       title="Users"
-      description="Approve access, suspend accounts that should lose access, or permanently reject users you do not want on the platform."
+      description="Review client and provider accounts, approvals, and access status."
       actions={
-        <>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={loading}
-            className="admin-button-secondary"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
-          <AdminSelectField value={downloadFormat} onChange={setDownloadFormat}>
-            <option value="csv">CSV</option>
-            <option value="xlsx">XLSX</option>
-            <option value="pdf">PDF</option>
-          </AdminSelectField>
-          <button type="button" onClick={handleExport} className="admin-button-secondary">
-            Export {String(downloadFormat).toUpperCase()}
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={loading}
+          className="admin-button-secondary"
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       }
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <AdminStatCard icon={UserRound} title="Total users" value={resolvedSummary.totalUsers ?? 0} />
-        <AdminStatCard icon={Ban} title="Pending approval" value={resolvedSummary.pendingApproval ?? 0} tone="text-amber-600" />
-        <AdminStatCard icon={CheckCircle2} title="Approved" value={resolvedSummary.approved ?? 0} tone="text-emerald-600" />
-        <AdminStatCard icon={ShieldX} title="Rejected" value={resolvedSummary.rejected ?? 0} tone="text-rose-600" />
-        <AdminStatCard icon={Ban} title="Suspended" value={resolvedSummary.suspended ?? 0} tone="text-slate-500" />
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-5">
+        <AdminStatCard
+          icon={UserRound}
+          title="Total users"
+          value={summary.totalUsers ?? 0}
+        />
+        <AdminStatCard
+          icon={Ban}
+          title="Pending approval"
+          value={summary.pendingApproval ?? 0}
+          tone="text-amber-600"
+        />
+        <AdminStatCard
+          icon={CheckCircle2}
+          title="Approved"
+          value={summary.approved ?? 0}
+          tone="text-emerald-600"
+        />
+        <AdminStatCard
+          icon={ShieldX}
+          title="Rejected"
+          value={summary.rejected ?? 0}
+          tone="text-rose-600"
+        />
+        <AdminStatCard
+          icon={Ban}
+          title="Suspended"
+          value={summary.suspended ?? 0}
+          tone="text-slate-500"
+        />
       </div>
 
       <AdminPanel>
-        <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_auto]">
+        <div className="grid gap-3 xl:grid-cols-[1.35fr_0.8fr_0.9fr_0.55fr_auto]">
           <div>
             <label className="admin-label">Search</label>
             <div className="mt-2">
@@ -280,83 +242,121 @@ export default function AdminUsers() {
               </AdminSelectField>
             </div>
           </div>
-          <div className="flex items-end text-xs text-muted-foreground">
-            {layeredItems.length} user(s) shown
+          <div>
+            <label className="admin-label">Export</label>
+            <div className="mt-2">
+              <AdminSelectField
+                value={downloadFormat}
+                onChange={setDownloadFormat}
+              >
+                <option value="csv">CSV</option>
+                <option value="xlsx">XLSX</option>
+                <option value="pdf">PDF</option>
+              </AdminSelectField>
+            </div>
+          </div>
+          <div className="flex items-end gap-3">
+            <button
+              type="button"
+              onClick={handleExport}
+              className="admin-button-primary h-11 whitespace-nowrap"
+            >
+              Export
+            </button>
+            <span className="whitespace-nowrap pb-3 text-xs text-muted-foreground">
+              {users.length} shown
+            </span>
           </div>
         </div>
       </AdminPanel>
 
-      <div className="space-y-4">
-        {layeredItems.map((user) => (
-          <article
-            key={user.id}
-            className="admin-card flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"
-          >
-            <div className="flex items-start gap-4">
-              <span className="admin-icon-wrap text-slate-500">
-                <UserRound size={16} />
-              </span>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-base font-semibold text-foreground">{user.name}</h3>
-                  <span className="admin-badge admin-badge-muted">{user.role}</span>
-                  <DataOriginBadge origin={user.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{user.email}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1">
-                    <Mail size={12} />
-                    Email profile active
-                  </span>
-                  <span>Joined: {formatAdminDateTime(user.joinedAt)}</span>
-                  {user.serviceType ? <span>Service: {user.serviceType}</span> : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 xl:items-end">
-              <div className="flex flex-wrap gap-2 xl:justify-end">
-                <AdminStatusBadge
-                  value={user.approvalStatus === "approved" ? user.status : user.approvalStatus}
-                />
-              </div>
-              {user.role !== "admin" && user.dataOrigin !== "mock" && (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleAction(user.id, "approved")}
-                    disabled={actionId === `${user.id}:approved`}
-                    className="admin-button-success hover:bg-green-600 transition-colors"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAction(user.id, "suspended")}
-                    disabled={actionId === `${user.id}:suspended`}
-                    className="admin-button-secondary hover:bg-yellow-500 transition-colors"
-                  >
-                    Suspend
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAction(user.id, "rejected")}
-                    disabled={actionId === `${user.id}:rejected`}
-                    className="admin-button-danger hover:bg-red-600 transition-colors"
-                  >
-                    Reject
-                  </button>
-                </div>
-              )}
-            </div>
-          </article>
-        ))}
-        {!layeredItems.length ? (
-          <AdminPanel>
-            <p className="admin-empty-state">No users matched the current filters.</p>
-          </AdminPanel>
-        ) : null}
-      </div>
+      <AdminPanel
+        title="User Directory"
+        description="Live client and provider accounts from the database."
+      >
+        <div className="admin-table-shell overflow-x-auto">
+          <table className="admin-table">
+            <thead className="admin-table-head">
+              <tr>
+                <th className="admin-table-head-cell">User</th>
+                <th className="admin-table-head-cell">Role</th>
+                <th className="admin-table-head-cell">Status</th>
+                <th className="admin-table-head-cell">Joined</th>
+                <th className="admin-table-head-cell">Service</th>
+                <th className="admin-table-head-cell text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="admin-table-body">
+              {users.map((user) => (
+                <tr key={user.id} className="admin-table-row">
+                  <td className="admin-cell">
+                    <div className="flex items-center gap-3">
+                      <span className="admin-icon-wrap text-slate-500">
+                        <UserRound size={16} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="admin-cell-strong truncate font-semibold">
+                          {user.name}
+                        </p>
+                        <p className="admin-cell-muted truncate">
+                          {user.email}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="admin-cell capitalize">{user.role}</td>
+                  <td className="admin-cell">
+                    <AdminStatusBadge value={getUserStatusValue(user)} />
+                  </td>
+                  <td className="admin-cell">
+                    {formatAdminDateTime(user.joinedAt) || "Not available"}
+                  </td>
+                  <td className="admin-cell">
+                    {user.serviceType || (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </td>
+                  <td className="admin-cell">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAction(user.id, "approved")}
+                        disabled={actionId === `${user.id}:approved`}
+                        className="admin-pill-button admin-pill-button-success"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAction(user.id, "suspended")}
+                        disabled={actionId === `${user.id}:suspended`}
+                        className="admin-pill-button admin-pill-button-warning"
+                      >
+                        Suspend
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAction(user.id, "rejected")}
+                        disabled={actionId === `${user.id}:rejected`}
+                        className="admin-pill-button admin-pill-button-danger"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!users.length ? (
+                <tr>
+                  <td className="admin-empty-state" colSpan={6}>
+                    No users matched the current filters.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </AdminPanel>
     </AdminPageShell>
   );
 }

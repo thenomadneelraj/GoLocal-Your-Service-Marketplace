@@ -1,37 +1,30 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  AlertTriangle,
   BriefcaseBusiness,
-  CalendarDays,
-  Clock3,
+  ChevronRight,
+  Filter,
+  Mail,
   MapPin,
-  MessageSquareMore,
   Phone,
+  Search,
+  ShieldCheck,
   Star,
-  Users,
+  X,
 } from "lucide-react";
-import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
 import { resolveMediaUrl } from "@/lib/media";
+import { useAuth } from "@/components/contexts/AuthContext";
+import { getAccountAccessState } from "@/lib/accountAccess";
+import { subscribeToProviderUpdates } from "@/lib/socket";
+import DataOriginBadge from "@/components/shared/DataOriginBadge";
+import { mergeLayeredCollections } from "@/lib/dataLayering";
+import { mockClientProviders } from "@/lib/mockWorkspaceData";
 
-const normalizeStatus = (value = "") => String(value || "").toLowerCase();
-
-const STATUS_STYLES = {
-  pending: "bg-amber-500/12 text-amber-600 dark:text-amber-300",
-  confirmed: "bg-primary/12 text-primary",
-  completed: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300",
-  cancelled: "bg-rose-500/12 text-rose-600 dark:text-rose-300",
-};
-
-const formatDate = (value) => {
-  if (!value) return "Date not set";
-
-  return new Date(value).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-};
+const formatCurrency = (amount) =>
+  `INR ${Number(amount || 0).toLocaleString("en-IN")}/hr`;
 
 const getInitials = (value = "") =>
   String(value || "")
@@ -41,336 +34,239 @@ const getInitials = (value = "") =>
     .map((part) => part[0]?.toUpperCase() || "")
     .join("") || "P";
 
-const getReviewTarget = (group) => {
-  const completedBookings = [...(group?.bookings || [])]
-    .filter((booking) => normalizeStatus(booking.status) === "completed")
-    .sort((left, right) => {
-      const leftDate = new Date(
-        left.bookingDate || left.updatedAt || left.createdAt || 0
-      ).getTime();
-      const rightDate = new Date(
-        right.bookingDate || right.updatedAt || right.createdAt || 0
-      ).getTime();
-      return rightDate - leftDate;
-    });
+const normalizeProviderCard = (item = {}) => ({
+  id: item._id || item.id,
+  name: item.name || "Unknown Provider",
+  serviceType: item.serviceType || "General Service",
+  rating: Number(item.rating || 0),
+  reviewCount: Number(item.reviewCount ?? item.totalReviews ?? 0),
+  location: item.location || "Location not set",
+  hourlyRate: Number(item.hourlyRate || 0),
+  image: item.profileImage || item.profilePhoto || item.image || "",
+  available: item.available ?? item.availability ?? false,
+  verified: item.verified ?? item.isApproved ?? false,
+});
 
-  if (!completedBookings.length) {
-    return null;
-  }
+const normalizeProviderDetails = (item = {}) => {
+  const services = Array.isArray(item.services) ? item.services : [];
+  const isAvailable = item.available ?? item.availability ?? false;
+  const availabilitySummary = item.availabilitySummary || {
+    status: isAvailable ? "available" : "unavailable",
+    reason: isAvailable
+      ? "Provider is available for booking."
+      : "Provider is currently unavailable.",
+    canBook: Boolean(isAvailable),
+  };
 
-  return completedBookings.find((booking) => !booking.review) || completedBookings[0];
+  return {
+    id: item._id || item.id,
+    name: item.name || "Unknown Provider",
+    serviceType: item.serviceType || "General Service",
+    rating: Number(item.rating || 0),
+    reviewCount: Number(item.reviewCount ?? item.totalReviews ?? 0),
+    location: item.location || "Location not set",
+    hourlyRate: Number(item.hourlyRate || 0),
+    image: item.profileImage || item.profilePhoto || item.image || "",
+    phone: item.phone || "",
+    email: item.email || item.userId?.email || "",
+    bio: item.bio || "This provider has not added a bio yet.",
+    completedJobs: Number(item.completedJobs || 0),
+    experience: Number(item.yearsExperience ?? item.experience ?? 0),
+    verified: item.verified ?? item.isApproved ?? false,
+    services: services.length
+      ? services.map((service) =>
+          typeof service === "string" ? service : service.title || "Service"
+        )
+      : [item.serviceType || "General Service"],
+    availabilitySummary,
+  };
 };
 
-const getLatestReviewedBooking = (group) =>
-  [...(group?.bookings || [])]
-    .filter((booking) => booking.review)
-    .sort((left, right) => {
-      const leftDate = new Date(
-        left.review?.updatedAt ||
-          left.review?.createdAt ||
-          left.bookingDate ||
-          left.updatedAt ||
-          0
-      ).getTime();
-      const rightDate = new Date(
-        right.review?.updatedAt ||
-          right.review?.createdAt ||
-          right.bookingDate ||
-          right.updatedAt ||
-          0
-      ).getTime();
-      return rightDate - leftDate;
-    })[0] || null;
-
-const getStarClassName = (active) =>
-  active ? "fill-amber-400 text-amber-400" : "text-slate-300 dark:text-slate-600";
-
-const buildProviderGroups = (items = []) => {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-
-  const groups = new Map();
-
-  items.forEach((booking) => {
-    const provider = booking.providerId || {};
-    const providerId = provider._id || provider.id;
-
-    if (!providerId) return;
-
-    if (!groups.has(String(providerId))) {
-      groups.set(String(providerId), {
-        providerId: String(providerId),
-        providerName: provider.name || "Provider",
-        providerPhoto: provider.profileImage || provider.profilePhoto || "",
-        providerPhone: provider.phone || "",
-        providerLocation: provider.location || "",
-        providerServiceType: provider.serviceType || "Service",
-        providerRate: Number(provider.hourlyRate || 0),
-        bookings: [],
-      });
-    }
-
-    groups.get(String(providerId)).bookings.push(booking);
-  });
-
-  return [...groups.values()]
-    .map((group) => {
-      const bookings = [...group.bookings].sort(
-        (left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0)
-      );
-
-      const upcomingBookings = [...group.bookings]
-        .filter((booking) => {
-          const status = normalizeStatus(booking.status);
-          if (!["pending", "confirmed"].includes(status)) return false;
-          if (!booking.bookingDate) return false;
-          const date = new Date(booking.bookingDate);
-          date.setHours(0, 0, 0, 0);
-          return date >= now;
-        })
-        .sort((left, right) => {
-          const leftDate = new Date(left.bookingDate || 0).getTime();
-          const rightDate = new Date(right.bookingDate || 0).getTime();
-          if (leftDate !== rightDate) return leftDate - rightDate;
-          return String(left.timeSlot || "").localeCompare(String(right.timeSlot || ""));
-        });
-
-      const latestBooking = bookings[0];
-      const currentBooking = upcomingBookings[0] || null;
-
-      return {
-        ...group,
-        latestBooking,
-        currentBooking,
-        totalBookings: group.bookings.length,
-        isCurrent: Boolean(currentBooking),
-        sortDate: currentBooking?.bookingDate || latestBooking?.createdAt || latestBooking?.bookingDate,
-      };
-    })
-    .sort((left, right) => {
-      if (left.isCurrent !== right.isCurrent) {
-        return left.isCurrent ? -1 : 1;
-      }
-
-      if (left.isCurrent && right.isCurrent) {
-        return new Date(left.sortDate || 0) - new Date(right.sortDate || 0);
-      }
-
-      return new Date(right.sortDate || 0) - new Date(left.sortDate || 0);
-    });
-};
-
-function StatusBadge({ status }) {
-  const normalized = normalizeStatus(status);
-  return (
-    <span
-      className={`inline-flex rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${
-        STATUS_STYLES[normalized] || "bg-muted text-muted-foreground"
-      }`}
-    >
-      {normalized || "unknown"}
-    </span>
-  );
-}
+const getAvailabilityLabel = (provider) =>
+  provider.available ? "Available now" : "Unavailable";
 
 export default function ClientProviders() {
-  const [groups, setGroups] = useState([]);
+  const { user } = useAuth();
+  const clientAccess = getAccountAccessState(user);
+  const canBook = clientAccess.canCreateBookings;
+  const [providers, setProviders] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [locationQuery, setLocationQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [openReviewBookingId, setOpenReviewBookingId] = useState("");
-  const [reviewDrafts, setReviewDrafts] = useState({});
-  const [submittingReviewId, setSubmittingReviewId] = useState("");
+  const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [selectedProvider, setSelectedProvider] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+
+  const fetchProviders = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await api.get("/api/providers", {
+        params: {
+          search: searchQuery.trim() || undefined,
+          location: locationQuery.trim() || undefined,
+          limit: 40,
+        },
+      });
+
+      const items =
+        response.data?.providers ||
+        response.data?.data?.providers ||
+        response.data?.data ||
+        [];
+
+      setProviders(Array.isArray(items) ? items.map(normalizeProviderCard) : []);
+    } catch (err) {
+      setProviders([]);
+      setError(
+        err.response?.data?.message ||
+          "Could not load providers right now."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [locationQuery, searchQuery]);
 
   useEffect(() => {
-    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      fetchProviders();
+    }, 250);
 
-    const loadProviders = async () => {
-      try {
-        setLoading(true);
-        setError("");
-        const response = await api.get("/api/bookings", {
-          params: { limit: 100 },
-        });
-        const items = response.data?.data?.items || [];
-
-        if (!active) return;
-        setGroups(buildProviderGroups(items));
-      } catch (err) {
-        if (!active) return;
-        setError(
-          err.response?.data?.message ||
-            "Could not load your provider booking history."
-        );
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    loadProviders();
+    const unsubscribe = subscribeToProviderUpdates(() => {
+      fetchProviders();
+    });
 
     return () => {
-      active = false;
+      window.clearTimeout(timeoutId);
+      unsubscribe();
     };
-  }, []);
+  }, [fetchProviders]);
 
-  const summary = useMemo(() => {
-    return {
-      providers: groups.length,
-      activeProviders: groups.filter((group) => group.isCurrent).length,
-      totalBookings: groups.reduce(
-        (total, group) => total + group.totalBookings,
-        0
-      ),
-    };
-  }, [groups]);
-
-  const handleReviewToggle = (booking) => {
-    if (!booking?._id) return;
-
-    const bookingId = String(booking._id);
-    setOpenReviewBookingId((current) =>
-      current === bookingId ? "" : bookingId
+  const handleViewProfile = async (providerId) => {
+    const mockProvider = mockClientProviders.find(
+      (provider) => String(provider.id) === String(providerId)
     );
-    setReviewDrafts((current) => ({
-      ...current,
-      [bookingId]:
-        current[bookingId] || {
-          rating: Number(booking.review?.rating || 0),
-          comment: booking.review?.comment || "",
-        },
-    }));
-  };
 
-  const handleReviewDraftChange = (bookingId, patch) => {
-    setReviewDrafts((current) => ({
-      ...current,
-      [bookingId]: {
-        rating: 0,
-        comment: "",
-        ...(current[bookingId] || {}),
-        ...patch,
-      },
-    }));
-  };
-
-  const handleSubmitReview = async (group, booking) => {
-    if (!booking?._id) return;
-
-    const bookingId = String(booking._id);
-    const draft = reviewDrafts[bookingId] || {
-      rating: Number(booking.review?.rating || 0),
-      comment: booking.review?.comment || "",
-    };
-
-    if (!draft.rating) {
-      toast.error("Choose a star rating before submitting your feedback.");
+    if (mockProvider) {
+      setSelectedProviderId(providerId);
+      setSelectedProvider({
+        ...normalizeProviderDetails(mockProvider),
+        dataOrigin: "mock",
+      });
+      setDetailError("");
+      setDetailLoading(false);
       return;
     }
 
     try {
-      setSubmittingReviewId(bookingId);
-      const response = await api.post(`/api/bookings/${bookingId}/review`, {
-        rating: draft.rating,
-        comment: draft.comment,
+      setSelectedProviderId(providerId);
+      setSelectedProvider(null);
+      setDetailError("");
+      setDetailLoading(true);
+
+      const response = await api.get(`/api/providers/${providerId}`);
+      const payload = response.data?.data || response.data;
+      setSelectedProvider({
+        ...normalizeProviderDetails(payload),
+        dataOrigin: "real",
       });
-
-      const savedReview = response.data?.data || null;
-      const message =
-        response.data?.message || "Your feedback was shared with the provider.";
-
-      setGroups((current) =>
-        current.map((entry) => {
-          if (entry.providerId !== group.providerId) {
-            return entry;
-          }
-
-          return {
-            ...entry,
-            bookings: entry.bookings.map((item) =>
-              String(item._id) === bookingId
-                ? { ...item, review: savedReview }
-                : item
-            ),
-          };
-        })
-      );
-
-      setReviewDrafts((current) => ({
-        ...current,
-        [bookingId]: {
-          rating: Number(savedReview?.rating || draft.rating || 0),
-          comment: savedReview?.comment || draft.comment || "",
-        },
-      }));
-      setOpenReviewBookingId("");
-      toast.success(message);
     } catch (err) {
-      toast.error(
-        err.response?.data?.message || "Could not save your review right now."
+      setDetailError(
+        err.response?.data?.message ||
+          "Could not load this provider profile."
       );
     } finally {
-      setSubmittingReviewId("");
+      setDetailLoading(false);
     }
   };
 
+  const handleCloseProfile = () => {
+    setSelectedProviderId("");
+    setSelectedProvider(null);
+    setDetailError("");
+    setDetailLoading(false);
+  };
+
+  const hasFilters = Boolean(searchQuery.trim() || locationQuery.trim());
+  const layeredProviders = useMemo(
+    () =>
+      mergeLayeredCollections(
+        providers,
+        mockClientProviders.map(normalizeProviderCard),
+        {
+          getId: (provider) => provider.id,
+        }
+      ),
+    [providers]
+  );
+
+  const providerCountLabel = useMemo(
+    () =>
+      `${layeredProviders.length} provider${layeredProviders.length === 1 ? "" : "s"} found`,
+    [layeredProviders.length]
+  );
+
   return (
     <div className="space-y-6 pb-10">
-      <section className="relative overflow-hidden rounded-[2rem] border border-border/80 bg-card/95 p-8 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45)]">
-        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-r from-primary/20 via-primary/5 to-transparent" />
-        <div className="relative space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/80">
-            Providers
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Booked Providers
-          </h1>
-          <p className="max-w-2xl text-sm leading-7 text-muted-foreground">
-            Track your provider booking history in one place. Current or upcoming
-            providers stay on top, followed by your newest booked providers.
-          </p>
-        </div>
-      </section>
+      <div className="bg-card/50 p-8 rounded-[2rem] border border-border/60 backdrop-blur-xl relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent pointer-events-none" />
+        <div className="relative z-10 space-y-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight">
+                Find Professionals
+              </h1>
+              <p className="text-muted-foreground mt-2">
+                Browse real registered service providers in your area and open a profile before booking.
+              </p>
+            </div>
+            <div className="rounded-full bg-primary/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+              {providerCountLabel}
+            </div>
+          </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[
-          {
-            label: "Providers",
-            value: summary.providers,
-            icon: Users,
-          },
-          {
-            label: "Current Bookings",
-            value: summary.activeProviders,
-            icon: CalendarDays,
-          },
-          {
-            label: "Total Bookings",
-            value: summary.totalBookings,
-            icon: BriefcaseBusiness,
-          },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <section
-              key={item.label}
-              className="rounded-[1.75rem] border border-border/70 bg-card/92 p-5 shadow-[0_24px_70px_-46px_rgba(15,23,42,0.56)]"
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="relative flex-1 group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-colors" />
+              <input
+                type="text"
+                placeholder="Search by name, service or profession..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="w-full h-14 pl-12 pr-4 rounded-2xl bg-background border border-border/60 focus:ring-2 focus:ring-primary/20 outline-none transition-all text-base shadow-sm"
+              />
+            </div>
+            <div className="relative w-full md:w-64 group">
+              <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-colors" />
+              <input
+                type="text"
+                placeholder="Filter by location..."
+                value={locationQuery}
+                onChange={(event) => setLocationQuery(event.target.value)}
+                className="w-full h-14 pl-12 pr-4 rounded-2xl bg-background border border-border/60 focus:ring-2 focus:ring-primary/20 outline-none transition-all text-base shadow-sm"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (hasFilters) {
+                  setSearchQuery("");
+                  setLocationQuery("");
+                  return;
+                }
+
+                fetchProviders();
+              }}
+              className="h-14 w-14 rounded-2xl shrink-0 border border-border/60 bg-background flex items-center justify-center text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+              aria-label={hasFilters ? "Clear provider filters" : "Refresh providers"}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                    {item.label}
-                  </p>
-                  <p className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
-                    {item.value}
-                  </p>
-                </div>
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <Icon size={18} />
-                </span>
-              </div>
-            </section>
-          );
-        })}
+              <Filter size={20} />
+            </button>
+          </div>
+        </div>
       </div>
 
       {error ? (
@@ -380,265 +276,345 @@ export default function ClientProviders() {
       ) : null}
 
       {loading ? (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, index) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {Array.from({ length: 8 }).map((_, index) => (
             <div
               key={index}
-              className="h-52 animate-pulse rounded-[1.75rem] border border-border/70 bg-card/80"
+              className="h-[380px] animate-pulse rounded-[2rem] border border-border/60 bg-card/50"
             />
           ))}
         </div>
-      ) : groups.length ? (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {groups.map((group) => {
-            const activeBooking = group.currentBooking || group.latestBooking;
-            const photo = resolveMediaUrl(group.providerPhoto);
-            const reviewTarget = getReviewTarget(group);
-            const latestReviewedBooking = getLatestReviewedBooking(group);
-            const reviewBookingId = reviewTarget?._id ? String(reviewTarget._id) : "";
-            const reviewDraft = reviewDrafts[reviewBookingId] || {
-              rating: Number(reviewTarget?.review?.rating || 0),
-              comment: reviewTarget?.review?.comment || "",
-            };
-            const reviewLabel = reviewTarget?.review ? "Edit review" : "Leave review";
-            const reviewSummary = latestReviewedBooking?.review || null;
+      ) : layeredProviders.length ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {layeredProviders.map((provider) => {
+            const imageUrl = resolveMediaUrl(provider.image);
 
             return (
-              <section
-                key={group.providerId}
-                className="rounded-[1.75rem] border border-border/70 bg-card/92 p-6 shadow-[0_24px_70px_-46px_rgba(15,23,42,0.56)]"
+              <div
+                key={provider.id}
+                className="group bg-card/40 hover:bg-card/60 border border-border/60 rounded-[2rem] overflow-hidden transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 flex flex-col"
               >
-                <div className="flex items-start gap-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary/10 text-sm font-semibold text-primary">
-                    {photo ? (
-                      <img
-                        src={photo}
-                        alt={group.providerName}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      getInitials(group.providerName)
-                    )}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <h2 className="truncate text-xl font-semibold tracking-tight text-foreground">
-                          {group.providerName}
-                        </h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {group.providerServiceType}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {group.isCurrent ? (
-                          <span className="rounded-full bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-                            Current Provider
-                          </span>
-                        ) : null}
-                        <StatusBadge status={activeBooking?.status} />
-                      </div>
+                <div className="relative aspect-[4/3] bg-muted overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent z-10" />
+                  {imageUrl ? (
+                    <img
+                      src={imageUrl}
+                      alt={provider.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/10 via-primary/5 to-transparent text-primary text-5xl font-bold">
+                      {getInitials(provider.name)}
                     </div>
+                  )}
 
-                    <div className="mt-4 grid gap-3 text-sm text-muted-foreground md:grid-cols-2">
-                      <div className="flex items-center gap-2">
-                        <MapPin size={15} className="text-primary" />
-                        <span className="truncate">
-                          {group.providerLocation || "Location not set"}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Phone size={15} className="text-primary" />
-                        <span>{group.providerPhone || "Phone not available"}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CalendarDays size={15} className="text-primary" />
-                        <span>
-                          {group.currentBooking ? "Upcoming" : "Last booked"}:{" "}
-                          {formatDate(
-                            group.currentBooking?.bookingDate ||
-                              group.latestBooking?.bookingDate
-                          )}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Clock3 size={15} className="text-primary" />
-                        <span>
-                          {group.currentBooking?.timeSlot ||
-                            group.latestBooking?.timeSlot ||
-                            "Flexible"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 rounded-[1.25rem] border border-border/60 bg-muted/20 p-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                        Latest Booking
-                      </p>
-                      <p className="mt-3 text-sm font-semibold text-foreground">
-                        {activeBooking?.serviceId?.title ||
-                          activeBooking?.serviceId?.name ||
-                          "Service"}
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        {group.totalBookings} total booking
-                        {group.totalBookings === 1 ? "" : "s"} with this provider.
-                      </p>
-                    </div>
-
-                    <div className="mt-5 flex flex-wrap gap-3">
-                      <Link
-                        to={`/providers/${group.providerId}`}
-                        className="inline-flex items-center rounded-full border border-border/70 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/30 hover:text-primary"
-                      >
-                        View Provider
-                      </Link>
-                      <Link
-                        to={`/client/chat?contact=${group.latestBooking?.providerId?.userId || ""}`}
-                        className="inline-flex items-center rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-                      >
-                        Message
-                      </Link>
-                      {reviewTarget ? (
-                        <button
-                          type="button"
-                          onClick={() => handleReviewToggle(reviewTarget)}
-                          className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary/15"
-                        >
-                          <MessageSquareMore size={16} />
-                          {reviewLabel}
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {reviewSummary ? (
-                      <div className="mt-5 rounded-[1.25rem] border border-emerald-500/15 bg-emerald-500/8 p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-300">
-                            Your Feedback
-                          </p>
-                          <div className="flex items-center gap-1">
-                            {Array.from({ length: 5 }).map((_, index) => (
-                              <Star
-                                key={index}
-                                size={14}
-                                className={getStarClassName(index < Number(reviewSummary.rating || 0))}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-foreground">
-                          {reviewSummary.comment || "You rated this provider without a written comment."}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    {reviewTarget && openReviewBookingId === reviewBookingId ? (
-                      <div className="mt-5 rounded-[1.4rem] border border-border/70 bg-card/85 p-5 shadow-[0_24px_50px_-44px_rgba(15,23,42,0.6)]">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-foreground">
-                              Share feedback for{" "}
-                              {reviewTarget?.serviceId?.title ||
-                                reviewTarget?.serviceId?.name ||
-                                group.providerServiceType}
-                            </p>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              Completed on {formatDate(reviewTarget?.bookingDate)}
-                              {reviewTarget?.timeSlot ? ` at ${reviewTarget.timeSlot}` : ""}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setOpenReviewBookingId("")}
-                            className="rounded-full border border-border/70 px-3 py-1 text-xs font-semibold text-muted-foreground transition hover:border-primary/30 hover:text-primary"
-                          >
-                            Close
-                          </button>
-                        </div>
-
-                        <div className="mt-4 flex items-center gap-2">
-                          {Array.from({ length: 5 }).map((_, index) => {
-                            const nextRating = index + 1;
-                            return (
-                              <button
-                                key={nextRating}
-                                type="button"
-                                onClick={() =>
-                                  handleReviewDraftChange(reviewBookingId, {
-                                    rating: nextRating,
-                                  })
-                                }
-                                className="rounded-full p-1 transition hover:scale-105"
-                                aria-label={`Rate ${nextRating} star${nextRating === 1 ? "" : "s"}`}
-                              >
-                                <Star
-                                  size={22}
-                                  className={getStarClassName(
-                                    nextRating <= Number(reviewDraft.rating || 0)
-                                  )}
-                                />
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <label className="mt-4 block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                          Feedback
-                        </label>
-                        <textarea
-                          rows={4}
-                          value={reviewDraft.comment}
-                          onChange={(event) =>
-                            handleReviewDraftChange(reviewBookingId, {
-                              comment: event.target.value,
-                            })
-                          }
-                          placeholder="Tell this provider what went well and what could be better."
-                          className="mt-2 w-full rounded-[1.2rem] border border-border/70 bg-background/90 px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
-                        />
-
-                        <div className="mt-4 flex flex-wrap gap-3">
-                          <button
-                            type="button"
-                            onClick={() => handleSubmitReview(group, reviewTarget)}
-                            disabled={submittingReviewId === reviewBookingId}
-                            className="inline-flex items-center rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {submittingReviewId === reviewBookingId
-                              ? "Saving feedback..."
-                              : reviewTarget?.review
-                                ? "Update review"
-                                : "Submit review"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setOpenReviewBookingId("")}
-                            className="inline-flex items-center rounded-full border border-border/70 px-5 py-2.5 text-sm font-semibold text-foreground transition-colors hover:border-primary/30 hover:text-primary"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
+                  <div className="absolute bottom-4 left-4 z-20 flex flex-wrap gap-2">
+                    <span className="bg-background/85 backdrop-blur-md px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                      {provider.serviceType}
+                    </span>
+                    <DataOriginBadge origin={provider.dataOrigin} liveLabel="Live" sampleLabel="Sample" className="bg-background/85" />
+                    {provider.verified ? (
+                      <span className="bg-emerald-500/85 backdrop-blur-md text-white px-2 py-1 rounded-lg shadow-sm">
+                        <ShieldCheck size={14} />
+                      </span>
                     ) : null}
                   </div>
                 </div>
-              </section>
+
+                <div className="p-6 flex-1 flex flex-col">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <h3 className="font-bold text-lg group-hover:text-primary transition-colors">
+                      {provider.name}
+                    </h3>
+                    <div className="flex items-center gap-1 text-amber-500 shrink-0">
+                      <Star size={14} fill="currentColor" />
+                      <span className="text-sm font-bold">
+                        {provider.rating.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center text-muted-foreground text-sm gap-2 mb-3">
+                    <MapPin size={14} />
+                    <span className="truncate">{provider.location}</span>
+                  </div>
+
+                  <div className="mb-4 inline-flex w-fit rounded-full bg-muted/50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    {getAvailabilityLabel(provider)}
+                  </div>
+
+                  <div className="text-sm text-muted-foreground">
+                    {provider.reviewCount} review
+                    {provider.reviewCount === 1 ? "" : "s"}
+                  </div>
+
+                  <div className="mt-auto pt-4 border-t border-border/40 flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-1">
+                        Price
+                      </p>
+                      <p className="text-lg font-bold text-foreground">
+                        {formatCurrency(provider.hourlyRate)}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="rounded-xl px-5 py-5 gap-2 group/btn font-semibold"
+                      onClick={() => handleViewProfile(provider.id)}
+                    >
+                      View Profile
+                      <ChevronRight
+                        size={14}
+                        className="group-hover/btn:translate-x-1 transition-transform"
+                      />
+                    </Button>
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
       ) : (
-        <section className="rounded-[1.75rem] border border-dashed border-border/70 bg-card/90 px-6 py-16 text-center">
-          <p className="text-lg font-semibold text-foreground">
-            No booked providers yet
+        <div className="py-20 flex flex-col items-center justify-center bg-card/30 rounded-[3rem] border border-dashed border-border/60">
+          <div className="w-20 h-20 rounded-3xl bg-muted/50 flex items-center justify-center text-muted-foreground mb-6">
+            <BriefcaseBusiness size={40} opacity={0.4} />
+          </div>
+          <h3 className="text-xl font-semibold">No professionals found</h3>
+          <p className="text-muted-foreground mt-2 max-w-xs text-center">
+            Try a different name, service keyword, or location filter.
           </p>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Once you book a provider, their history will appear here with the
-            newest and active bookings shown first.
-          </p>
-        </section>
+        </div>
       )}
+
+      {selectedProviderId ? (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm px-4 py-6">
+          <div className="mx-auto flex h-full max-w-4xl items-center justify-center">
+            <div className="w-full max-h-full overflow-y-auto rounded-[2rem] border border-border/70 bg-card/95 p-6 shadow-[0_36px_100px_-48px_rgba(15,23,42,0.8)]">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-primary">
+                    Provider Profile
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <h2 className="text-2xl font-bold tracking-tight">
+                      {selectedProvider?.name || "Loading profile"}
+                    </h2>
+                    {selectedProvider?.dataOrigin ? (
+                      <DataOriginBadge origin={selectedProvider.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Review provider details and book directly from this profile card.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseProfile}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-border/60 text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {detailLoading ? (
+                <div className="mt-6 grid gap-6 lg:grid-cols-[0.82fr_1.18fr]">
+                  <div className="h-80 animate-pulse rounded-[1.75rem] border border-border/60 bg-card/50" />
+                  <div className="space-y-4">
+                    <div className="h-32 animate-pulse rounded-[1.5rem] border border-border/60 bg-card/50" />
+                    <div className="h-32 animate-pulse rounded-[1.5rem] border border-border/60 bg-card/50" />
+                    <div className="h-24 animate-pulse rounded-[1.5rem] border border-border/60 bg-card/50" />
+                  </div>
+                </div>
+              ) : detailError ? (
+                <div className="mt-6 rounded-[1.5rem] border border-rose-500/20 bg-rose-500/10 px-5 py-4 text-sm text-rose-600 dark:text-rose-300">
+                  {detailError}
+                </div>
+              ) : selectedProvider ? (
+                <div className="mt-6 grid gap-6 lg:grid-cols-[0.82fr_1.18fr]">
+                  <div className="rounded-[1.75rem] border border-border/60 bg-muted/20 p-5">
+                    <div className="aspect-[4/4.4] overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
+                      {resolveMediaUrl(selectedProvider.image) ? (
+                        <img
+                          src={resolveMediaUrl(selectedProvider.image)}
+                          alt={selectedProvider.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-6xl font-black text-primary">
+                          {getInitials(selectedProvider.name)}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-5 space-y-3 text-sm text-muted-foreground">
+                      <div className="flex items-start gap-3">
+                        <MapPin size={16} className="mt-0.5 text-primary" />
+                        <div>
+                          <p className="font-semibold text-foreground">Location</p>
+                          <p>{selectedProvider.location}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <Phone size={16} className="mt-0.5 text-primary" />
+                        <div>
+                          <p className="font-semibold text-foreground">Phone</p>
+                          <p>{selectedProvider.phone || "Not shared"}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <Mail size={16} className="mt-0.5 text-primary" />
+                        <div>
+                          <p className="font-semibold text-foreground">Email</p>
+                          <p>{selectedProvider.email || "Not shared"}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-[1.5rem] border border-border/60 bg-card/80 p-5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-2xl font-bold tracking-tight text-foreground">
+                              {selectedProvider.name}
+                            </h3>
+                            {selectedProvider.verified ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-600">
+                                <ShieldCheck size={13} />
+                                Verified
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-sm font-medium text-muted-foreground">
+                            {selectedProvider.serviceType}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-primary/10 px-4 py-3 text-right text-primary">
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em]">
+                            Starting at
+                          </p>
+                          <p className="mt-1 text-xl font-black">
+                            {formatCurrency(selectedProvider.hourlyRate)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
+                            Rating
+                          </p>
+                          <p className="mt-2 text-lg font-bold text-foreground">
+                            {selectedProvider.rating.toFixed(1)}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {selectedProvider.reviewCount} review
+                            {selectedProvider.reviewCount === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
+                            Experience
+                          </p>
+                          <p className="mt-2 text-lg font-bold text-foreground">
+                            {selectedProvider.experience}
+                          </p>
+                          <p className="text-sm text-muted-foreground">years</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
+                            Completed
+                          </p>
+                          <p className="mt-2 text-lg font-bold text-foreground">
+                            {selectedProvider.completedJobs}
+                          </p>
+                          <p className="text-sm text-muted-foreground">jobs</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.5rem] border border-border/60 bg-card/80 p-5">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
+                        About
+                      </p>
+                      <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                        {selectedProvider.bio}
+                      </p>
+                    </div>
+
+                    <div className="rounded-[1.5rem] border border-border/60 bg-card/80 p-5">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
+                        Services
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {selectedProvider.services.map((service) => (
+                          <span
+                            key={service}
+                            className="rounded-full border border-border/60 bg-muted/20 px-3 py-1 text-xs font-semibold text-foreground"
+                          >
+                            {service}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div
+                      className={`rounded-[1.5rem] border px-5 py-4 text-sm ${
+                        selectedProvider.availabilitySummary.status === "available"
+                          ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          : selectedProvider.availabilitySummary.status === "busy"
+                            ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                            : "border-slate-400/25 bg-slate-500/10 text-slate-700 dark:text-slate-300"
+                      }`}
+                    >
+                      {selectedProvider.availabilitySummary.reason}
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      {canBook ? (
+                        selectedProvider.availabilitySummary.status !== "unavailable" ? (
+                          <Button asChild className="rounded-xl">
+                            <Link to={`/booking/${selectedProvider.id}`}>
+                              Book Now
+                            </Link>
+                          </Button>
+                        ) : (
+                          <Button className="rounded-xl" disabled>
+                            Book Now
+                          </Button>
+                        )
+                      ) : (
+                        <div className="flex flex-col gap-1.5">
+                          <Button className="rounded-xl" disabled>
+                            Book Now
+                          </Button>
+                          <p className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                            <AlertTriangle size={12} />
+                            {clientAccess.title || "Booking unavailable"} - booking unavailable.
+                          </p>
+                        </div>
+                      )}
+                      <Button asChild variant="outline" className="rounded-xl">
+                        <Link to={`/providers/${selectedProvider.id}`}>
+                          Open Full Profile
+                        </Link>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="rounded-xl"
+                        onClick={handleCloseProfile}
+                      >
+                        Close
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

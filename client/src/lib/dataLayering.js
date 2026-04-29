@@ -1,3 +1,15 @@
+export {
+  DATA_ORIGIN,
+  getEntityId,
+  isMockEntity,
+  isRealEntity,
+  normalizeBooking,
+  normalizeDataOrigin,
+  normalizeEntity,
+  normalizeTransaction,
+  normalizeUser,
+} from "@/shared/data/dataLayering";
+
 const SOURCE_PRIORITY = {
   real: 0,
   mock: 1,

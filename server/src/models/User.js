@@ -92,6 +92,20 @@ const userSchema = new mongoose.Schema(
         trim: true,
       },
     ],
+    works: [
+      {
+        title: {
+          type: String,
+          trim: true,
+          default: "",
+        },
+        price: {
+          type: Number,
+          min: 0,
+          default: 0,
+        },
+      },
+    ],
     serviceType: {
       type: String,
       default: "Other",
@@ -238,6 +252,94 @@ const userSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true,
+    },
+    platformSettings: {
+      commissionPercentage: {
+        type: Number,
+        min: 0,
+        max: 100,
+        default: 5,
+      },
+      currency: {
+        type: String,
+        trim: true,
+        uppercase: true,
+        default: "INR",
+      },
+      platformName: {
+        type: String,
+        trim: true,
+        default: "GoLocal",
+      },
+      supportEmail: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        default: "support@golocal.com",
+      },
+      maintenanceMode: {
+        type: Boolean,
+        default: false,
+      },
+      maintenanceMessage: {
+        type: String,
+        trim: true,
+        default: "Website is currently under maintenance. Please check back soon.",
+      },
+      controlDepth: {
+        type: String,
+        trim: true,
+        default: "High",
+      },
+      automationProfile: {
+        type: String,
+        trim: true,
+        default: "Managed",
+      },
+      reminderWindowLabel: {
+        type: String,
+        trim: true,
+        default: "24h",
+      },
+      exportRetentionDays: {
+        type: Number,
+        min: 1,
+        default: 30,
+      },
+      manualProviderReview: {
+        type: Boolean,
+        default: true,
+      },
+      disputeEscalationHours: {
+        type: Number,
+        min: 1,
+        default: 4,
+      },
+      bookingReminderHours: {
+        type: Number,
+        min: 1,
+        default: 24,
+      },
+      websocketMonitoring: {
+        type: Boolean,
+        default: true,
+      },
+      lastCacheClearedAt: {
+        type: Date,
+        default: null,
+      },
+      clientApprovalBackfilledAt: {
+        type: Date,
+        default: null,
+      },
+      lastExportedAt: {
+        type: Date,
+        default: null,
+      },
+      lastSecurityAuditAt: {
+        type: Date,
+        default: null,
+      },
     },
   },
   { timestamps: true },

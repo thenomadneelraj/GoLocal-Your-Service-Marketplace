@@ -60,7 +60,8 @@ const formatMessageTime = (value) => {
 export default function ClientChat() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const contactParam = searchParams.get("contact") || searchParams.get("provider");
+  const contactParam =
+    searchParams.get("contact") || searchParams.get("provider");
 
   const [conversations, setConversations] = useState([]);
   const [loadingConvos, setLoadingConvos] = useState(true);
@@ -167,8 +168,8 @@ export default function ClientChat() {
       if (payload?.conversationUserId) {
         setMessages((prev) =>
           prev.map((m) =>
-            String(m.senderId) === String(user?.id) ? { ...m, read: true } : m
-          )
+            String(m.senderId) === String(user?.id) ? { ...m, read: true } : m,
+          ),
         );
       }
     });
@@ -188,8 +189,8 @@ export default function ClientChat() {
     // Clear unread count optimistically
     setConversations((prev) =>
       prev.map((c) =>
-        c.participant?.userId === otherUserId ? { ...c, unreadCount: 0 } : c
-      )
+        c.participant?.userId === otherUserId ? { ...c, unreadCount: 0 } : c,
+      ),
     );
   };
 
@@ -212,7 +213,7 @@ export default function ClientChat() {
 
     try {
       setSending(true);
-      const res = await api.post("/api/messages", {
+      const res = await api.post("/messages", {
         receiverId: activeUserId,
         content,
       });
@@ -220,14 +221,16 @@ export default function ClientChat() {
       if (savedMsg) {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === optimisticMsg.id ? { ...savedMsg, direction: "outgoing" } : m
-          )
+            m.id === optimisticMsg.id
+              ? { ...savedMsg, direction: "outgoing" }
+              : m,
+          ),
         );
       }
       fetchConversations();
     } catch (err) {
       toast.error(
-        err.response?.data?.message || "Could not send your message."
+        err.response?.data?.message || "Could not send your message.",
       );
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
     } finally {
@@ -244,7 +247,7 @@ export default function ClientChat() {
 
   const totalUnread = conversations.reduce(
     (sum, c) => sum + (c.unreadCount || 0),
-    0
+    0,
   );
 
   return (
@@ -254,7 +257,9 @@ export default function ClientChat() {
         <div className="p-8 border-b border-border/60">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight">Messages</h2>
+              <h2 className="text-2xl font-semibold tracking-tight">
+                Messages
+              </h2>
               {totalUnread > 0 && (
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {totalUnread} unread
@@ -284,14 +289,9 @@ export default function ClientChat() {
             </div>
           ) : filteredConvos.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground text-sm">
-              <MessageSquare
-                size={32}
-                className="mx-auto mb-3 opacity-30"
-              />
+              <MessageSquare size={32} className="mx-auto mb-3 opacity-30" />
               <p>No conversations yet.</p>
-              <p className="text-xs mt-1">
-                Book a service to start chatting.
-              </p>
+              <p className="text-xs mt-1">Book a service to start chatting.</p>
             </div>
           ) : (
             filteredConvos.map((convo) => {

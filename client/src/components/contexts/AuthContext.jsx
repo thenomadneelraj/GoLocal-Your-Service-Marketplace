@@ -43,9 +43,8 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const response = await api.get("/api/auth/profile");
-      const userFromResponse =
-        response.data?.data?.user ?? response.data?.user;
+      const response = await api.get("/auth/profile");
+      const userFromResponse = response.data?.data?.user ?? response.data?.user;
       persistUser(userFromResponse || null);
       return userFromResponse || null;
     } catch (error) {
@@ -93,7 +92,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password, role) => {
     try {
-      const response = await api.post("/api/auth/signIn", {
+      const response = await api.post("/auth/signIn", {
         email,
         password,
         role,
@@ -107,9 +106,12 @@ export const AuthProvider = ({ children }) => {
       return { success: true, user };
     } catch (error) {
       let errorMessage = error.response?.data?.message || "Login failed";
-      
+
       // Check if there are validation errors from express-validator
-      if (error.response?.data?.errors && error.response.data.errors.length > 0) {
+      if (
+        error.response?.data?.errors &&
+        error.response.data.errors.length > 0
+      ) {
         errorMessage = error.response.data.errors[0].msg;
       }
 
@@ -128,13 +130,15 @@ export const AuthProvider = ({ children }) => {
     role,
     profilePhoto = "",
     serviceType = "",
-    workCategories = []
+    workCategories = [],
   ) => {
     try {
-      const [firstName, ...rest] = String(name || "").trim().split(" ");
+      const [firstName, ...rest] = String(name || "")
+        .trim()
+        .split(" ");
       const lastName = rest.join(" ") || "User";
 
-      const response = await api.post("/api/auth/register", {
+      const response = await api.post("/auth/register", {
         firstName: firstName || "User",
         lastName,
         email,
@@ -155,9 +159,12 @@ export const AuthProvider = ({ children }) => {
       return { success: true, user };
     } catch (error) {
       let errorMessage = error.response?.data?.message || "Registration failed";
-      
+
       // Check if there are validation errors from express-validator
-      if (error.response?.data?.errors && error.response.data.errors.length > 0) {
+      if (
+        error.response?.data?.errors &&
+        error.response.data.errors.length > 0
+      ) {
         errorMessage = error.response.data.errors[0].msg;
       }
 
@@ -170,17 +177,21 @@ export const AuthProvider = ({ children }) => {
 
   const updateProfile = async (payload) => {
     try {
-      const response = await api.put("/api/auth/profile", payload);
+      const response = await api.put("/auth/profile", payload);
       const updated = response.data?.data?.user ?? response.data?.user;
       if (updated) {
         persistUser(updated);
       }
       return { success: true, user: updated };
     } catch (error) {
-      let errorMessage = error.response?.data?.message || "Profile update failed";
-      
+      let errorMessage =
+        error.response?.data?.message || "Profile update failed";
+
       // Check if there are validation errors from express-validator
-      if (error.response?.data?.errors && error.response.data.errors.length > 0) {
+      if (
+        error.response?.data?.errors &&
+        error.response.data.errors.length > 0
+      ) {
         errorMessage = error.response.data.errors[0].msg;
       }
 
@@ -199,8 +210,7 @@ export const AuthProvider = ({ children }) => {
     persistUser(null);
 
     if (typeof window !== "undefined" && redirectTo) {
-      const currentPath =
-        `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
       if (currentPath !== redirectTo) {
         window.location.replace(redirectTo);

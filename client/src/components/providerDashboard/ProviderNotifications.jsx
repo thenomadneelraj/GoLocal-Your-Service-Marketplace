@@ -72,7 +72,7 @@ export default function ProviderNotifications() {
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await api.get("/api/notifications?limit=50");
+      const res = await api.get("/notifications?limit=50");
       const data = res.data?.data || {};
       setNotifications(data.items || []);
       setUnreadCount(data.unreadCount || 0);
@@ -111,8 +111,8 @@ export default function ProviderNotifications() {
       if (ids.length) {
         setNotifications((prev) =>
           prev.map((n) =>
-            ids.includes(String(n.id)) ? { ...n, read: true } : n
-          )
+            ids.includes(String(n.id)) ? { ...n, read: true } : n,
+          ),
         );
       }
       if (typeof payload?.unreadCount === "number") {
@@ -129,12 +129,13 @@ export default function ProviderNotifications() {
 
   const markRead = async (id) => {
     try {
-      const res = await api.put(`/api/notifications/${id}/read`);
+      const res = await api.put(`/notifications/${id}/read`);
       const data = res.data?.data || {};
       setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
       );
-      if (typeof data.unreadCount === "number") setUnreadCount(data.unreadCount);
+      if (typeof data.unreadCount === "number")
+        setUnreadCount(data.unreadCount);
     } catch {
       toast.error("Could not mark notification as read.");
     }
@@ -142,7 +143,7 @@ export default function ProviderNotifications() {
 
   const markAllRead = async () => {
     try {
-      await api.put("/api/notifications/read-all");
+      await api.put("/notifications/read-all");
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadCount(0);
       toast.success("All notifications marked as read.");
@@ -156,14 +157,14 @@ export default function ProviderNotifications() {
       mergeLayeredCollections(notifications, mockProviderNotifications, {
         getId: (notification) => notification.id,
       }),
-    [notifications]
+    [notifications],
   );
   const resolvedUnreadCount =
     unreadCount ||
     layeredNotifications.filter((notification) => !notification.read).length;
 
   const filtered = layeredNotifications.filter(
-    (n) => filter === "all" || n.type === filter
+    (n) => filter === "all" || n.type === filter,
   );
 
   return (
@@ -187,7 +188,10 @@ export default function ProviderNotifications() {
             variant="outline"
             size="icon"
             className="rounded-xl h-11 w-11 border-border/60 hover:bg-muted/50 transition-all shadow-xs"
-            onClick={() => { setLoading(true); fetchNotifications(); }}
+            onClick={() => {
+              setLoading(true);
+              fetchNotifications();
+            }}
           >
             <RefreshCcw size={18} className={loading ? "animate-spin" : ""} />
           </Button>
@@ -247,8 +251,7 @@ export default function ProviderNotifications() {
           filtered.map((n) => {
             const config = TYPE_CONFIG[n.type] || TYPE_CONFIG.general;
             const { Icon } = config;
-            const colorStyle =
-              COLOR_STYLES[config.color] || COLOR_STYLES.rose;
+            const colorStyle = COLOR_STYLES[config.color] || COLOR_STYLES.rose;
 
             return (
               <div
@@ -277,7 +280,11 @@ export default function ProviderNotifications() {
                         <h3 className="text-md font-bold text-foreground group-hover:text-emerald-700 transition-colors uppercase tracking-tight">
                           {n.title}
                         </h3>
-                        <DataOriginBadge origin={n.dataOrigin} liveLabel="Live" sampleLabel="Sample" />
+                        <DataOriginBadge
+                          origin={n.dataOrigin}
+                          liveLabel="Live"
+                          sampleLabel="Sample"
+                        />
                       </div>
                       <div className="flex items-center gap-3 justify-center md:justify-end">
                         <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 italic whitespace-nowrap">
@@ -323,7 +330,8 @@ export default function ProviderNotifications() {
               Always in Sync
             </h3>
             <p className="text-[10px] text-muted-foreground italic font-medium leading-relaxed max-w-lg opacity-70">
-              All notifications arrive in real-time via WebSocket. No refresh needed.
+              All notifications arrive in real-time via WebSocket. No refresh
+              needed.
             </p>
           </div>
         </section>

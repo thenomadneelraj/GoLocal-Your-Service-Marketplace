@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { 
+import {
   LayoutDashboard,
   Home,
   Users,
@@ -20,7 +20,7 @@ import {
   Calendar,
   Star,
   DollarSign,
-  HelpCircle
+  HelpCircle,
 } from "lucide-react";
 
 const SidebarItem = ({ icon: Icon, label, isActive, badge, onClick }) => {
@@ -36,11 +36,15 @@ const SidebarItem = ({ icon: Icon, label, isActive, badge, onClick }) => {
       <Icon className="w-5 h-5 flex-shrink-0" />
       <span className="flex-1 text-left">{label}</span>
       {badge && (
-        <span className={`ml-auto px-2 py-1 text-xs rounded-full ${
-          badge.variant === "success" ? "bg-green-100 text-green-600" :
-          badge.variant === "warning" ? "bg-yellow-100 text-yellow-600" :
-          "bg-red-100 text-red-600"
-        }`}>
+        <span
+          className={`ml-auto px-2 py-1 text-xs rounded-full ${
+            badge.variant === "success"
+              ? "bg-green-100 text-green-600"
+              : badge.variant === "warning"
+                ? "bg-yellow-100 text-yellow-600"
+                : "bg-red-100 text-red-600"
+          }`}
+        >
           {badge.text}
         </span>
       )}
@@ -55,33 +59,33 @@ const AdminSidebar = () => {
     {
       icon: LayoutDashboard,
       label: "Dashboard",
-      path: "/admin-dashboard",
+      path: "/admin",
     },
     {
       icon: Users,
       label: "Users",
-      path: "/admin-users",
+      path: "/admin/users",
       badge: { text: "Manage", variant: "info" },
     },
     {
       icon: Briefcase,
       label: "Services",
-      path: "/admin-services",
+      path: "/admin/services",
     },
     {
       icon: Calendar,
       label: "Bookings",
-      path: "/admin-bookings",
+      path: "/admin/bookings",
     },
     {
       icon: MessageSquare,
       label: "Messages",
-      path: "/admin-messages",
+      path: "/admin/messages",
     },
     {
       icon: CreditCard,
       label: "Transactions",
-      path: "/admin-transactions",
+      path: "/admin/transactions",
     },
     {
       icon: TrendingUp,
@@ -91,7 +95,7 @@ const AdminSidebar = () => {
     {
       icon: FileText,
       label: "Disputes",
-      path: "/admin-disputes",
+      path: "/admin/disputes",
       badge: { text: "Review", variant: "warning" },
     },
     {
@@ -107,12 +111,12 @@ const AdminSidebar = () => {
     {
       icon: Settings,
       label: "Settings",
-      path: "/admin-settings",
+      path: "/admin/settings",
     },
     {
       icon: HelpCircle,
       label: "Help & Support",
-      path: "/admin-help",
+      path: "/admin/contact-messages",
     },
   ];
 
@@ -142,7 +146,9 @@ const AdminSidebar = () => {
               label={item.label}
               isActive={isActive}
               badge={item.badge}
-              onClick={() => {/* Navigation handled by router */}}
+              onClick={() => {
+                /* Navigation handled by router */
+              }}
             />
           );
         })}
@@ -154,7 +160,9 @@ const AdminSidebar = () => {
           icon={LogOut}
           label="Logout"
           isActive={false}
-          onClick={() => {/* Handle logout */}}
+          onClick={() => {
+            /* Handle logout */
+          }}
         />
       </div>
     </div>

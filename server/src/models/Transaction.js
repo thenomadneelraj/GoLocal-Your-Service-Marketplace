@@ -37,7 +37,17 @@ const transactionSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
+    clientFee: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
     providerPlatformFee: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    providerFee: {
       type: Number,
       min: 0,
       default: 0,
@@ -47,7 +57,17 @@ const transactionSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
+    totalPaid: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
     netToProvider: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    providerEarn: {
       type: Number,
       min: 0,
       default: 0,
@@ -217,6 +237,21 @@ const transactionSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+transactionSchema.pre("validate", function syncContractAliases() {
+  if (!this.clientFee) {
+    this.clientFee = this.clientPlatformFee || 0;
+  }
+  if (!this.providerFee) {
+    this.providerFee = this.providerPlatformFee || 0;
+  }
+  if (!this.totalPaid) {
+    this.totalPaid = this.totalPaidByClient || this.amount || 0;
+  }
+  if (!this.providerEarn) {
+    this.providerEarn = this.netToProvider || 0;
+  }
+});
 
 // Indexes for improved admin query performance
 transactionSchema.index({ status: 1, createdAt: -1 });

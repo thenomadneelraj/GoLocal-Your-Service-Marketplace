@@ -23,7 +23,10 @@ import { useNavigate } from "react-router-dom";
 import DataOriginBadge from "@/components/shared/DataOriginBadge";
 import { mergeLayeredCollections } from "@/lib/dataLayering";
 import { mockClientBookings } from "@/lib/mockWorkspaceData";
-import { useBookingUpdates, useWebSocket } from "@/components/contexts/WebSocketContext";
+import {
+  useBookingUpdates,
+  useWebSocket,
+} from "@/components/contexts/WebSocketContext";
 
 const TABS = [
   { id: "all", label: "All", icon: Filter },
@@ -94,24 +97,26 @@ export default function ClientBookings() {
   // Handle real-time booking updates via WebSocket
   const handleBookingUpdate = useCallback((payload) => {
     console.log("[ClientBookings] Received booking update:", payload);
-    
+
     // If the update contains a full booking object, update it in the list
     if (payload.booking) {
-      setBookings(prev => {
-        const exists = prev.find(b => b._id === payload.booking._id || b.id === payload.booking._id);
+      setBookings((prev) => {
+        const exists = prev.find(
+          (b) => b._id === payload.booking._id || b.id === payload.booking._id,
+        );
         if (exists) {
           // Update existing booking
-          return prev.map(b => 
-            (b._id === payload.booking._id || b.id === payload.booking._id) 
-              ? { ...payload.booking } 
-              : b
+          return prev.map((b) =>
+            b._id === payload.booking._id || b.id === payload.booking._id
+              ? { ...payload.booking }
+              : b,
           );
         } else {
           // Add new booking
           return [payload.booking, ...prev];
         }
       });
-      
+
       toast.success(payload.message || "Booking updated");
     }
   }, []);
@@ -127,7 +132,7 @@ export default function ClientBookings() {
       setBookings(items);
     } catch (err) {
       setError(
-        err.response?.data?.message || "Could not load bookings right now."
+        err.response?.data?.message || "Could not load bookings right now.",
       );
     } finally {
       setLoading(false);
@@ -141,7 +146,8 @@ export default function ClientBookings() {
   // Note: Real-time updates are now handled by the useBookingUpdates hook above
 
   const handleCancel = async (bookingId) => {
-    if (!window.confirm("Are you sure you want to cancel this booking?")) return;
+    if (!window.confirm("Are you sure you want to cancel this booking?"))
+      return;
     try {
       setCancellingId(bookingId);
       await api.patch(`/api/bookings/${bookingId}/status`, {
@@ -149,8 +155,8 @@ export default function ClientBookings() {
       });
       setBookings((prev) =>
         prev.map((b) =>
-          (b._id || b.id) === bookingId ? { ...b, status: "cancelled" } : b
-        )
+          (b._id || b.id) === bookingId ? { ...b, status: "cancelled" } : b,
+        ),
       );
       toast.success("Booking cancelled successfully.");
     } catch (err) {
@@ -170,7 +176,7 @@ export default function ClientBookings() {
     if (!reviewModal) return;
     try {
       setSubmittingReview(true);
-      await api.post(`/api/bookings/${reviewModal.bookingId}/review`, {
+      await api.post(`/bookings/${reviewModal.bookingId}/review`, {
         rating: reviewRating,
         comment: reviewComment,
       });
@@ -198,7 +204,7 @@ export default function ClientBookings() {
     }
     try {
       setSubmittingDispute(true);
-      await api.post("/api/disputes", {
+      await api.post("/disputes", {
         bookingId: disputeModal.bookingId,
         reason: disputeReason,
         description: disputeDescription,
@@ -217,17 +223,15 @@ export default function ClientBookings() {
       mergeLayeredCollections(bookings, mockClientBookings, {
         getId: (booking) => booking._id || booking.id,
       }),
-    [bookings]
+    [bookings],
   );
 
   const filteredBookings = layeredBookings.filter((b) => {
     const status =
       typeof b.status === "string" ? b.status.toLowerCase() : "pending";
     const matchesTab = activeTab === "all" || status === activeTab;
-    const providerName =
-      b.providerId?.name || b.providerName || "";
-    const serviceTitle =
-      b.serviceId?.title || b.serviceTitle || "";
+    const providerName = b.providerId?.name || b.providerName || "";
+    const serviceTitle = b.serviceId?.title || b.serviceTitle || "";
     const matchesSearch =
       !searchQuery ||
       providerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -345,7 +349,9 @@ export default function ClientBookings() {
                     </div>
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="font-semibold text-lg">{providerName}</h3>
+                        <h3 className="font-semibold text-lg">
+                          {providerName}
+                        </h3>
                         <span
                           className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusStyle.color}`}
                         >
@@ -429,29 +435,33 @@ export default function ClientBookings() {
                       </>
                     )}
                     {!isMockBooking &&
-                    (status === "accepted" || status === "completed") && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-xl px-4 text-xs font-semibold gap-2 border-border/60 hover:bg-sky-500/10 hover:text-sky-600"
-                        onClick={() => navigate(`/client/chat?provider=${booking.providerId?._id || ""}`)}
-                      >
-                        <MessageSquare size={14} />
-                        Chat
-                      </Button>
-                    )}
+                      (status === "accepted" || status === "completed") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl px-4 text-xs font-semibold gap-2 border-border/60 hover:bg-sky-500/10 hover:text-sky-600"
+                          onClick={() =>
+                            navigate(
+                              `/client/chat?provider=${booking.providerId?._id || ""}`,
+                            )
+                          }
+                        >
+                          <MessageSquare size={14} />
+                          Chat
+                        </Button>
+                      )}
                     {!isMockBooking &&
-                    (status === "pending" || status === "accepted") && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="rounded-xl px-4 text-xs font-semibold hover:bg-rose-500/10 hover:text-rose-600"
-                        onClick={() => handleCancel(id)}
-                        disabled={isCancelling}
-                      >
-                        {isCancelling ? "Cancelling…" : "Cancel"}
-                      </Button>
-                    )}
+                      (status === "pending" || status === "accepted") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-xl px-4 text-xs font-semibold hover:bg-rose-500/10 hover:text-rose-600"
+                          onClick={() => handleCancel(id)}
+                          disabled={isCancelling}
+                        >
+                          {isCancelling ? "Cancelling…" : "Cancel"}
+                        </Button>
+                      )}
                   </div>
                 </div>
               </div>
@@ -489,7 +499,8 @@ export default function ClientBookings() {
               File a Dispute
             </h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Report an issue with this completed service. Our team will review and respond within 48 hours.
+              Report an issue with this completed service. Our team will review
+              and respond within 48 hours.
             </p>
 
             {/* Reason */}
@@ -503,13 +514,19 @@ export default function ClientBookings() {
                 className="w-full h-11 px-4 rounded-xl border border-border/60 bg-background focus:ring-2 focus:ring-primary/20 outline-none text-sm"
               >
                 <option value="">Select a reason...</option>
-                <option value="service_not_received">Service Not Received</option>
+                <option value="service_not_received">
+                  Service Not Received
+                </option>
                 <option value="poor_quality">Poor Quality of Service</option>
-                <option value="overcharging">Overcharging / Billing Issue</option>
+                <option value="overcharging">
+                  Overcharging / Billing Issue
+                </option>
                 <option value="no_show">Provider No-Show</option>
                 <option value="incomplete_work">Incomplete Work</option>
                 <option value="damaged_property">Property Damage</option>
-                <option value="unprofessional_behavior">Unprofessional Behavior</option>
+                <option value="unprofessional_behavior">
+                  Unprofessional Behavior
+                </option>
                 <option value="other">Other</option>
               </select>
             </div>
@@ -539,7 +556,9 @@ export default function ClientBookings() {
               <Button
                 className="flex-1 rounded-xl"
                 onClick={submitDispute}
-                disabled={submittingDispute || !disputeReason || !disputeDescription}
+                disabled={
+                  submittingDispute || !disputeReason || !disputeDescription
+                }
               >
                 {submittingDispute ? "Submitting..." : "Submit Dispute"}
               </Button>
@@ -566,7 +585,9 @@ export default function ClientBookings() {
                   key={star}
                   onClick={() => setReviewRating(star)}
                   className={`text-2xl transition-transform hover:scale-110 ${
-                    star <= reviewRating ? "text-amber-400" : "text-muted-foreground/30"
+                    star <= reviewRating
+                      ? "text-amber-400"
+                      : "text-muted-foreground/30"
                   }`}
                 >
                   ★
