@@ -23,11 +23,11 @@ const getDashboardStats = async () => {
     const totalProviders = await User.countDocuments({ role: { $in: ["provider", "PROVIDER"] } });
     const verifiedProviders = await User.countDocuments({
       role: { $in: ["provider", "PROVIDER"] },
-      approvalStatus: APPROVAL_STATUS.APPROVED,
+      status: USER_STATUS.APPROVED,
     });
     const pendingProviders = await User.countDocuments({
       role: { $in: ["provider", "PROVIDER"] },
-      approvalStatus: APPROVAL_STATUS.PENDING,
+      status: USER_STATUS.PENDING,
     });
 
     // Get users by role
@@ -145,7 +145,7 @@ const updateUserStatus = async (userId, nextState = {}) => {
         ? normalizeUserStatus(requestedState.status, currentUser.isActive)
         : requestedState.status === false
           ? USER_STATUS.SUSPENDED
-          : USER_STATUS.ACTIVE;
+          : USER_STATUS.APPROVED;
     const nextApprovalStatus = normalizeApprovalStatus(
       requestedState.approvalStatus ?? currentUser.approvalStatus,
       {
@@ -158,7 +158,7 @@ const updateUserStatus = async (userId, nextState = {}) => {
       userId,
       {
         status: nextStatus,
-        isActive: nextStatus === USER_STATUS.ACTIVE,
+        isActive: nextStatus === USER_STATUS.APPROVED,
         approvalStatus: nextApprovalStatus,
       },
       { new: true, runValidators: true },
@@ -232,16 +232,16 @@ const updateProviderStatus = async (providerId, approvalInput) => {
       nextApprovalStatus === APPROVAL_STATUS.REJECTED
         ? USER_STATUS.REJECTED
         : nextApprovalStatus === APPROVAL_STATUS.APPROVED
-          ? USER_STATUS.ACTIVE
+          ? USER_STATUS.APPROVED
           : currentUserStatus === USER_STATUS.SUSPENDED
             ? USER_STATUS.SUSPENDED
-            : USER_STATUS.ACTIVE;
+            : USER_STATUS.PENDING;
 
     const user = await User.findByIdAndUpdate(
       providerId,
       {
         status: nextUserStatus,
-        isActive: nextUserStatus === USER_STATUS.ACTIVE,
+        isActive: nextUserStatus === USER_STATUS.APPROVED,
         approvalStatus: nextApprovalStatus,
       },
       { new: true },

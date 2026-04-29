@@ -13,6 +13,7 @@ import Stack from "@mui/material/Stack";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import WorkOutlineRoundedIcon from "@mui/icons-material/WorkOutlineRounded";
+import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import { alpha } from "@mui/material/styles";
 import { resolveMediaUrl } from "@/lib/media";
 import { fetchPublicSettings } from "@/lib/adminApi";
@@ -27,6 +28,39 @@ const getInitials = (value) =>
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+
+const formatTime = (value = "") => {
+  if (!value) return "";
+  const [hours, minutes] = String(value).split(":");
+  const date = new Date();
+  date.setHours(Number(hours || 0), Number(minutes || 0), 0, 0);
+  return date.toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const formatAvailabilitySchedule = (schedule = []) => {
+  const enabled = (Array.isArray(schedule) ? schedule : []).filter(
+    (slot) => slot.enabled,
+  );
+
+  if (!enabled.length) {
+    return "Schedule not set";
+  }
+
+  const days =
+    enabled.length > 3
+      ? `${enabled.slice(0, 3).map((slot) => slot.day.slice(0, 3)).join(", ")} +${enabled.length - 3}`
+      : enabled.map((slot) => slot.day.slice(0, 3)).join(", ");
+  const first = enabled[0];
+  const time =
+    first.startTime && first.endTime
+      ? `${formatTime(first.startTime)} - ${formatTime(first.endTime)}`
+      : "Timing not set";
+
+  return `${days} • ${time}`;
+};
 
 const ProviderCard = ({ provider }) => {
   const [commissionPercentage, setCommissionPercentage] = useState(10);
@@ -61,10 +95,12 @@ const ProviderCard = ({ provider }) => {
     available,
     experience = 0,
     serviceCount = 0,
+    availabilitySchedule = [],
     isMock = false,
   } = provider;
 
   const imageUrl = resolveMediaUrl(image);
+  const availabilityLabel = formatAvailabilitySchedule(availabilitySchedule);
 
   return (
     <Card
@@ -204,6 +240,12 @@ const ProviderCard = ({ provider }) => {
             label={`${serviceCount} services`}
             variant="outlined"
             sx={{ borderRadius: 999 }}
+          />
+          <Chip
+            icon={<AccessTimeRoundedIcon sx={{ fontSize: 18 }} />}
+            label={availabilityLabel}
+            variant="outlined"
+            sx={{ borderRadius: 999, maxWidth: "100%" }}
           />
         </Stack>
 

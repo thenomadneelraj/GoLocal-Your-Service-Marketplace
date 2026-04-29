@@ -33,11 +33,16 @@ const DEFAULT_FILTERS = {
 };
 
 const getUserStatusValue = (user) =>
-  ["suspended", "rejected"].includes(user.status)
+  ["pending", "approved", "suspended", "rejected"].includes(user.status)
     ? user.status
-    : user.approvalStatus === "approved"
-      ? user.status
-      : user.approvalStatus;
+    : user.approvalStatus;
+
+const getStatusSuccessMessage = (status) => {
+  if (status === "approved") return "User approved successfully.";
+  if (status === "suspended") return "User suspended successfully.";
+  if (status === "rejected") return "User rejected and deleted successfully.";
+  return "User updated successfully.";
+};
 
 export default function AdminUsers() {
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -85,14 +90,14 @@ export default function AdminUsers() {
   const calculatedSummary = useMemo(
     () => ({
       totalUsers: users.length,
-      pendingApproval: users.filter((user) => user.approvalStatus === "pending")
+      pendingApproval: users.filter((user) => getUserStatusValue(user) === "pending")
         .length,
-      approved: users.filter((user) => user.approvalStatus === "approved")
+      approved: users.filter((user) => getUserStatusValue(user) === "approved")
         .length,
       rejected: users.filter(
-        (user) => user.approvalStatus === "rejected" || user.status === "rejected",
+        (user) => getUserStatusValue(user) === "rejected",
       ).length,
-      suspended: users.filter((user) => user.status === "suspended").length,
+      suspended: users.filter((user) => getUserStatusValue(user) === "suspended").length,
     }),
     [users],
   );
@@ -121,14 +126,47 @@ export default function AdminUsers() {
       if (!confirmed) return;
     }
 
+    const previousPayload = payload;
+
     try {
       setActionId(`${userId}:${status}`);
-      await updateAdminUserStatus(userId, { status });
-      toast.success("User updated successfully.");
+      const response = await updateAdminUserStatus(userId, { status });
+      const updatedUser = response.data?.data;
+
+      setPayload((current) => {
+        if (!current?.items) return current;
+        const nextItems =
+          status === "rejected"
+            ? current.items.filter((user) => user.id !== userId)
+            : current.items.map((user) =>
+                user.id === userId
+                  ? {
+                      ...user,
+                      ...(updatedUser || {}),
+                      status,
+                      approvalStatus: status === "approved" ? "approved" : "pending",
+                    }
+                  : user,
+              );
+        return { ...current, items: nextItems };
+      });
+
+      toast.success(response.data?.message || getStatusSuccessMessage(status));
       invalidateCache.users();
       invalidateCache.dashboard();
-      await loadUsers(filters, true);
+      window.dispatchEvent(new Event("account-access-updated"));
+      window.localStorage.setItem(
+        "account-access-updated",
+        JSON.stringify({ userId, status, updatedAt: Date.now() }),
+      );
+
+      try {
+        await loadUsers(filters, true);
+      } catch {
+        toast.warning("User updated, but the list could not refresh automatically.");
+      }
     } catch (error) {
+      setPayload(previousPayload);
       toast.error(error.response?.data?.message || "Failed to update user.");
     } finally {
       setActionId("");

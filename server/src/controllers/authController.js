@@ -129,6 +129,12 @@ const shapeAccount = (user) => {
       generateUpiId({ phone: user.phone, bankName: user.bankName }),
     serviceType: user.serviceType || "",
     workCategories: Array.isArray(user.workCategories) ? user.workCategories : [],
+    serviceAreas: Array.isArray(user.serviceAreas) ? user.serviceAreas : [],
+    serviceRadius: Number(user.serviceRadius || 0),
+    availability: user.availability ?? true,
+    availabilitySchedule: Array.isArray(user.availabilitySchedule)
+      ? user.availabilitySchedule
+      : [],
     isVerified: Boolean(user.isVerified),
     verificationStatus: normalizeVerificationStatus(
       user.verification?.status,
@@ -294,7 +300,7 @@ const register = async (req, res) => {
       serviceType: normalizedServiceType,
       workCategories: normalizedWorkCategories,
       availability: assignedRole === "provider",
-      status: USER_STATUS.ACTIVE,
+      status: USER_STATUS.PENDING,
       approvalStatus: APPROVAL_STATUS.PENDING,
     });
 

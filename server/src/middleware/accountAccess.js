@@ -1,5 +1,8 @@
 const {
   APPROVAL_STATUS,
+  USER_STATUS,
+  canAcceptBookings,
+  canBook,
   buildPersistedAccountState,
   isApprovalRequiredRole,
 } = require("../utils/accountState");
@@ -31,26 +34,26 @@ const buildAccountAccessState = async (user) => {
 
   const requiresApproval = isApprovalRequiredRole(role);
   const pendingApproval =
-    requiresApproval && baseState.approvalStatus === APPROVAL_STATUS.PENDING;
+    requiresApproval && baseState.status === USER_STATUS.PENDING;
   const approvalRejected =
-    requiresApproval && baseState.approvalStatus === APPROVAL_STATUS.REJECTED;
+    requiresApproval && baseState.status === USER_STATUS.REJECTED;
   const isApproved =
-    !requiresApproval || baseState.approvalStatus === APPROVAL_STATUS.APPROVED;
+    !requiresApproval || baseState.status === USER_STATUS.APPROVED;
 
-  if (!baseState.isActive) {
+  if (baseState.status === USER_STATUS.SUSPENDED) {
     return {
       role,
       status: baseState.status,
       approvalStatus: baseState.approvalStatus,
       isActive: false,
       isApproved,
-      restricted: true,
+      restricted: false,
       pendingApproval: false,
       reason: role === "PROVIDER" ? "provider_disabled" : "client_suspended",
       message:
         role === "PROVIDER"
-          ? "Your provider account is disabled. You can access only your dashboard to contact the admin."
-          : "Your client account is suspended. You can access only your dashboard to contact the admin.",
+          ? "Your provider account is suspended."
+          : "Your account is suspended.",
       canCreateBookings: false,
       canRespondToBookings: false,
     };
@@ -68,8 +71,8 @@ const buildAccountAccessState = async (user) => {
       reason: role === "PROVIDER" ? "provider_rejected" : "client_rejected",
       message:
         role === "PROVIDER"
-          ? "Your provider account was rejected by admin. Please contact support for next steps."
-          : "Your client account was rejected by admin. Please contact support for next steps.",
+          ? "Your provider account was rejected by admin."
+          : "Your client account was rejected by admin.",
       canCreateBookings: false,
       canRespondToBookings: false,
     };
@@ -85,8 +88,8 @@ const buildAccountAccessState = async (user) => {
     pendingApproval,
     reason: null,
     message: "",
-    canCreateBookings: role === "CLIENT" ? isApproved : true,
-    canRespondToBookings: role === "PROVIDER" ? isApproved : true,
+    canCreateBookings: role === "CLIENT" ? canBook(user) : true,
+    canRespondToBookings: role === "PROVIDER" ? canAcceptBookings(user) : true,
   };
 };
 

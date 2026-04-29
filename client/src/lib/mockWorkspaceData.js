@@ -31,7 +31,7 @@ export const mockClientDashboard = {
   taskOverview: [
     {
       id: "mock-client-task-1",
-      providerName: "Riya Sharma",
+      providerName: "Maya Torres",
       serviceTitle: "Deep Cleaning",
       status: "accepted",
       bookingDate: "2026-04-10T10:30:00.000Z",
@@ -41,7 +41,7 @@ export const mockClientDashboard = {
     },
     {
       id: "mock-client-task-2",
-      providerName: "Kabir Patel",
+      providerName: "Omar Brooks",
       serviceTitle: "AC Maintenance",
       status: "pending",
       bookingDate: "2026-04-12T07:30:00.000Z",
@@ -53,7 +53,7 @@ export const mockClientDashboard = {
   recentProviders: [
     {
       id: "mock-client-provider-1",
-      providerName: "Riya Sharma",
+      providerName: "Maya Torres",
       serviceTitle: "Deep Cleaning",
       status: "accepted",
       bookingDate: "2026-04-10T10:30:00.000Z",
@@ -63,7 +63,7 @@ export const mockClientDashboard = {
     },
     {
       id: "mock-client-provider-2",
-      providerName: "Kabir Patel",
+      providerName: "Omar Brooks",
       serviceTitle: "AC Maintenance",
       status: "completed",
       bookingDate: "2026-04-05T08:30:00.000Z",
@@ -73,7 +73,7 @@ export const mockClientDashboard = {
     },
     {
       id: "mock-client-provider-3",
-      providerName: "Neha Verma",
+      providerName: "Leah Benton",
       serviceTitle: "Home Tutor Visit",
       status: "completed",
       bookingDate: "2026-04-02T12:00:00.000Z",
@@ -94,7 +94,7 @@ export const mockClientDashboard = {
   upcomingMeetings: [
     {
       id: "mock-client-meeting-1",
-      providerName: "Riya Sharma",
+      providerName: "Maya Torres",
       serviceTitle: "Deep Cleaning",
       status: "accepted",
       bookingDate: "2026-04-10T10:30:00.000Z",
@@ -104,7 +104,7 @@ export const mockClientDashboard = {
     },
     {
       id: "mock-client-meeting-2",
-      providerName: "Kabir Patel",
+      providerName: "Omar Brooks",
       serviceTitle: "AC Maintenance",
       status: "pending",
       bookingDate: "2026-04-12T07:30:00.000Z",
@@ -153,7 +153,7 @@ export const mockProviderDashboard = {
   todaySchedule: [
     {
       id: "mock-provider-schedule-1",
-      clientName: "Aarav Mehta",
+      clientName: "Nolan Reed",
       serviceTitle: "Premium Home Cleaning",
       status: "accepted",
       bookingDate: "2026-04-09T08:00:00.000Z",
@@ -175,7 +175,7 @@ export const mockProviderDashboard = {
   recentAppointments: [
     {
       id: "mock-provider-appointment-1",
-      clientName: "Aarav Mehta",
+      clientName: "Nolan Reed",
       serviceTitle: "Premium Home Cleaning",
       status: "accepted",
       bookingDate: "2026-04-09T08:00:00.000Z",
@@ -227,9 +227,9 @@ export const mockProviderDashboard = {
 export const mockClientBookings = [
   {
     _id: "mock-booking-client-1",
-    providerName: "Riya Sharma",
+    providerName: "Maya Torres",
     providerId: {
-      name: "Riya Sharma",
+      name: "Maya Torres",
     },
     serviceTitle: "Deep Cleaning",
     serviceId: {
@@ -244,9 +244,9 @@ export const mockClientBookings = [
   },
   {
     _id: "mock-booking-client-2",
-    providerName: "Kabir Patel",
+    providerName: "Omar Brooks",
     providerId: {
-      name: "Kabir Patel",
+      name: "Omar Brooks",
     },
     serviceTitle: "AC Maintenance",
     serviceId: {
@@ -261,9 +261,9 @@ export const mockClientBookings = [
   },
   {
     _id: "mock-booking-client-3",
-    providerName: "Neha Verma",
+    providerName: "Leah Benton",
     providerId: {
-      name: "Neha Verma",
+      name: "Leah Benton",
     },
     serviceTitle: "Home Tutor Visit",
     serviceId: {
@@ -285,8 +285,8 @@ export const mockClientBookings = [
 export const mockProviderBookings = [
   {
     id: "mock-provider-booking-1",
-    clientName: "Aarav Mehta",
-    clientEmail: "aarav.sample@golocal.test",
+    clientName: "Nolan Reed",
+    clientEmail: "nolan.sample@golocal.test",
     clientPhone: "+91 98100 11223",
     clientAddress: "Bandra West, Mumbai",
     clientPhoto: "",
@@ -335,7 +335,7 @@ export const mockClientTransactions = [
     id: "mock-client-transaction-1",
     invoiceNumber: "INV-MOCK-2001",
     transactionId: "TX-MOCK-2001",
-    providerName: "Riya Sharma",
+    providerName: "Maya Torres",
     providerServiceType: "Cleaning",
     serviceTitle: "Deep Cleaning",
     amount: 3200,
@@ -348,7 +348,7 @@ export const mockClientTransactions = [
     id: "mock-client-transaction-2",
     invoiceNumber: "INV-MOCK-2002",
     transactionId: "TX-MOCK-2002",
-    providerName: "Kabir Patel",
+    providerName: "Omar Brooks",
     providerServiceType: "HVAC",
     serviceTitle: "AC Maintenance",
     amount: 1850,
@@ -361,7 +361,7 @@ export const mockClientTransactions = [
     id: "mock-client-transaction-3",
     invoiceNumber: "INV-MOCK-2003",
     transactionId: "TX-MOCK-2003",
-    providerName: "Neha Verma",
+    providerName: "Leah Benton",
     providerServiceType: "Education",
     serviceTitle: "Home Tutor Visit",
     amount: 2400,
@@ -382,9 +382,9 @@ export const mockProviderPayouts = [
     clientPaid: 4200,
     status: "paid",
     createdAt: "2026-04-09T08:30:00.000Z",
-    providerUpiId: "riya@upi",
+    providerUpiId: "maya@upi",
     providerBankName: "HDFC Bank",
-    clientUpiId: "aarav@upi",
+    clientUpiId: "nolan@upi",
     clientBankName: "ICICI Bank",
   },
   {
@@ -396,7 +396,7 @@ export const mockProviderPayouts = [
     clientPaid: 2800,
     status: "pending",
     createdAt: "2026-04-08T12:15:00.000Z",
-    providerUpiId: "riya@upi",
+    providerUpiId: "maya@upi",
     providerBankName: "HDFC Bank",
     clientUpiId: "nisha@upi",
     clientBankName: "Axis Bank",
@@ -410,7 +410,7 @@ export const mockProviderPayouts = [
     clientPaid: 6100,
     status: "paid",
     createdAt: "2026-04-07T15:05:00.000Z",
-    providerUpiId: "riya@upi",
+    providerUpiId: "maya@upi",
     providerBankName: "HDFC Bank",
     clientUpiId: "dev@upi",
     clientBankName: "SBI",
@@ -422,7 +422,7 @@ export const mockDisputeThreads = {
     {
       id: "mock-client-thread-1",
       threadKey: "mock-client-thread-1",
-      threadTitle: "Riya Sharma",
+      threadTitle: "Maya Torres",
       targetType: "provider",
       status: "under_review",
       latestAt: "2026-04-09T09:20:00.000Z",
@@ -442,7 +442,7 @@ export const mockDisputeThreads = {
           createdLabel: "9 Apr 2026, 2:50 PM",
           reporterName: "You",
           bookingLabel: "#CK4201",
-          targetUserName: "Riya Sharma",
+          targetUserName: "Maya Torres",
           roleLabel: "reported by you",
         },
       ],
@@ -480,7 +480,7 @@ export const mockDisputeThreads = {
     {
       id: "mock-provider-thread-1",
       threadKey: "mock-provider-thread-1",
-      threadTitle: "Aarav Mehta",
+      threadTitle: "Nolan Reed",
       targetType: "client",
       status: "open",
       latestAt: "2026-04-09T06:55:00.000Z",
@@ -500,7 +500,7 @@ export const mockDisputeThreads = {
           createdLabel: "9 Apr 2026, 12:25 PM",
           reporterName: "You",
           bookingLabel: "#PR1120",
-          targetUserName: "Aarav Mehta",
+          targetUserName: "Nolan Reed",
           roleLabel: "reported by you",
         },
       ],
@@ -512,14 +512,14 @@ export const mockDisputeBookings = {
   client: [
     {
       _id: "mock-dispute-booking-client-1",
-      providerId: { name: "Riya Sharma" },
+      providerId: { name: "Maya Torres" },
       serviceId: { title: "Deep Cleaning" },
       bookingDate: "2026-04-10T10:30:00.000Z",
       createdAt: "2026-04-09T08:10:00.000Z",
     },
     {
       _id: "mock-dispute-booking-client-2",
-      providerId: { name: "Kabir Patel" },
+      providerId: { name: "Omar Brooks" },
       serviceId: { title: "AC Maintenance" },
       bookingDate: "2026-04-12T07:30:00.000Z",
       createdAt: "2026-04-08T13:45:00.000Z",
@@ -528,7 +528,7 @@ export const mockDisputeBookings = {
   provider: [
     {
       _id: "mock-dispute-booking-provider-1",
-      clientId: { name: "Aarav Mehta" },
+      clientId: { name: "Nolan Reed" },
       serviceId: { title: "Premium Home Cleaning" },
       bookingDate: "2026-04-10T10:30:00.000Z",
       createdAt: "2026-04-09T08:30:00.000Z",
@@ -576,8 +576,8 @@ export const mockAdminDashboard = {
 export const mockAdminUsers = [
   {
     id: "mock-admin-user-1",
-    name: "Riya Sharma",
-    email: "riya.sample@golocal.test",
+    name: "Maya Torres",
+    email: "maya.sample@golocal.test",
     role: "provider",
     status: "active",
     approvalStatus: "approved",
@@ -586,8 +586,8 @@ export const mockAdminUsers = [
   },
   {
     id: "mock-admin-user-2",
-    name: "Kabir Patel",
-    email: "kabir.sample@golocal.test",
+    name: "Omar Brooks",
+    email: "omar.sample@golocal.test",
     role: "provider",
     status: "pending",
     approvalStatus: "pending",
@@ -596,8 +596,8 @@ export const mockAdminUsers = [
   },
   {
     id: "mock-admin-user-3",
-    name: "Arjun Mehta",
-    email: "arjun.sample@golocal.test",
+    name: "Ishan Rao",
+    email: "ishan.sample@golocal.test",
     role: "client",
     status: "active",
     approvalStatus: "approved",
@@ -611,10 +611,10 @@ export const mockAdminBookings = [
     id: "mock-admin-booking-1",
     service: "Deep Cleaning",
     category: "Cleaning",
-    client: "Arjun Mehta",
-    clientEmail: "arjun.sample@golocal.test",
-    provider: "Riya Sharma",
-    providerEmail: "riya.sample@golocal.test",
+    client: "Ishan Rao",
+    clientEmail: "ishan.sample@golocal.test",
+    provider: "Maya Torres",
+    providerEmail: "maya.sample@golocal.test",
     schedule: "4/10/2026, 4:30 PM",
     status: "accepted",
     paymentStatus: "paid",
@@ -627,8 +627,8 @@ export const mockAdminBookings = [
     category: "HVAC",
     client: "Tanvi Gupta",
     clientEmail: "tanvi.sample@golocal.test",
-    provider: "Kabir Patel",
-    providerEmail: "kabir.sample@golocal.test",
+    provider: "Omar Brooks",
+    providerEmail: "omar.sample@golocal.test",
     schedule: "4/12/2026, 1:00 PM",
     status: "pending",
     paymentStatus: "pending",
@@ -641,7 +641,7 @@ export const mockAdminTransactions = [
   {
     id: "mock-admin-transaction-1",
     reference: "TX-MOCK-3401",
-    provider: "Riya Sharma",
+    provider: "Maya Torres",
     service: "Deep Cleaning",
     amountLabel: "INR 3,200",
     platformFeeLabel: "INR 320",
@@ -653,7 +653,7 @@ export const mockAdminTransactions = [
   {
     id: "mock-admin-transaction-2",
     reference: "TX-MOCK-3402",
-    provider: "Kabir Patel",
+    provider: "Omar Brooks",
     service: "AC Maintenance",
     amountLabel: "INR 1,850",
     platformFeeLabel: "INR 185",
@@ -679,23 +679,23 @@ export const mockAdminDisputeThreads = [
   {
     id: "mock-admin-thread-1",
     threadKey: "mock-admin-thread-1",
-    threadTitle: "Riya Sharma",
+    threadTitle: "Maya Torres",
     targetType: "provider",
     status: "under_review",
-    reporterName: "Arjun Mehta",
-    targetUserName: "Riya Sharma",
+    reporterName: "Ishan Rao",
+    targetUserName: "Maya Torres",
     latestAt: "2026-04-09T09:20:00.000Z",
     latestLabel: "4/9/2026, 2:50 PM",
     items: [
       {
         id: "mock-admin-dispute-1",
         threadKey: "mock-admin-thread-1",
-        threadTitle: "Riya Sharma",
+        threadTitle: "Maya Torres",
         bookingLabel: "#CK4201",
-        client: "Arjun Mehta",
-        provider: "Riya Sharma",
-        reporterName: "Arjun Mehta",
-        targetUserName: "Riya Sharma",
+        client: "Ishan Rao",
+        provider: "Maya Torres",
+        reporterName: "Ishan Rao",
+        targetUserName: "Maya Torres",
         targetType: "provider",
         subject: "Missed arrival window",
         reason: "Late Arrival",
@@ -745,7 +745,7 @@ export const mockAdminDisputeThreads = [
 export const mockClientProviders = [
   {
     id: "mock-provider-card-1",
-    name: "Riya Sharma",
+    name: "Maya Torres",
     serviceType: "Deep Cleaning Specialist",
     rating: 4.9,
     reviewCount: 48,
@@ -757,7 +757,7 @@ export const mockClientProviders = [
     completedJobs: 112,
     experience: 6,
     phone: "+91 98100 11223",
-    email: "riya.sample@golocal.test",
+    email: "maya.sample@golocal.test",
     bio: "Residential cleaning professional focused on move-in and deep clean projects.",
     services: ["Deep Cleaning", "Move-out Cleaning", "Kitchen Reset"],
     availabilitySummary: {
@@ -769,7 +769,7 @@ export const mockClientProviders = [
   },
   {
     id: "mock-provider-card-2",
-    name: "Kabir Patel",
+    name: "Omar Brooks",
     serviceType: "AC Repair and Maintenance",
     rating: 4.7,
     reviewCount: 36,
@@ -781,7 +781,7 @@ export const mockClientProviders = [
     completedJobs: 84,
     experience: 5,
     phone: "+91 98200 44556",
-    email: "kabir.sample@golocal.test",
+    email: "omar.sample@golocal.test",
     bio: "Reliable HVAC technician for annual maintenance and emergency cooling issues.",
     services: ["AC Maintenance", "Gas Refill", "Filter Cleaning"],
     availabilitySummary: {
@@ -816,7 +816,7 @@ export const mockProviderNotifications = [
   {
     id: "mock-provider-notification-1",
     title: "Sample booking request",
-    message: "Aarav Mehta requested a Premium Home Cleaning session.",
+    message: "Nolan Reed requested a Premium Home Cleaning session.",
     type: "booking",
     read: false,
     createdAt: "2026-04-09T08:30:00.000Z",

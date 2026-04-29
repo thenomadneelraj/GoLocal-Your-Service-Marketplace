@@ -49,6 +49,9 @@ const normalizeProvider = (item) => ({
     item.serviceCount ??
     (Array.isArray(item.services) ? item.services.length : 0),
   servicePriceRange: item.servicePriceRange || null,
+  availabilitySchedule: Array.isArray(item.availabilitySchedule)
+    ? item.availabilitySchedule
+    : [],
 });
 
 const ProvidersList = () => {

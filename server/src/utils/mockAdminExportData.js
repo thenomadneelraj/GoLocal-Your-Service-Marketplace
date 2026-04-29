@@ -1,8 +1,8 @@
 const MOCK_EXPORT_ROWS = {
   users: [
     {
-      name: "Riya Sharma",
-      email: "riya.sample@golocal.test",
+      name: "Maya Torres",
+      email: "maya.sample@golocal.test",
       role: "provider",
       status: "active",
       approvalStatus: "approved",
@@ -11,8 +11,8 @@ const MOCK_EXPORT_ROWS = {
       activityAt: "2026-04-09T08:20:00.000Z",
     },
     {
-      name: "Kabir Patel",
-      email: "kabir.sample@golocal.test",
+      name: "Omar Brooks",
+      email: "omar.sample@golocal.test",
       role: "provider",
       status: "pending",
       approvalStatus: "pending",
@@ -24,8 +24,8 @@ const MOCK_EXPORT_ROWS = {
   bookings: [
     {
       service: "Deep Cleaning",
-      client: "Arjun Mehta",
-      provider: "Riya Sharma",
+      client: "Ishan Rao",
+      provider: "Maya Torres",
       schedule: "4/10/2026, 4:30 PM",
       status: "accepted",
       payment: "paid",
@@ -36,7 +36,7 @@ const MOCK_EXPORT_ROWS = {
     {
       service: "AC Maintenance",
       client: "Tanvi Gupta",
-      provider: "Kabir Patel",
+      provider: "Omar Brooks",
       schedule: "4/12/2026, 1:00 PM",
       status: "pending",
       payment: "pending",
@@ -48,7 +48,7 @@ const MOCK_EXPORT_ROWS = {
   transactions: [
     {
       reference: "TX-MOCK-3401",
-      provider: "Riya Sharma",
+      provider: "Maya Torres",
       service: "Deep Cleaning",
       clientPaid: "INR 3,200",
       platformFee: "INR 320",
@@ -59,7 +59,7 @@ const MOCK_EXPORT_ROWS = {
     },
     {
       reference: "TX-MOCK-3402",
-      provider: "Kabir Patel",
+      provider: "Omar Brooks",
       service: "AC Maintenance",
       clientPaid: "INR 1,850",
       platformFee: "INR 185",
@@ -72,8 +72,8 @@ const MOCK_EXPORT_ROWS = {
   disputes: [
     {
       booking: "#CK4201",
-      client: "Arjun Mehta",
-      provider: "Riya Sharma",
+      client: "Ishan Rao",
+      provider: "Maya Torres",
       reason: "Late Arrival",
       status: "under_review",
       createdAt: "4/9/2026, 2:50 PM",

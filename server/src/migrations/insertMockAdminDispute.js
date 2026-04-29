@@ -24,11 +24,11 @@ async function insertMockAdminDispute() {
     }
 
     // Minimal mock users
-    let clientUser = await User.findOne({ email: "arjun.mock@golocal.test.com" });
+    let clientUser = await User.findOne({ email: "ishan.mock@golocal.test.com" });
     if (!clientUser) {
       clientUser = new User({
-        name: "Arjun Mehta",
-        email: "arjun.mock@golocal.test.com",
+        name: "Ishan Rao",
+        email: "ishan.mock@golocal.test.com",
         password: "MockPass123!",
         role: "client",
         status: "active",
@@ -37,11 +37,11 @@ async function insertMockAdminDispute() {
       console.log("Created client user:", clientUser._id);
     }
 
-    let providerUser = await User.findOne({ email: "riya.mock@golocal.test.com" });
+    let providerUser = await User.findOne({ email: "maya.mock@golocal.test.com" });
     if (!providerUser) {
       providerUser = new User({
-        name: "Riya Sharma",
-        email: "riya.mock@golocal.test.com",
+        name: "Maya Torres",
+        email: "maya.mock@golocal.test.com",
         password: "MockPass123!",
         role: "provider",
         status: "active",

@@ -43,12 +43,11 @@ const STATUS_MAP = {
 };
 
 const CATEGORY_OPTIONS = [
-  { value: "booking", label: "Booking Issue" },
-  { value: "payment", label: "Payment Problem" },
-  { value: "account", label: "Account Help" },
-  { value: "technical", label: "Technical Issue" },
-  { value: "feedback", label: "Feedback / Suggestion" },
-  { value: "other", label: "Other" },
+  { value: "account", label: "Account / Admin Help" },
+  { value: "technical", label: "Website Technical Issue" },
+  { value: "payment", label: "Platform Payment Issue" },
+  { value: "feedback", label: "Website Feedback" },
+  { value: "other", label: "Other Platform Issue" },
 ];
 
 const formatDateTime = (value) => {

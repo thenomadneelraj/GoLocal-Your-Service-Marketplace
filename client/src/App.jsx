@@ -156,9 +156,6 @@ const ProviderDisputes = lazy(
 const ProviderVerification = lazy(
   () => import("./components/providerDashboard/ProviderVerification"),
 );
-const ProviderDashboardProfile = lazy(
-  () => import("./components/providerDashboard/ProviderProfile"),
-);
 const SettingsLayout = lazy(
   () => import("./components/settings/SettingsLayout"),
 );
@@ -564,12 +561,7 @@ function AppRoutes() {
           />
           <Route
             path="/provider/workspace"
-            element={
-              <LazyRoute
-                component={ProviderDashboardProfile}
-                label="Loading provider workspace..."
-              />
-            }
+            element={<Navigate to="/provider/settings" replace />}
           />
           <Route
             path="/provider/settings"

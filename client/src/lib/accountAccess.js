@@ -2,10 +2,13 @@ const normalizeUserStatus = (value = "", fallbackIsActive = true) => {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
-  if (["active", "suspended", "rejected"].includes(normalized)) {
+  if (["pending", "approved", "suspended", "rejected"].includes(normalized)) {
     return normalized;
   }
-  return fallbackIsActive === false ? "suspended" : "active";
+  if (normalized === "active") {
+    return "approved";
+  }
+  return fallbackIsActive === false ? "suspended" : "pending";
 };
 
 const normalizeApprovalStatus = (
@@ -47,11 +50,11 @@ export const getAccountAccessState = (user) => {
     role,
     user?.isApproved !== false,
   );
-  const isActive = status === "active";
+  const isActive = status === "approved";
   const approvalRequired = role === "CLIENT" || role === "PROVIDER";
-  const pendingApproval = approvalRequired && approvalStatus === "pending";
-  const approvalRejected = approvalRequired && approvalStatus === "rejected";
-  const isApproved = !approvalRequired || approvalStatus === "approved";
+  const pendingApproval = approvalRequired && status === "pending";
+  const approvalRejected = approvalRequired && status === "rejected";
+  const isApproved = !approvalRequired || status === "approved";
 
   if (role === "ADMIN") {
     return {
@@ -70,30 +73,28 @@ export const getAccountAccessState = (user) => {
   if (role === "CLIENT" && !isActive) {
     return {
       role,
-      restricted: true,
+      restricted: false,
       pendingApproval: false,
       approvalRejected: false,
       isApproved,
       canCreateBookings: false,
       canRespondToBookings: false,
       title: "Client account suspended",
-      description:
-        "Your client account is currently suspended by admin. You can access only this dashboard and should contact the admin to reactivate your account.",
+      description: "Your account is suspended.",
     };
   }
 
   if (role === "PROVIDER" && !isActive) {
     return {
       role,
-      restricted: true,
+      restricted: false,
       pendingApproval: false,
       approvalRejected: false,
       isApproved,
       canCreateBookings: false,
       canRespondToBookings: false,
-      title: "Provider account disabled",
-      description:
-        "Your provider account is currently disabled by admin. You can still review your dashboard, update settings, and use the verification page while you contact the admin to restore access.",
+      title: "Provider account suspended",
+      description: "Your provider account is suspended.",
     };
   }
 
@@ -128,7 +129,7 @@ export const getAccountAccessState = (user) => {
       canRespondToBookings: false,
       title: "Account approval pending.",
       description:
-        "You can browse the platform, but booking providers is disabled until the admin approves your account.",
+        "Your account is awaiting admin approval before booking providers.",
     };
   }
 
@@ -143,7 +144,7 @@ export const getAccountAccessState = (user) => {
       canRespondToBookings: false,
       title: "Account Approval Pending",
       description:
-        "You can access your dashboard and browse the platform, but you cannot accept client requests until the admin approves your account.",
+        "Your provider account is awaiting admin approval.",
     };
   }
 
@@ -170,7 +171,6 @@ export const isRestrictedRouteAllowed = (user, pathname = "") => {
   if (normalizedRole === "PROVIDER") {
     return [
       "/provider-dashboard",
-      "/provider/workspace",
       "/provider/settings",
       "/provider/profile",
       "/provider/verification",

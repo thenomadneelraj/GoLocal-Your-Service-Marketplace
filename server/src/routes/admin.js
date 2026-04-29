@@ -29,6 +29,9 @@ router.get("/dashboard", adminWorkspaceController.getDashboard);
 
 router.get("/users", adminWorkspaceController.getUsers);
 router.patch("/users/:id/status", adminWorkspaceController.updateUserStatus);
+router.patch("/users/:id/approve", adminWorkspaceController.approveUser);
+router.patch("/users/:id/suspend", adminWorkspaceController.suspendUser);
+router.delete("/users/:id/reject", adminWorkspaceController.rejectUser);
 router.get(
   "/verification-requests",
   adminWorkspaceController.getVerificationRequests

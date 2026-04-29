@@ -104,6 +104,21 @@ const buildAvailabilitySummary = async (provider, req) => {
   };
 };
 
+const normalizeAvailabilitySchedule = (schedule = []) => {
+  if (!Array.isArray(schedule)) {
+    return [];
+  }
+
+  return schedule
+    .map((slot) => ({
+      day: String(slot?.day || "").trim(),
+      enabled: Boolean(slot?.enabled),
+      startTime: String(slot?.startTime || "09:00").trim(),
+      endTime: String(slot?.endTime || "18:00").trim(),
+    }))
+    .filter((slot) => slot.day);
+};
+
 // Create provider profile (Admin or similar manually doing this)
 const createProvider = async (req, res) => {
   try {
@@ -213,6 +228,9 @@ const getProviders = async (req, res) => {
           provider.approvalStatus ||
           (provider.isApproved ? "approved" : "pending"),
         hourlyRate: startingPrice,
+        availabilitySchedule: normalizeAvailabilitySchedule(
+          provider.availabilitySchedule
+        ),
         servicePriceRange: prices.length > 1 ? `${Math.min(...prices)}-${Math.max(...prices)}` : (prices.length === 1 ? prices[0] : null),
         serviceCount: services.length,
       };
@@ -293,6 +311,13 @@ const getProviderById = async (req, res) => {
       workCategories: Array.isArray(provider.workCategories)
         ? provider.workCategories
         : [],
+      availabilitySchedule: normalizeAvailabilitySchedule(
+        provider.availabilitySchedule
+      ),
+      serviceAreas: Array.isArray(provider.serviceAreas)
+        ? provider.serviceAreas
+        : [],
+      serviceRadius: Number(provider.serviceRadius || 0),
       availabilitySummary,
       completedJobs,
       hourlyRate: startingPrice,
@@ -414,6 +439,13 @@ const getProviderMe = async (req, res) => {
         workCategories: Array.isArray(provider.workCategories)
           ? provider.workCategories
           : [],
+        availabilitySchedule: normalizeAvailabilitySchedule(
+          provider.availabilitySchedule
+        ),
+        serviceAreas: Array.isArray(provider.serviceAreas)
+          ? provider.serviceAreas
+          : [],
+        serviceRadius: Number(provider.serviceRadius || 0),
         status:
           provider.status ||
           (provider.isActive === false ? "suspended" : "active"),
@@ -453,6 +485,9 @@ const updateProviderMe = async (req, res) => {
       accountNumber,
       accountHolderName,
       workCategories,
+      serviceAreas,
+      serviceRadius,
+      availabilitySchedule,
     } = req.body;
       
     if (name !== undefined) provider.name = name;
@@ -466,6 +501,10 @@ const updateProviderMe = async (req, res) => {
     if (location !== undefined) provider.location = location;
     if (address !== undefined) provider.address = address;
     if (availability !== undefined) provider.availability = availability;
+    if (availabilitySchedule !== undefined) {
+      provider.availabilitySchedule =
+        normalizeAvailabilitySchedule(availabilitySchedule);
+    }
     if (experience !== undefined) provider.experience = experience;
     if (bankName !== undefined) provider.bankName = String(bankName || "").trim();
     if (accountNumber !== undefined) {
@@ -478,6 +517,15 @@ const updateProviderMe = async (req, res) => {
     }
     if (Array.isArray(workCategories)) {
       provider.workCategories = workCategories;
+    }
+    if (Array.isArray(serviceAreas)) {
+      provider.serviceAreas = serviceAreas
+        .map((area) => String(area || "").trim())
+        .filter(Boolean);
+    }
+    if (serviceRadius !== undefined) {
+      const radius = Number(serviceRadius);
+      provider.serviceRadius = Number.isFinite(radius) && radius >= 0 ? radius : 0;
     }
 
     await provider.save();
@@ -506,6 +554,13 @@ const updateProviderMe = async (req, res) => {
         workCategories: Array.isArray(provider.workCategories)
           ? provider.workCategories
           : [],
+        availabilitySchedule: normalizeAvailabilitySchedule(
+          provider.availabilitySchedule
+        ),
+        serviceAreas: Array.isArray(provider.serviceAreas)
+          ? provider.serviceAreas
+          : [],
+        serviceRadius: Number(provider.serviceRadius || 0),
       }
     });
   } catch (error) {

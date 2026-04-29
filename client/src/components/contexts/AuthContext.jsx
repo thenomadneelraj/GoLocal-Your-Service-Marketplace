@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useRef } from "react";
 import api from "@/lib/api";
 import { disconnectSocket } from "@/lib/socket";
 
@@ -16,6 +16,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false); // Changed to false - don't block initial render
   const [initialized, setInitialized] = useState(false);
+  const userRef = useRef(null);
 
   const extractAuthPayload = (payload = {}) => {
     const container = payload.data ?? payload;
@@ -26,6 +27,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const persistUser = (nextUser) => {
+    userRef.current = nextUser || null;
     setUser(nextUser || null);
   };
 
@@ -80,13 +82,38 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
+    const handleAccountBroadcast = (event) => {
+      if (event.key !== "account-access-updated" || !event.newValue) {
+        return;
+      }
+
+      const token = sessionStorage.getItem("token");
+      if (!token) {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(event.newValue);
+        const currentUserId = String(userRef.current?.id || userRef.current?._id || "");
+        const updatedUserId = String(payload?.userId || "");
+
+        if (!updatedUserId || updatedUserId === currentUserId) {
+          refreshProfile({ silent: true });
+        }
+      } catch {
+        refreshProfile({ silent: true });
+      }
+    };
+
     window.addEventListener("focus", handleFocus);
     window.addEventListener("account-access-updated", handleAccessUpdate);
+    window.addEventListener("storage", handleAccountBroadcast);
 
     return () => {
       window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
       window.removeEventListener("account-access-updated", handleAccessUpdate);
+      window.removeEventListener("storage", handleAccountBroadcast);
     };
   }, []);
 

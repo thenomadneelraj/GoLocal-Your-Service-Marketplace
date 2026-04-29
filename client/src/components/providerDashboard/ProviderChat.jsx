@@ -24,6 +24,7 @@ import {
   getSocket,
 } from "@/lib/socket";
 import { useAuth } from "@/components/contexts/AuthContext";
+import { getAccountAccessState } from "@/lib/accountAccess";
 import { useSearchParams } from "react-router-dom";
 
 const getInitials = (name = "") =>
@@ -57,6 +58,8 @@ const formatMessageTime = (value) => {
 
 export default function ProviderChat() {
   const { user } = useAuth();
+  const accountAccess = getAccountAccessState(user);
+  const canUseChat = accountAccess.canRespondToBookings;
   const [searchParams] = useSearchParams();
   const contactParam =
     searchParams.get("client") || searchParams.get("contact");
@@ -79,6 +82,12 @@ export default function ProviderChat() {
 
   // Fetch conversation list
   const fetchConversations = useCallback(async () => {
+    if (!canUseChat) {
+      setConversations([]);
+      setLoadingConvos(false);
+      return;
+    }
+
     try {
       setLoadingConvos(true);
       const res = await api.get("/api/messages");
@@ -88,7 +97,7 @@ export default function ProviderChat() {
     } finally {
       setLoadingConvos(false);
     }
-  }, []);
+  }, [canUseChat]);
 
   useEffect(() => {
     fetchConversations();
@@ -96,7 +105,7 @@ export default function ProviderChat() {
 
   // Load thread for selected conversation
   const fetchMessages = useCallback(async (otherUserId) => {
-    if (!otherUserId) return;
+    if (!otherUserId || !canUseChat) return;
     try {
       setLoadingMessages(true);
       const res = await api.get(`/api/messages/${otherUserId}`);
@@ -118,7 +127,7 @@ export default function ProviderChat() {
     } finally {
       setLoadingMessages(false);
     }
-  }, []);
+  }, [canUseChat]);
 
   useEffect(() => {
     if (activeUserId) {
@@ -187,6 +196,10 @@ export default function ProviderChat() {
   const handleSend = async () => {
     const content = msgInput.trim();
     if (!content || !activeUserId || sending) return;
+    if (!canUseChat) {
+      toast.error(accountAccess.description || "Messaging is available after admin approval.");
+      return;
+    }
 
     const optimistic = {
       id: `opt-${Date.now()}`,
@@ -223,6 +236,21 @@ export default function ProviderChat() {
       setSending(false);
     }
   };
+
+  if (!canUseChat) {
+    return (
+      <div className="rounded-[2rem] border border-border/60 bg-card/50 p-8">
+        <div className="mx-auto max-w-xl text-center">
+          <MessageSquare className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+          <h2 className="text-2xl font-bold">Messaging unavailable</h2>
+          <p className="mt-3 text-muted-foreground">
+            {accountAccess.description ||
+              "Messaging with clients is available after admin approval."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const filteredConvos = conversations.filter((c) => {
     if (!searchQuery) return true;

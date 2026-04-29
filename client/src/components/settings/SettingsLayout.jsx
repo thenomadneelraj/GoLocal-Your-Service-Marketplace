@@ -3,12 +3,14 @@ import {
   User as UserIcon,
   Lock,
   AlertTriangle,
+  Clock,
   Save,
   Trash2,
   CheckCircle2,
   XCircle,
   Wrench,
   Percent,
+  MapPin,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "../../lib/api";
@@ -31,6 +33,15 @@ const SERVICE_TYPES = [
   "Moving",
   "Other",
 ];
+const WEEK_DAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
 const INPUT =
   "w-full rounded-xl border border-input bg-background/80 px-4 py-2.5 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground/80 focus:border-primary/45 focus:ring-2 focus:ring-primary/15";
 const BASE_TABS = [
@@ -51,6 +62,31 @@ const joinName = (firstName = "", lastName = "") =>
     .join(" ")
     .trim();
 
+const splitCsv = (value = "") =>
+  String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const toAvailabilitySchedule = (schedule = []) => {
+  const byDay = new Map(
+    (Array.isArray(schedule) ? schedule : []).map((slot) => [
+      String(slot.day || ""),
+      slot,
+    ]),
+  );
+
+  return WEEK_DAYS.map((day) => {
+    const slot = byDay.get(day) || {};
+    return {
+      day,
+      enabled: Boolean(slot.enabled),
+      startTime: slot.startTime || "09:00",
+      endTime: slot.endTime || "18:00",
+    };
+  });
+};
+
 const toProviderForm = (data = {}) => ({
   serviceType: data.serviceType || "Other",
   location: data.location || "",
@@ -64,6 +100,14 @@ const toProviderForm = (data = {}) => ({
   workCategoriesText: Array.isArray(data.workCategories)
     ? data.workCategories.join(", ")
     : "",
+  serviceAreasText: Array.isArray(data.serviceAreas)
+    ? data.serviceAreas.join(", ")
+    : "",
+  serviceRadius:
+    data.serviceRadius === 0 || data.serviceRadius
+      ? String(data.serviceRadius)
+      : "25",
+  availabilitySchedule: toAvailabilitySchedule(data.availabilitySchedule),
 });
 
 const toPlatformForm = (data = {}) => ({
@@ -99,7 +143,15 @@ export default function SettingsLayout({ role }) {
         BASE_TABS[1],
         BASE_TABS[2],
       ]
-    : BASE_TABS;
+    : isProvider
+      ? [
+          BASE_TABS[0],
+          { id: "availability", label: "Availability", icon: Clock },
+          { id: "areas", label: "Areas", icon: MapPin },
+          BASE_TABS[1],
+          BASE_TABS[2],
+        ]
+      : BASE_TABS;
 
   const [activeTab, setActiveTab] = useState("profile");
   const [loading, setLoading] = useState(false);
@@ -140,7 +192,7 @@ export default function SettingsLayout({ role }) {
       accountNumber: user.accountNumber || "",
       accountHolderName: user.accountHolderName || user.name || "",
     }));
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!isProvider) {
@@ -185,7 +237,7 @@ export default function SettingsLayout({ role }) {
     return () => {
       ignore = true;
     };
-  }, [isProvider, user]);
+  }, [isProvider, user?.id]);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -246,6 +298,61 @@ export default function SettingsLayout({ role }) {
     reader.readAsDataURL(file);
   };
 
+  const saveProviderSettings = async (payload, successText) => {
+    setLoading(true);
+    setMessage({ type: "", text: "" });
+    try {
+      const response = await api.put("/api/providers/me/profile", payload);
+      const data = response.data?.data || {};
+      setProviderForm(toProviderForm(data));
+      setUserData({
+        ...user,
+        ...data,
+        profilePhoto: data.profileImage || data.profilePhoto || user?.profilePhoto,
+      });
+      setMessage({ type: "success", text: successText });
+      toast.success(successText);
+      return data;
+    } catch (err) {
+      const nextMessage = err.response?.data?.message || err.message;
+      setMessage({ type: "error", text: nextMessage });
+      toast.error(nextMessage);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAvailabilitySubmit = async (event) => {
+    event.preventDefault();
+    if (!isProvider) return;
+    await saveProviderSettings(
+      {
+        availability: providerForm.availability,
+        serviceType: providerForm.serviceType,
+        hourlyRate: Number(providerForm.hourlyRate || 0),
+        experience: Number(providerForm.experience || 0),
+        workCategories: splitCsv(providerForm.workCategoriesText),
+        availabilitySchedule: providerForm.availabilitySchedule,
+      },
+      "Availability settings updated.",
+    );
+  };
+
+  const handleAreasSubmit = async (event) => {
+    event.preventDefault();
+    if (!isProvider) return;
+    await saveProviderSettings(
+      {
+        location: providerForm.location.trim(),
+        address: providerForm.address.trim(),
+        serviceRadius: Number(providerForm.serviceRadius || 0),
+        serviceAreas: splitCsv(providerForm.serviceAreasText),
+      },
+      "Service areas updated.",
+    );
+  };
+
   const handleProfileSubmit = async (event) => {
     event.preventDefault();
     const fullName = joinName(profileForm.firstName, profileForm.lastName);
@@ -274,10 +381,9 @@ export default function SettingsLayout({ role }) {
           experience: Number(providerForm.experience || 0),
           availability: providerForm.availability,
           bio: providerForm.bio.trim(),
-          workCategories: providerForm.workCategoriesText
-            .split(",")
-            .map((item) => item.trim())
-            .filter(Boolean),
+          workCategories: splitCsv(providerForm.workCategoriesText),
+          serviceAreas: splitCsv(providerForm.serviceAreasText),
+          serviceRadius: Number(providerForm.serviceRadius || 0),
         });
         const data = response.data?.data || {};
         setProviderForm(toProviderForm(data));
@@ -919,6 +1025,301 @@ export default function SettingsLayout({ role }) {
                   </div>
                 </form>
               )}
+            </div>
+          )}
+
+          {activeTab === "availability" && isProvider && (
+            <div className="p-8 md:p-10">
+              <div className="mb-10 flex items-center gap-4">
+                <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary border border-primary/20 shadow-xs">
+                  <Clock size={24} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black tracking-tight italic">
+                    Availability
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-[0.2em] opacity-60">
+                    Control whether clients can request your services
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleAvailabilitySubmit} className="space-y-8">
+                <div className="grid grid-cols-1 gap-6 rounded-[2rem] border border-border/40 bg-muted/10 p-8 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Live Status
+                    </label>
+                    <select
+                      value={providerForm.availability ? "available" : "unavailable"}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          availability: event.target.value === "available",
+                        }))
+                      }
+                      className={INPUT}
+                    >
+                      <option value="available">Accepting Requests</option>
+                      <option value="unavailable">Paused</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Professional Category
+                    </label>
+                    <select
+                      value={providerForm.serviceType}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          serviceType: event.target.value,
+                        }))
+                      }
+                      className={INPUT}
+                    >
+                      {SERVICE_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Base Hourly Rate
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={providerForm.hourlyRate}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          hourlyRate: event.target.value,
+                        }))
+                      }
+                      className={`${INPUT} font-black italic`}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Field Experience (Years)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={providerForm.experience}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          experience: event.target.value,
+                        }))
+                      }
+                      className={`${INPUT} font-black italic`}
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Work Categories
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Plumbing, Electrical, AC Repair"
+                      value={providerForm.workCategoriesText}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          workCategoriesText: event.target.value,
+                        }))
+                      }
+                      className={INPUT}
+                    />
+                  </div>
+                  <div className="space-y-4 md:col-span-2">
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                        Available Days & Timings
+                      </label>
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        Choose the days and hours clients can request bookings.
+                      </p>
+                    </div>
+                    <div className="space-y-3">
+                      {providerForm.availabilitySchedule.map((slot, index) => (
+                        <div
+                          key={slot.day}
+                          className="grid gap-3 rounded-2xl border border-border/50 bg-background/40 p-4 md:grid-cols-[1fr_160px_160px]"
+                        >
+                          <label className="flex items-center gap-3 text-sm font-semibold">
+                            <input
+                              type="checkbox"
+                              checked={slot.enabled}
+                              onChange={(event) =>
+                                setProviderForm((prev) => {
+                                  const nextSchedule = [...prev.availabilitySchedule];
+                                  nextSchedule[index] = {
+                                    ...nextSchedule[index],
+                                    enabled: event.target.checked,
+                                  };
+                                  return {
+                                    ...prev,
+                                    availabilitySchedule: nextSchedule,
+                                  };
+                                })
+                              }
+                              className="h-4 w-4 accent-primary"
+                            />
+                            {slot.day}
+                          </label>
+                          <input
+                            type="time"
+                            value={slot.startTime}
+                            disabled={!slot.enabled}
+                            onChange={(event) =>
+                              setProviderForm((prev) => {
+                                const nextSchedule = [...prev.availabilitySchedule];
+                                nextSchedule[index] = {
+                                  ...nextSchedule[index],
+                                  startTime: event.target.value,
+                                };
+                                return {
+                                  ...prev,
+                                  availabilitySchedule: nextSchedule,
+                                };
+                              })
+                            }
+                            className={`${INPUT} disabled:cursor-not-allowed disabled:opacity-50`}
+                          />
+                          <input
+                            type="time"
+                            value={slot.endTime}
+                            disabled={!slot.enabled}
+                            onChange={(event) =>
+                              setProviderForm((prev) => {
+                                const nextSchedule = [...prev.availabilitySchedule];
+                                nextSchedule[index] = {
+                                  ...nextSchedule[index],
+                                  endTime: event.target.value,
+                                };
+                                return {
+                                  ...prev,
+                                  availabilitySchedule: nextSchedule,
+                                };
+                              })
+                            }
+                            className={`${INPUT} disabled:cursor-not-allowed disabled:opacity-50`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <Button type="submit" disabled={loading} className="h-12 rounded-2xl px-10 text-[11px] font-black uppercase tracking-widest italic">
+                  <Save size={14} className="mr-2" />
+                  Save Availability
+                </Button>
+              </form>
+            </div>
+          )}
+
+          {activeTab === "areas" && isProvider && (
+            <div className="p-8 md:p-10">
+              <div className="mb-10 flex items-center gap-4">
+                <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary border border-primary/20 shadow-xs">
+                  <MapPin size={24} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black tracking-tight italic">
+                    Service Areas
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-[0.2em] opacity-60">
+                    Publish the locations where clients can book you
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleAreasSubmit} className="space-y-8">
+                <div className="grid grid-cols-1 gap-6 rounded-[2rem] border border-border/40 bg-muted/10 p-8 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      City / Hub
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="City, State"
+                      value={providerForm.location}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          location: event.target.value,
+                        }))
+                      }
+                      className={INPUT}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Base Address
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Street or hub address"
+                      value={providerForm.address}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          address: event.target.value,
+                        }))
+                      }
+                      className={INPUT}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Travel Radius (km)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={providerForm.serviceRadius}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          serviceRadius: event.target.value,
+                        }))
+                      }
+                      className={`${INPUT} font-black italic`}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
+                      Areas / Zones
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="SoHo, Chelsea, Upper East"
+                      value={providerForm.serviceAreasText}
+                      onChange={(event) =>
+                        setProviderForm((prev) => ({
+                          ...prev,
+                          serviceAreasText: event.target.value,
+                        }))
+                      }
+                      className={INPUT}
+                    />
+                  </div>
+                </div>
+
+                <Button type="submit" disabled={loading} className="h-12 rounded-2xl px-10 text-[11px] font-black uppercase tracking-widest italic">
+                  <Save size={14} className="mr-2" />
+                  Save Areas
+                </Button>
+              </form>
             </div>
           )}
 

@@ -41,9 +41,20 @@ export const fetchAdminUsers = async (params = {}, forceRefresh = false) => {
 };
 
 export const updateAdminUserStatus = async (id, payload) => {
-  const response = await api.patch(`/admin/users/${id}/status`, payload);
+  const status = String(payload?.status || payload?.action || "")
+    .trim()
+    .toLowerCase();
+  const response =
+    status === "approved"
+      ? await api.patch(`/admin/users/${id}/approve`, payload)
+      : status === "suspended"
+        ? await api.patch(`/admin/users/${id}/suspend`, payload)
+        : status === "rejected"
+          ? await api.delete(`/admin/users/${id}/reject`, { data: payload })
+          : await api.patch(`/admin/users/${id}/status`, payload);
   // Invalidate users cache after update
   invalidateCache.users();
+  invalidateCache.dashboard();
   return response;
 };
 

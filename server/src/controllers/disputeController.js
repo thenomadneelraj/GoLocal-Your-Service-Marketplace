@@ -179,11 +179,7 @@ const createDispute = async (req, res) => {
       });
     }
 
-    const targetType = ["provider", "client", "platform"].includes(
-      String(req.body?.targetType || "").trim().toLowerCase()
-    )
-      ? String(req.body.targetType).trim().toLowerCase()
-      : "provider";
+    const targetType = "platform";
     const reason = String(req.body?.reason || "").trim();
     const description = String(req.body?.description || "").trim();
     const subject = String(req.body?.subject || reason || "Dispute").trim();
@@ -202,43 +198,7 @@ const createDispute = async (req, res) => {
     let targetUserId = null;
     let threadKey = "";
 
-    if (targetType === "platform") {
-      threadKey = `platform:${String(reporter._id)}`;
-    } else {
-      if (!bookingId) {
-        return res.status(400).json({
-          success: false,
-          message: "bookingId is required for provider or client disputes.",
-        });
-      }
-
-      booking = await Booking.findById(bookingId)
-        .populate("clientId", "name")
-        .populate("providerId", "name");
-
-      if (!booking) {
-        return res.status(404).json({
-          success: false,
-          message: "Booking not found.",
-        });
-      }
-
-      clientId = booking.clientId?._id || booking.clientId;
-      providerId = booking.providerId?._id || booking.providerId;
-
-      const isClientReporter = String(clientId) === String(reporter._id);
-      const isProviderReporter = String(providerId) === String(reporter._id);
-
-      if (!isClientReporter && !isProviderReporter) {
-        return res.status(403).json({
-          success: false,
-          message: "You can only dispute bookings you are part of.",
-        });
-      }
-
-      targetUserId = isClientReporter ? providerId : clientId;
-      threadKey = `booking:${String(booking._id)}:${String(targetUserId)}`;
-    }
+    threadKey = `platform:${String(reporter._id)}`;
 
     const existingOpenDispute = await Dispute.findOne({
       reporterId: reporter._id,

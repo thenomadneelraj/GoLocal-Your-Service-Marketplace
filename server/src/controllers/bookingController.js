@@ -8,6 +8,9 @@ const { getPlatformSettings } = require("../services/platformSettingsService");
 const {
   APPROVAL_STATUS,
   isAccountActive,
+  canAcceptBookings,
+  canBook,
+  getAccountStatusMessage,
   isProviderApproved,
   isUserApproved,
 } = require("../utils/accountState");
@@ -505,12 +508,12 @@ const createBooking = async (req, res) => {
       });
     }
 
-    if (!isUserApproved(client)) {
+    if (!canBook(client)) {
       return res.status(403).json(
         buildPendingApprovalResponse({
           role: client.role,
           approvalStatus: client.approvalStatus,
-          message: "Account approval pending.",
+          message: getAccountStatusMessage(client),
         }),
       );
     }
@@ -806,12 +809,12 @@ const confirmBookingPayment = async (req, res) => {
       });
     }
 
-    if (!isUserApproved(client)) {
+    if (!canBook(client)) {
       return res.status(403).json(
         buildPendingApprovalResponse({
           role: client.role,
           approvalStatus: client.approvalStatus,
-          message: "Account approval pending.",
+          message: getAccountStatusMessage(client),
         }),
       );
     }
@@ -967,12 +970,12 @@ const updateBookingStatus = async (req, res) => {
     }
 
     if (actorRole === "provider") {
-      if (!req.accountAccess?.canRespondToBookings) {
+      if (!canAcceptBookings(req.user)) {
         return res.status(403).json(
           buildPendingApprovalResponse({
             role: req.user?.role,
             approvalStatus: req.accountAccess?.approvalStatus,
-            message: "Account Approval Pending",
+            message: getAccountStatusMessage(req.user),
           }),
         );
       }

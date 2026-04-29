@@ -83,6 +83,12 @@ const apiWrapper = {
       return true;
     }
 
+    // Provider service management must stay database-backed so published works
+    // sync to provider profiles and client booking screens.
+    if (url.includes("/services")) {
+      return true;
+    }
+
     return false;
   },
 
@@ -121,6 +127,13 @@ const apiWrapper = {
     return api.put(url, data, config);
   },
 
+  async patch(url, data, config) {
+    if (this.useMock && !this.isAdminRequest(url)) {
+      return this.handleMockRequest("PATCH", url, data, config);
+    }
+    return api.patch(url, data, config);
+  },
+
   async delete(url, config) {
     if (this.useMock && !this.isAdminRequest(url)) {
       return this.handleMockRequest("DELETE", url, null, config);
@@ -146,6 +159,8 @@ const apiWrapper = {
           return this.handleMockPost(endpoint, subEndpoint, data);
         case "PUT":
           return this.handleMockPut(endpoint, subEndpoint, id, data);
+        case "PATCH":
+          return this.handleMockPatch(endpoint, subEndpoint, id, data, urlParts);
         case "DELETE":
           return this.handleMockDelete(endpoint, subEndpoint);
         default:
@@ -286,7 +301,7 @@ const apiWrapper = {
         break;
 
       case "admin":
-        return this.handleAdminPatch(subEndpoint, id, data);
+        return this.handleAdminPatch(subEndpoint, id, data, []);
 
       case "messages":
         if (subEndpoint === "read") {
@@ -300,8 +315,17 @@ const apiWrapper = {
     throw new Error(`Invalid PUT request: ${endpoint}`);
   },
 
+  // Mock PATCH handlers
+  async handleMockPatch(endpoint, subEndpoint, id, data, urlParts = []) {
+    if (endpoint === "admin") {
+      return this.handleAdminPatch(subEndpoint, id, data, urlParts);
+    }
+
+    throw new Error(`Unknown PATCH endpoint: ${endpoint}`);
+  },
+
   // Admin PATCH handlers
-  async handleAdminPatch(subEndpoint, id, data) {
+  async handleAdminPatch(subEndpoint, id, data, urlParts = []) {
     console.log(`🔧 Mock Admin API: PATCH ${subEndpoint}/${id}`, data);
 
     switch (subEndpoint) {

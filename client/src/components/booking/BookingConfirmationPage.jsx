@@ -61,7 +61,9 @@ export default function BookingConfirmationPage() {
 
   const handleContinueToPayment = async () => {
     if (!clientAccess.canCreateBookings) {
-      const message = clientAccess.title || "Account approval pending.";
+      const message =
+        clientAccess.description ||
+        "Your account is awaiting admin approval before booking providers.";
       setError(message);
       toast.error(message);
       return;

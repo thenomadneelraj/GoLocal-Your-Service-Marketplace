@@ -21,10 +21,34 @@ const serializeService = (service) => ({
 });
 
 const syncProviderServices = async (providerId) => {
-  const services = await Service.find({ providerId }).select("_id");
+  const services = await Service.find({ providerId }).sort({ createdAt: -1 });
+  const activeServices = services.filter((service) => service.status === "active");
+  const categories = [
+    ...new Set(
+      activeServices
+        .map((service) => String(service.category || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const works = activeServices.map((service) => ({
+    title: service.title,
+    price: Number(service.price || 0),
+  }));
+  const prices = activeServices
+    .map((service) => Number(service.price || 0))
+    .filter((price) => price > 0);
+  const primaryCategory = categories[0] || activeServices[0]?.title || "Other";
+
   await User.findOneAndUpdate(
     { _id: providerId, role: "provider" },
-    { services: services.map((service) => service._id) }
+    {
+      services: services.map((service) => service._id),
+      works,
+      workCategories: categories.length ? categories : ["Other"],
+      serviceType: primaryCategory,
+      hourlyRate: prices.length ? Math.min(...prices) : 0,
+    },
+    { new: true }
   );
 };
 

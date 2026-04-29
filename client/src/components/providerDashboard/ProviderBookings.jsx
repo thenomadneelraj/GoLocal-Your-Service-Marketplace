@@ -208,6 +208,11 @@ export default function ProviderBookings() {
   }, [activeTab, layeredBookings, searchQuery]);
 
   const handleStatusUpdate = async (bookingId, nextStatus) => {
+    if (!canRespondToBookings) {
+      toast.error(providerAccess.description || "Your provider account is awaiting admin approval.");
+      return;
+    }
+
     try {
       const currentKey = `${bookingId}:${nextStatus}`;
       setUpdatingKey(currentKey);

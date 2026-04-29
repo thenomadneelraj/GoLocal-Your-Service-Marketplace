@@ -11,6 +11,7 @@ const bookingRoutes = require("./routes/booking");
 const clientRoutes = require("./routes/client");
 const disputeRoutes = require("./routes/dispute");
 const messageRoutes = require("./routes/message");
+const contactMessageRoutes = require("./routes/contactMessage");
 const notificationRoutes = require("./routes/notification");
 const transactionRoutes = require("./routes/transaction");
 const serviceRoutes = require("./routes/service");
@@ -58,6 +59,9 @@ app.use("/api/disputes", disputeRoutes);
 
 // Message routes
 app.use("/api/messages", messageRoutes);
+
+// Support/contact ticket routes
+app.use("/api/contact-messages", contactMessageRoutes);
 
 // Notification routes
 app.use("/api/notifications", notificationRoutes);

@@ -19,7 +19,13 @@ export const fetchAdminUsers = (params = {}) =>
   api.get(`/admin/users${buildQuery(params)}`);
 
 export const updateAdminUserStatus = (id, payload) =>
-  api.patch(`/admin/users/${id}/status`, payload);
+  String(payload?.status || payload?.action || "").toLowerCase() === "approved"
+    ? api.patch(`/admin/users/${id}/approve`, payload)
+    : String(payload?.status || payload?.action || "").toLowerCase() === "suspended"
+      ? api.patch(`/admin/users/${id}/suspend`, payload)
+      : String(payload?.status || payload?.action || "").toLowerCase() === "rejected"
+        ? api.delete(`/admin/users/${id}/reject`, { data: payload })
+        : api.patch(`/admin/users/${id}/status`, payload);
 
 export const updateAdminUserVerification = (id, payload) =>
   api.patch(`/admin/users/${id}/verification`, payload);

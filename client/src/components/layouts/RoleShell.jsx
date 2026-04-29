@@ -92,7 +92,6 @@ const ROLE_NAV = {
     { to: "/provider/chat", label: "Chat", icon: MessageSquare },
     { to: "/provider/disputes", label: "Disputes", icon: ShieldCheck },
     { to: "/provider/verification", label: "Verification", icon: FileText },
-    { to: "/provider/workspace", label: "Workspace", icon: Clock },
   ],
 };
 
@@ -134,7 +133,6 @@ const TITLES = {
     "/provider/chat": "Chat System",
     "/provider/disputes": "Disputes & Issues",
     "/provider/verification": "Documents & Verification",
-    "/provider/workspace": "Workspace",
     "/provider/settings": "Settings",
     "/provider/help-support": "Support",
   },

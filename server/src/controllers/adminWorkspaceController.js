@@ -4,6 +4,8 @@ const Dispute = require("../models/Dispute");
 const Service = require("../models/Service");
 const Transaction = require("../models/Transaction");
 const User = require("../models/User");
+const Message = require("../models/Message");
+const ContactMessage = require("../models/ContactMessage");
 const adminService = require("../services/adminService");
 const {
   DEFAULT_PLATFORM_SETTINGS,
@@ -176,7 +178,7 @@ const buildUserRow = (user) => {
     role,
     status,
     approvalStatus,
-    isApproved: approvalStatus === APPROVAL_STATUS.APPROVED,
+    isApproved: status === USER_STATUS.APPROVED,
     phone: user?.phone || "",
     address: user?.address || "",
     serviceType: role === "provider" ? user?.serviceType || "" : "",
@@ -428,7 +430,7 @@ const getDashboard = async (req, res) => {
       services,
       openDisputes,
     ] = await Promise.all([
-      User.find({ role: { $ne: "admin" } }).select("role approvalStatus createdAt"),
+      User.find().select("role status isActive approvalStatus createdAt"),
       Booking.find().sort({ createdAt: 1 }).select("status price createdAt"),
       Transaction.find()
         .sort({ createdAt: 1 })
@@ -487,10 +489,16 @@ const getDashboard = async (req, res) => {
       data: {
         summary: {
           totalUsers: users.length,
+          providers: users.filter(
+            (user) => String(user.role || "").toLowerCase() === "provider"
+          ).length,
+          clients: users.filter(
+            (user) => String(user.role || "").toLowerCase() === "client"
+          ).length,
           pendingProviders: users.filter(
             (user) =>
               String(user.role || "").toLowerCase() === "provider" &&
-              String(user.approvalStatus || "").toLowerCase() === APPROVAL_STATUS.PENDING
+              normalizeUserStatus(user.status, user.isActive) === USER_STATUS.PENDING
           ).length,
           revenue: totalRevenue,
           bookingsTracked: bookings.length,
@@ -554,11 +562,10 @@ const getUsers = async (req, res) => {
       data: {
         summary: {
           totalUsers: filteredItems.length,
-          pendingApproval: filteredItems.filter((item) => item.approvalStatus === APPROVAL_STATUS.PENDING).length,
-          approved: filteredItems.filter((item) => item.approvalStatus === APPROVAL_STATUS.APPROVED).length,
+          pendingApproval: filteredItems.filter((item) => item.status === USER_STATUS.PENDING).length,
+          approved: filteredItems.filter((item) => item.status === USER_STATUS.APPROVED).length,
           rejected: filteredItems.filter(
             (item) =>
-              item.approvalStatus === APPROVAL_STATUS.REJECTED ||
               item.status === USER_STATUS.REJECTED
           ).length,
           suspended: filteredItems.filter((item) => item.status === USER_STATUS.SUSPENDED).length,
@@ -664,14 +671,57 @@ const getVerificationRequestById = async (req, res) => {
   }
 };
 
+const getRequestedAccountStatus = (req, fallback = "") =>
+  String(
+    fallback ||
+      req.body?.status ||
+      req.body?.approvalStatus ||
+      req.body?.action ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+
+const toApprovalStatusForAccountStatus = (status) => {
+  if (status === USER_STATUS.APPROVED) return APPROVAL_STATUS.APPROVED;
+  if (status === USER_STATUS.REJECTED) return APPROVAL_STATUS.REJECTED;
+  return APPROVAL_STATUS.PENDING;
+};
+
+const deleteUserAccountCascade = async (user) => {
+  const userId = user._id;
+  const verificationDocuments = Array.isArray(user.verification?.documents)
+    ? user.verification.documents
+    : [];
+
+  await Promise.allSettled([
+    Notification.deleteMany({ user: userId }),
+    Message.deleteMany({ $or: [{ sender: userId }, { receiver: userId }] }),
+    Transaction.deleteMany({
+      $or: [{ clientId: userId }, { providerId: userId }],
+    }),
+    Booking.deleteMany({
+      $or: [{ clientId: userId }, { providerId: userId }],
+    }),
+    Service.deleteMany({ providerId: userId }),
+    Dispute.deleteMany({
+      $or: [
+        { reporterId: userId },
+        { clientId: userId },
+        { providerId: userId },
+        { targetUserId: userId },
+      ],
+    }),
+    deleteVerificationDocuments(verificationDocuments),
+  ]);
+
+  await User.findByIdAndDelete(userId);
+};
+
 const updateUserStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const requestedStatus = String(
-      req.body?.status || req.body?.approvalStatus || req.body?.action || ""
-    )
-      .trim()
-      .toLowerCase();
+    const requestedStatus = getRequestedAccountStatus(req);
 
     const existingUser = await User.findById(id).select("-password");
     if (!existingUser) {
@@ -685,53 +735,6 @@ const updateUserStatus = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "A status or action is required.",
-      });
-    }
-
-    if (existingUser.isMock) {
-      const nextStatus =
-        requestedStatus === "approved"
-          ? USER_STATUS.ACTIVE
-          : requestedStatus === "rejected"
-            ? USER_STATUS.REJECTED
-            : requestedStatus === "suspended"
-              ? USER_STATUS.SUSPENDED
-              : normalizeUserStatus(requestedStatus, existingUser.isActive);
-      const nextApprovalStatus =
-        requestedStatus === "approved"
-          ? APPROVAL_STATUS.APPROVED
-          : requestedStatus === "rejected"
-            ? APPROVAL_STATUS.REJECTED
-            : existingUser.approvalStatus;
-
-      const nextUser = await User.findByIdAndUpdate(
-        id,
-        {
-          status: nextStatus,
-          isActive: nextStatus === USER_STATUS.ACTIVE,
-          approvalStatus: nextApprovalStatus,
-        },
-        { new: true, runValidators: true }
-      ).select("-password");
-
-      emitSocketEvent({
-        rooms: ["role_admin"],
-        eventName: SOCKET_EVENTS.USER_STATUS_UPDATED,
-        payload: {
-          userId: id,
-          status: nextStatus,
-          approvalStatus: nextApprovalStatus,
-          dataOrigin: "mock",
-          isMock: true,
-          message: "Mock user status updated.",
-        },
-      });
-
-      return res.json({
-        success: true,
-        message: "Mock user status updated successfully.",
-        data: buildUserRow(nextUser),
-        meta: { source: "mock" },
       });
     }
 
@@ -750,20 +753,19 @@ const updateUserStatus = async (req, res) => {
     if (requestedStatus === "rejected") {
       const userName = existingUser.name || existingUser.email;
       const userRole = existingUser.role;
-      const verificationDocuments = Array.isArray(existingUser.verification?.documents)
-        ? existingUser.verification.documents
-        : [];
+      await deleteUserAccountCascade(existingUser);
 
-      // Clean up related data
-      await Promise.allSettled([
-        Notification.deleteMany({ user: id }),
-        Booking.deleteMany({
-          $or: [{ clientId: id }, { providerId: id }],
-        }),
-      ]);
-      await deleteVerificationDocuments(verificationDocuments);
-
-      await User.findByIdAndDelete(id);
+      emitSocketEvent({
+        rooms: ["role_admin", "role_client", "role_provider"],
+        eventName: SOCKET_EVENTS.USER_STATUS_UPDATED,
+        payload: {
+          userId: id,
+          status: USER_STATUS.REJECTED,
+          approvalStatus: APPROVAL_STATUS.REJECTED,
+          deleted: true,
+          message: "User was rejected and removed.",
+        },
+      });
 
       return res.json({
         success: true,
@@ -772,31 +774,44 @@ const updateUserStatus = async (req, res) => {
       });
     }
 
-    let nextUser = null;
-
-    if (
-      String(existingUser.role || "").toLowerCase() === "provider" &&
-      ["approved", "pending"].includes(requestedStatus)
-    ) {
-      nextUser = await adminService.updateProviderStatus(id, requestedStatus);
-    } else {
-      nextUser = await adminService.updateUserStatus(id, {
-        status: requestedStatus === "approved" ? USER_STATUS.ACTIVE : requestedStatus,
-        approvalStatus:
-          requestedStatus === "approved"
-            ? APPROVAL_STATUS.APPROVED
-            : existingUser.approvalStatus,
+    const nextStatus = normalizeUserStatus(requestedStatus, existingUser.isActive);
+    if (![USER_STATUS.PENDING, USER_STATUS.APPROVED, USER_STATUS.SUSPENDED].includes(nextStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid account status.",
       });
     }
 
+    // Critical: status is the permission source of truth; approvalStatus is mirrored
+    // for older UI paths that still read approvalStatus.
+    const nextUser = await adminService.updateUserStatus(id, {
+      status: nextStatus,
+      approvalStatus: toApprovalStatusForAccountStatus(nextStatus),
+    });
+
     res.json({
       success: true,
-      message: "User status updated successfully.",
+      message: `User status updated to ${nextStatus}.`,
       data: buildUserRow(nextUser),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+const approveUser = (req, res) => {
+  req.body = { ...(req.body || {}), status: USER_STATUS.APPROVED };
+  return updateUserStatus(req, res);
+};
+
+const suspendUser = (req, res) => {
+  req.body = { ...(req.body || {}), status: USER_STATUS.SUSPENDED };
+  return updateUserStatus(req, res);
+};
+
+const rejectUser = (req, res) => {
+  req.body = { ...(req.body || {}), status: USER_STATUS.REJECTED };
+  return updateUserStatus(req, res);
 };
 
 const updateVerificationRequestStatus = async (req, res) => {
@@ -1341,10 +1356,45 @@ const updateDisputeStatus = async (req, res) => {
 
 const getContactMessages = async (req, res) => {
   try {
+    const { status, search } = req.query || {};
+    const filter = {};
+
+    if (status && status !== "all") {
+      filter.status = String(status).trim().toLowerCase();
+    }
+
+    if (search) {
+      const regex = new RegExp(String(search).trim(), "i");
+      filter.$or = [
+        { name: regex },
+        { email: regex },
+        { subject: regex },
+        { message: regex },
+        { category: regex },
+      ];
+    }
+
+    const messages = await ContactMessage.find(filter)
+      .sort({ createdAt: -1 })
+      .lean();
+
     res.json({
       success: true,
       data: {
-        items: [],
+        items: messages.map((message) => ({
+          id: String(message._id),
+          userId: message.userId ? String(message.userId) : null,
+          userRole: message.userRole || "",
+          name: message.name,
+          email: message.email,
+          subject: message.subject,
+          message: message.message,
+          category: message.category,
+          status: message.status,
+          createdAt: message.createdAt,
+          updatedAt: message.updatedAt,
+        })),
+        total: messages.length,
       },
     });
   } catch (error) {
@@ -1820,7 +1870,7 @@ const getSecuritySettings = async (req, res) => {
     const pendingApprovals = users.filter(
       (user) =>
         String(user.role || "").toLowerCase() === "provider" &&
-        String(user.approvalStatus || "").toLowerCase() === APPROVAL_STATUS.PENDING
+        normalizeUserStatus(user.status, user.isActive) === USER_STATUS.PENDING
     ).length;
     const openDisputes = disputes.filter((dispute) =>
       ["open", "under_review", "escalated"].includes(String(dispute.status || "").toLowerCase())
@@ -1900,6 +1950,9 @@ module.exports = {
   getVerificationRequests,
   getVerificationRequestById,
   updateUserStatus,
+  approveUser,
+  suspendUser,
+  rejectUser,
   updateVerificationRequestStatus,
   updateUserVerificationStatus,
   getBookings,

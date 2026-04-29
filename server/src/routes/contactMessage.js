@@ -8,7 +8,7 @@ const {
 
 const router = express.Router();
 
-router.get("/me", authenticate, authorize("CLIENT"), listMyContactMessages);
+router.get("/me", authenticate, authorize("CLIENT", "PROVIDER"), listMyContactMessages);
 router.post("/", optionalAuth, createContactMessage);
 
 module.exports = router;

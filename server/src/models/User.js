@@ -122,6 +122,17 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    serviceAreas: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    serviceRadius: {
+      type: Number,
+      min: 0,
+      default: 25,
+    },
     services: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -150,6 +161,28 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    availabilitySchedule: [
+      {
+        day: {
+          type: String,
+          trim: true,
+        },
+        enabled: {
+          type: Boolean,
+          default: false,
+        },
+        startTime: {
+          type: String,
+          trim: true,
+          default: "09:00",
+        },
+        endTime: {
+          type: String,
+          trim: true,
+          default: "18:00",
+        },
+      },
+    ],
     documents: [String],
     permissions: [String],
     verification: {
@@ -227,7 +260,11 @@ const userSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: USER_STATUS_VALUES,
-      default: USER_STATUS.ACTIVE,
+      default: function statusDefault() {
+        return String(this.role || "").toLowerCase() === "admin"
+          ? USER_STATUS.APPROVED
+          : USER_STATUS.PENDING;
+      },
     },
     isMock: {
       type: Boolean,
@@ -396,7 +433,7 @@ userSchema.pre("validate", function syncOperationalState() {
   );
   this.isVerified = this.verification.status === VERIFICATION_STATUS.VERIFIED;
   this.status = normalizeUserStatus(this.status, this.isActive);
-  this.isActive = this.status === USER_STATUS.ACTIVE;
+  this.isActive = this.status === USER_STATUS.APPROVED;
   this.approvalStatus = normalizeApprovalStatus(this.approvalStatus, {
     role: this.role,
     status: this.status,

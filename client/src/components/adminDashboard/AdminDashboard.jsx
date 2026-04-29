@@ -221,24 +221,32 @@ export default function AdminDashboard() {
       ...summary,
 
       totalUsers:
-        layeredSummaryUsers.totalUsers ?? summary.totalUsers ?? 0,
+        summary.totalUsers ?? layeredSummaryUsers.totalUsers ?? 0,
+
+      providers:
+        summary.providers ??
+        layeredItems.filter((item) => item.role === "provider").length,
+
+      clients:
+        summary.clients ??
+        layeredItems.filter((item) => item.role === "client").length,
 
       pendingProviders:
-        layeredSummaryUsers.pendingApproval ??
         summary.pendingProviders ??
+        layeredSummaryUsers.pendingApproval ??
         0,
     }),
-    [summary, layeredSummaryUsers],
+    [summary, layeredSummaryUsers, layeredItems],
   );
 
   const providerCount = useMemo(
-    () => layeredItems.filter((item) => item.role === "provider").length,
-    [layeredItems],
+    () => resolvedSummary.providers ?? 0,
+    [resolvedSummary.providers],
   );
 
   const clientCount = useMemo(
-    () => layeredItems.filter((item) => item.role === "client").length,
-    [layeredItems],
+    () => resolvedSummary.clients ?? 0,
+    [resolvedSummary.clients],
   );
 
   /**

@@ -43,13 +43,12 @@ const STATUS_MAP = {
 };
 
 const CATEGORY_OPTIONS = [
-  { value: "booking", label: "Booking Issue" },
-  { value: "payment", label: "Payment / Payout Problem" },
-  { value: "account", label: "Account Help" },
-  { value: "technical", label: "Technical Issue" },
-  { value: "verification", label: "Verification Support" },
-  { value: "feedback", label: "Feedback / Suggestion" },
-  { value: "other", label: "Other" },
+  { value: "account", label: "Account / Admin Help" },
+  { value: "technical", label: "Website Technical Issue" },
+  { value: "payment", label: "Platform Payment Issue" },
+  { value: "verification", label: "Admin Verification Support" },
+  { value: "feedback", label: "Website Feedback" },
+  { value: "other", label: "Other Platform Issue" },
 ];
 
 const formatDateTime = (value) => {

@@ -29,7 +29,7 @@ const SOCKET_EVENTS = {
 };
 
 export function WebSocketProvider({ children }) {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, refreshProfile, setUserData } = useAuth();
   const { platformName } = useMaintenance(); // kept for backward compatibility (may be used by older screens)
 
   const socketRef = useRef(null);
@@ -39,6 +39,11 @@ export function WebSocketProvider({ children }) {
 
   const [socketVersion, setSocketVersion] = useState(0); // bumps to re-run listener wiring
   const [isConnected, setIsConnected] = useState(false);
+
+  const getUserId = useCallback((account = user) => {
+    const id = account?.id || account?._id;
+    return id ? String(id) : "";
+  }, [user]);
 
   const subscribe = useCallback((event, callback) => {
     if (!listenersRef.current.has(event)) {
@@ -86,7 +91,7 @@ export function WebSocketProvider({ children }) {
       socketRef.current = null;
     }
 
-    const userId = user?._id ? String(user._id) : "";
+    const userId = getUserId();
     const role = user?.role ? String(user.role) : "";
 
     if (!userId) {
@@ -104,7 +109,7 @@ export function WebSocketProvider({ children }) {
     instance?.on?.("disconnect", () => setIsConnected(false));
 
     setSocketVersion((v) => v + 1);
-  }, [user]);
+  }, [getUserId, user]);
 
   const disconnect = useCallback(() => {
     disconnectSocket();
@@ -115,14 +120,14 @@ export function WebSocketProvider({ children }) {
 
   // Auto-connect when authenticated
   useEffect(() => {
-    if (isAuthenticated && user?._id) {
+    if (isAuthenticated && getUserId()) {
       connect();
     } else {
       disconnect();
     }
 
     return () => disconnect();
-  }, [isAuthenticated, user?._id, connect, disconnect]);
+  }, [isAuthenticated, getUserId, connect, disconnect]);
 
   // Wire socket event listeners once per socket instance
   useEffect(() => {
@@ -164,11 +169,42 @@ export function WebSocketProvider({ children }) {
     const onDisputeCreatedLegacy = (payload) =>
       dispatchToCallbacks(SOCKET_EVENTS.DISPUTE_CREATED, payload);
 
-    const onUserUpdated = (payload) =>
-      dispatchToCallbacks(SOCKET_EVENTS.USER_UPDATED, payload);
+    const syncCurrentAccount = (payload = {}) => {
+      const currentUserId = getUserId();
+      const payloadUserId = payload.userId || payload.id || payload._id;
 
-    const onUserStatusUpdated = (payload) =>
+      if (!currentUserId || !payloadUserId || String(payloadUserId) !== currentUserId) {
+        return;
+      }
+
+      const nextStatus = payload.status || payload.accountStatus;
+      const nextApprovalStatus = payload.approvalStatus;
+
+      if (nextStatus || nextApprovalStatus) {
+        // Keep route guards responsive immediately; the profile refresh below
+        // then reconciles the rest of the account snapshot from the database.
+        setUserData({
+          ...user,
+          ...(nextStatus ? { status: nextStatus } : {}),
+          ...(nextApprovalStatus ? { approvalStatus: nextApprovalStatus } : {}),
+          ...(nextStatus ? { isActive: nextStatus === "approved" } : {}),
+          ...(nextStatus ? { isApproved: nextStatus === "approved" } : {}),
+        });
+      }
+
+      refreshProfile({ silent: true });
+      window.dispatchEvent(new Event("account-access-updated"));
+    };
+
+    const onUserUpdated = (payload) => {
+      syncCurrentAccount(payload);
+      dispatchToCallbacks(SOCKET_EVENTS.USER_UPDATED, payload);
+    };
+
+    const onUserStatusUpdated = (payload) => {
+      syncCurrentAccount(payload);
       dispatchToCallbacks(SOCKET_EVENTS.USER_STATUS_UPDATED, payload);
+    };
 
     const onNotificationCreated = (payload) =>
       dispatchToCallbacks(SOCKET_EVENTS.NOTIFICATION_CREATED, payload);
@@ -231,7 +267,14 @@ export function WebSocketProvider({ children }) {
       socket.off("notification_read", onNotificationRead);
       socket.off("notification:read", onNotificationReadLegacy);
     };
-  }, [socketVersion, dispatchToCallbacks]);
+  }, [
+    socketVersion,
+    dispatchToCallbacks,
+    getUserId,
+    refreshProfile,
+    setUserData,
+    user,
+  ]);
 
   const emit = useCallback((event, payload) => {
     if (socketRef.current?.connected) {
