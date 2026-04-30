@@ -33,6 +33,7 @@ const SERVICE_TYPES = [
   "Moving",
   "Other",
 ];
+const EXPERIENCE_YEARS = Array.from({ length: 51 }, (_, index) => index);
 const WEEK_DAYS = [
   "Monday",
   "Tuesday",
@@ -97,9 +98,6 @@ const toProviderForm = (data = {}) => ({
     data.experience === 0 || data.experience ? String(data.experience) : "",
   availability: data.availability ?? data.available ?? true,
   bio: data.bio || "",
-  workCategoriesText: Array.isArray(data.workCategories)
-    ? data.workCategories.join(", ")
-    : "",
   serviceAreasText: Array.isArray(data.serviceAreas)
     ? data.serviceAreas.join(", ")
     : "",
@@ -282,7 +280,6 @@ export default function SettingsLayout({ role }) {
     () => buildGeneratedUpiId(profileForm.phone, profileForm.bankName),
     [profileForm.phone, profileForm.bankName],
   );
-
   const handlePhotoChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -329,10 +326,6 @@ export default function SettingsLayout({ role }) {
     await saveProviderSettings(
       {
         availability: providerForm.availability,
-        serviceType: providerForm.serviceType,
-        hourlyRate: Number(providerForm.hourlyRate || 0),
-        experience: Number(providerForm.experience || 0),
-        workCategories: splitCsv(providerForm.workCategoriesText),
         availabilitySchedule: providerForm.availabilitySchedule,
       },
       "Availability settings updated.",
@@ -374,14 +367,11 @@ export default function SettingsLayout({ role }) {
           bankName: profileForm.bankName.trim(),
           accountNumber: profileForm.accountNumber.trim(),
           accountHolderName: profileForm.accountHolderName.trim() || fullName,
-          serviceType: providerForm.serviceType,
           location: providerForm.location.trim(),
           address: providerForm.address.trim(),
-          hourlyRate: Number(providerForm.hourlyRate || 0),
           experience: Number(providerForm.experience || 0),
           availability: providerForm.availability,
           bio: providerForm.bio.trim(),
-          workCategories: splitCsv(providerForm.workCategoriesText),
           serviceAreas: splitCsv(providerForm.serviceAreasText),
           serviceRadius: Number(providerForm.serviceRadius || 0),
         });
@@ -775,27 +765,6 @@ export default function SettingsLayout({ role }) {
                     <div className="grid grid-cols-1 gap-8 rounded-[2rem] border border-border/40 bg-muted/10 p-8 md:grid-cols-2">
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
-                          Professional Category
-                        </label>
-                        <select
-                          value={providerForm.serviceType}
-                          onChange={(event) =>
-                            setProviderForm((prev) => ({
-                              ...prev,
-                              serviceType: event.target.value,
-                            }))
-                          }
-                          className={INPUT}
-                        >
-                          {SERVICE_TYPES.map((type) => (
-                            <option key={type} value={type}>
-                              {type}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
                           Live Status
                         </label>
                         <select
@@ -854,32 +823,9 @@ export default function SettingsLayout({ role }) {
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
-                          Base Hourly Rate (₹)
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          placeholder="999"
-                          value={providerForm.hourlyRate}
-                          onChange={(event) =>
-                            setProviderForm((prev) => ({
-                              ...prev,
-                              hourlyRate: event.target.value,
-                            }))
-                          }
-                          className={`${INPUT} font-black italic`}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
                           Field Experience (Years)
                         </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          placeholder="5"
+                        <select
                           value={providerForm.experience}
                           onChange={(event) =>
                             setProviderForm((prev) => ({
@@ -888,7 +834,14 @@ export default function SettingsLayout({ role }) {
                             }))
                           }
                           className={`${INPUT} font-black italic`}
-                        />
+                        >
+                          <option value="">Select years</option>
+                          {EXPERIENCE_YEARS.map((year) => (
+                            <option key={year} value={String(year)}>
+                              {year} {year === 1 ? "year" : "years"}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div className="space-y-2 md:col-span-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
@@ -905,27 +858,6 @@ export default function SettingsLayout({ role }) {
                           placeholder="Explain why clients should choose your expertise..."
                           className={`${INPUT} min-h-[140px] resize-y font-medium leading-relaxed italic`}
                         />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
-                          Work Categories
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Plumbing, Electrical, AC Repair"
-                          value={providerForm.workCategoriesText}
-                          onChange={(event) =>
-                            setProviderForm((prev) => ({
-                              ...prev,
-                              workCategoriesText: event.target.value,
-                            }))
-                          }
-                          className={INPUT}
-                        />
-                        <p className="text-[10px] text-muted-foreground italic">
-                          These categories power your public profile tags. Use
-                          commas to add multiple works.
-                        </p>
                       </div>
                     </div>
                   )}
@@ -1063,80 +995,6 @@ export default function SettingsLayout({ role }) {
                       <option value="available">Accepting Requests</option>
                       <option value="unavailable">Paused</option>
                     </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
-                      Professional Category
-                    </label>
-                    <select
-                      value={providerForm.serviceType}
-                      onChange={(event) =>
-                        setProviderForm((prev) => ({
-                          ...prev,
-                          serviceType: event.target.value,
-                        }))
-                      }
-                      className={INPUT}
-                    >
-                      {SERVICE_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
-                      Base Hourly Rate
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={providerForm.hourlyRate}
-                      onChange={(event) =>
-                        setProviderForm((prev) => ({
-                          ...prev,
-                          hourlyRate: event.target.value,
-                        }))
-                      }
-                      className={`${INPUT} font-black italic`}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
-                      Field Experience (Years)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={providerForm.experience}
-                      onChange={(event) =>
-                        setProviderForm((prev) => ({
-                          ...prev,
-                          experience: event.target.value,
-                        }))
-                      }
-                      className={`${INPUT} font-black italic`}
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-70 ml-1">
-                      Work Categories
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Plumbing, Electrical, AC Repair"
-                      value={providerForm.workCategoriesText}
-                      onChange={(event) =>
-                        setProviderForm((prev) => ({
-                          ...prev,
-                          workCategoriesText: event.target.value,
-                        }))
-                      }
-                      className={INPUT}
-                    />
                   </div>
                   <div className="space-y-4 md:col-span-2">
                     <div>

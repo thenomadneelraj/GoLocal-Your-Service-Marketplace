@@ -341,6 +341,58 @@ export default function RoleShell({ role }) {
         ? "role-scope-provider"
         : "role-scope-client";
   const adminSidebarShell = "border-border admin-sidebar-surface";
+  const sidebarAccountStatus = useMemo(() => {
+    if (!isSpecialRole) return null;
+
+    const rawStatus = String(user?.status || "").trim().toLowerCase();
+    const rawApprovalStatus = String(user?.approvalStatus || "")
+      .trim()
+      .toLowerCase();
+
+    if (rawStatus === "suspended") {
+      return {
+        icon: X,
+        label: "Account Suspended",
+        className:
+          "border-rose-500/25 bg-rose-500/10 text-rose-700 shadow-[0_18px_36px_-30px_rgba(244,63,94,0.55)] dark:text-rose-300",
+      };
+    }
+
+    if (rawStatus === "rejected" || rawApprovalStatus === "rejected") {
+      return {
+        icon: X,
+        label: "Account Rejected",
+        className:
+          "border-rose-500/25 bg-rose-500/10 text-rose-700 shadow-[0_18px_36px_-30px_rgba(244,63,94,0.55)] dark:text-rose-300",
+      };
+    }
+
+    if (accountAccess.pendingApproval) {
+      return {
+        icon: Clock,
+        label: "Approval Pending",
+        className:
+          "border-amber-400/25 bg-amber-400/10 text-amber-700 shadow-[0_18px_36px_-30px_rgba(251,191,36,0.55)] dark:text-amber-300",
+      };
+    }
+
+    if (accountAccess.isApproved) {
+      return {
+        icon: CheckCircle2,
+        label: "Account Approved",
+        className:
+          "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 shadow-[0_18px_36px_-30px_rgba(16,185,129,0.55)] dark:text-emerald-300",
+      };
+    }
+
+    return {
+      icon: Clock,
+      label: "Approval Pending",
+      className:
+        "border-amber-400/25 bg-amber-400/10 text-amber-700 shadow-[0_18px_36px_-30px_rgba(251,191,36,0.55)] dark:text-amber-300",
+    };
+  }, [accountAccess.isApproved, accountAccess.pendingApproval, isSpecialRole, user?.approvalStatus, user?.status]);
+  const SidebarAccountStatusIcon = sidebarAccountStatus?.icon || CheckCircle2;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -663,13 +715,11 @@ export default function RoleShell({ role }) {
               onClick={closeDrawer}
             />
           ))}
-          {!sidebarCollapsed &&
-          role === "PROVIDER" &&
-          accountAccess.isApproved ? (
-            <div className="rounded-[1.5rem] border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-700 shadow-[0_18px_36px_-30px_rgba(16,185,129,0.55)] dark:text-emerald-300">
+          {!sidebarCollapsed && sidebarAccountStatus ? (
+            <div className={`rounded-[1.5rem] border p-3 text-sm ${sidebarAccountStatus.className}`}>
               <div className="flex items-center gap-2">
-                <CheckCircle2 size={16} />
-                <span className="font-semibold">Account Approved</span>
+                <SidebarAccountStatusIcon size={16} />
+                <span className="font-semibold">{sidebarAccountStatus.label}</span>
               </div>
             </div>
           ) : null}
@@ -799,7 +849,7 @@ export default function RoleShell({ role }) {
         )}
 
         <header
-          className={`sticky top-0 z-30 border-b px-4 py-3 backdrop-blur-2xl md:px-8 ${isSpecialRole ? "border-border/60 bg-background/82 supports-[backdrop-filter]:bg-background/72" : "border-border bg-background/80 supports-[backdrop-filter]:bg-background/60"}`}
+          className={`relative z-30 shrink-0 border-b px-4 py-3 backdrop-blur-2xl md:px-8 ${isSpecialRole ? "border-border/60 bg-background/82 supports-[backdrop-filter]:bg-background/72" : "border-border bg-background/80 supports-[backdrop-filter]:bg-background/60"}`}
         >
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -1008,7 +1058,7 @@ export default function RoleShell({ role }) {
         </header>
 
         {showPendingApprovalBanner ? (
-          <div className="relative z-20 flex items-start gap-3 border-b border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm font-medium text-amber-700 md:px-8 dark:text-amber-300">
+          <div className="relative z-20 shrink-0 flex items-start gap-3 border-b border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm font-medium text-amber-700 md:px-8 dark:text-amber-300">
             <span className="mt-0.5 shrink-0">
               <Clock size={16} />
             </span>

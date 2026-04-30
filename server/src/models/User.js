@@ -402,6 +402,12 @@ userSchema.pre("validate", function syncOperationalState() {
         .filter(Boolean),
     ),
   );
+  const workCategoriesWithoutOther = this.workCategories.filter(
+    (value) => value.toLowerCase() !== "other",
+  );
+  if (workCategoriesWithoutOther.length) {
+    this.workCategories = workCategoriesWithoutOther;
+  }
   const generatedUpiId = generateUpiId({
     phone: this.phone,
     bankName: this.bankName,

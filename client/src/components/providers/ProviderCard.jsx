@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Typography from "@mui/material/Typography";
@@ -16,7 +15,6 @@ import WorkOutlineRoundedIcon from "@mui/icons-material/WorkOutlineRounded";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import { alpha } from "@mui/material/styles";
 import { resolveMediaUrl } from "@/lib/media";
-import { fetchPublicSettings } from "@/lib/adminApi";
 
 const formatCurrency = (amount) =>
   `INR ${Number(amount || 0).toLocaleString("en-IN")}`;
@@ -63,25 +61,6 @@ const formatAvailabilitySchedule = (schedule = []) => {
 };
 
 const ProviderCard = ({ provider }) => {
-  const [commissionPercentage, setCommissionPercentage] = useState(10);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchCommission = async () => {
-      try {
-        const response = await fetchPublicSettings();
-        const commission = response.data?.data?.commissionPercentage || 10;
-        setCommissionPercentage(commission);
-      } catch (error) {
-        console.warn("Failed to fetch commission percentage, using default:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCommission();
-  }, []);
-
   const {
     id,
     name,
@@ -96,11 +75,17 @@ const ProviderCard = ({ provider }) => {
     experience = 0,
     serviceCount = 0,
     availabilitySchedule = [],
+    workCategories = [],
     isMock = false,
   } = provider;
 
   const imageUrl = resolveMediaUrl(image);
   const availabilityLabel = formatAvailabilitySchedule(availabilitySchedule);
+  const categoryTags = (Array.isArray(workCategories) ? workCategories : [])
+    .map((category) => String(category || "").trim())
+    .filter(Boolean)
+    .filter((category) => category.toLowerCase() !== "other");
+  const primaryCategory = categoryTags[0] || serviceType || "Service";
 
   return (
     <Card
@@ -151,15 +136,26 @@ const ProviderCard = ({ provider }) => {
               color: "white",
             }}
           />
-          <Chip
-            label={serviceType || "Service"}
-            size="small"
-            sx={{
-              fontWeight: 700,
-              bgcolor: alpha("#ffffff", 0.88),
-              color: "#1e3a8a",
-            }}
-          />
+          <Stack direction="row" spacing={1}>
+            <Chip
+              label={isMock ? "Mock Provider" : "Verified Provider"}
+              size="small"
+              sx={{
+                fontWeight: 700,
+                bgcolor: isMock ? alpha("#f59e0b", 0.92) : alpha("#ffffff", 0.88),
+                color: isMock ? "white" : "#1e3a8a",
+              }}
+            />
+            <Chip
+              label={primaryCategory}
+              size="small"
+              sx={{
+                fontWeight: 700,
+                bgcolor: alpha("#ffffff", 0.88),
+                color: "#1e3a8a",
+              }}
+            />
+          </Stack>
         </Stack>
 
         {!imageUrl ? (
@@ -188,7 +184,9 @@ const ProviderCard = ({ provider }) => {
               {name || "Provider Name"}
             </Typography>
             <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
-              {serviceType || "General service provider"}
+              {categoryTags.length
+                ? categoryTags.join(", ")
+                : serviceType || "General service provider"}
             </Typography>
           </Box>
           <Box
@@ -202,16 +200,14 @@ const ProviderCard = ({ provider }) => {
             }}
           >
             <Typography variant="caption" sx={{ display: "block", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              Starting
+              Services From
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 800 }}>
-              {formatCurrency(hourlyRate)}/hr
+              {formatCurrency(hourlyRate)}
             </Typography>
-            {commissionPercentage > 0 && !loading && (
-              <Typography variant="caption" sx={{ display: "block", color: "#0f172a", mt: 0.5 }}>
-                +{commissionPercentage}% platform fee
-              </Typography>
-            )}
+            <Typography variant="caption" sx={{ display: "block", color: "#0f172a", mt: 0.5 }}>
+              +5% checkout fee
+            </Typography>
           </Box>
         </Box>
 
@@ -223,6 +219,15 @@ const ProviderCard = ({ provider }) => {
         </Box>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 2 }}>
+          {categoryTags.map((category) => (
+            <Chip
+              key={category}
+              label={category}
+              color="primary"
+              variant="outlined"
+              sx={{ borderRadius: 999, fontWeight: 700 }}
+            />
+          ))}
           <Chip
             icon={<LocationOnIcon sx={{ fontSize: 18 }} />}
             label={location || "Location not set"}
@@ -278,7 +283,7 @@ const ProviderCard = ({ provider }) => {
         </Button>
         <Button
           component={Link}
-          to={`/booking/${id}`}
+          to={`/providers/${id}`}
           variant="contained"
           fullWidth
           disabled={isMock}

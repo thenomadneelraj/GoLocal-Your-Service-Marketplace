@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
-import { fetchPublicSettings } from "@/lib/adminApi";
 
 import Grid from "@mui/material/Grid";
 import {
@@ -33,6 +32,24 @@ import ProviderCard from "./ProviderCard";
 
 const LIMIT = 12;
 
+const normalizeCategoryTags = (categories = [], fallback = "") => {
+  const values = Array.isArray(categories) ? categories : [];
+  const unique = Array.from(
+    new Set(
+      values
+        .map((category) => String(category || "").trim())
+        .filter(Boolean)
+    )
+  );
+  const withoutOther = unique.filter(
+    (category) => category.toLowerCase() !== "other"
+  );
+  if (withoutOther.length) return withoutOther;
+  return fallback && String(fallback).toLowerCase() !== "other"
+    ? [String(fallback)]
+    : [];
+};
+
 const normalizeProvider = (item) => ({
   id: item._id || item.id,
   name: item.name || "Unknown",
@@ -44,7 +61,7 @@ const normalizeProvider = (item) => ({
   bio: item.bio || "",
   available: item.available ?? item.availability ?? false,
   image: item.profileImage || item.profilePhoto || item.image || "",
-  experience: Number(item.experience || item.yearsExperience || 0),
+  experience: Number(item.experience ?? item.yearsExperience ?? 0),
   serviceCount:
     item.serviceCount ??
     (Array.isArray(item.services) ? item.services.length : 0),
@@ -52,6 +69,8 @@ const normalizeProvider = (item) => ({
   availabilitySchedule: Array.isArray(item.availabilitySchedule)
     ? item.availabilitySchedule
     : [],
+  workCategories: normalizeCategoryTags(item.workCategories, item.serviceType),
+  isMock: Boolean(item.isMock),
 });
 
 const ProvidersList = () => {
@@ -288,9 +307,9 @@ const ProvidersList = () => {
       helper: "ready for new bookings",
     },
     {
-      label: "Average Rate",
+      label: "Average Starting Price",
       value: `INR ${averageRate.toLocaleString("en-IN")}`,
-      helper: "hourly pricing on this page",
+      helper: "service pricing on this page",
     },
   ];
 

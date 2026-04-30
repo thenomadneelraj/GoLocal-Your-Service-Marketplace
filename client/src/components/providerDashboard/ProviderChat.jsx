@@ -77,6 +77,23 @@ export default function ProviderChat() {
   const [showSidebar, setShowSidebar] = useState(true);
   const messagesEndRef = useRef(null);
 
+  useEffect(() => {
+    if (contactParam) {
+      setActiveUserId(contactParam);
+    }
+  }, [contactParam]);
+
+  const fetchContactProfile = useCallback(async (otherUserId) => {
+    if (!otherUserId || !canUseChat) return null;
+    try {
+      const res = await api.get(`/api/messages/contact/${otherUserId}`);
+      return res.data?.data || null;
+    } catch (err) {
+      console.error("Failed to load contact profile:", err);
+      return null;
+    }
+  }, [canUseChat]);
+
   const scrollToBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
@@ -102,6 +119,20 @@ export default function ProviderChat() {
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
+
+  useEffect(() => {
+    if (activeUserId || loadingConvos || !conversations.length) {
+      return;
+    }
+
+    const firstConversationUserId = conversations[0]?.participant?.userId;
+    if (!firstConversationUserId) {
+      return;
+    }
+
+    setActiveUserId(firstConversationUserId);
+    setParticipant(conversations[0]?.participant || null);
+  }, [activeUserId, conversations, loadingConvos]);
 
   // Load thread for selected conversation
   const fetchMessages = useCallback(async (otherUserId) => {
@@ -134,6 +165,48 @@ export default function ProviderChat() {
       fetchMessages(activeUserId);
     }
   }, [activeUserId, fetchMessages]);
+
+  useEffect(() => {
+    if (!activeUserId || participant?.userId === activeUserId) return;
+
+    let cancelled = false;
+    fetchContactProfile(activeUserId).then((profile) => {
+      if (cancelled || !profile) return;
+
+      setParticipant(profile);
+      setConversations((prev) => {
+        const exists = prev.some(
+          (conversation) => conversation.participant?.userId === profile.userId,
+        );
+
+        if (exists) {
+          return prev.map((conversation) =>
+            conversation.participant?.userId === profile.userId
+              ? {
+                  ...conversation,
+                  participant: { ...conversation.participant, ...profile },
+                }
+              : conversation,
+          );
+        }
+
+        return [
+          {
+            participant: profile,
+            unreadCount: 0,
+            bookingId: conversationId || null,
+            lastMessage: null,
+            lastMessageAt: null,
+          },
+          ...prev,
+        ];
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUserId, participant?.userId, fetchContactProfile, conversationId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -265,14 +338,14 @@ export default function ProviderChat() {
   );
 
   return (
-    <div className="h-[calc(100vh-10rem)] flex gap-4 pb-6 font-sans">
+    <div className="flex min-h-0 flex-1 gap-4 pb-6 pt-6 font-sans md:pt-8">
       {/* Sidebar */}
       <div
         className={`${
           showSidebar ? "w-80" : "w-20"
-        } hidden lg:flex flex-col bg-card/60 border border-border/60 rounded-[2rem] overflow-hidden backdrop-blur-xl transition-all duration-500 shadow-sm relative`}
+        } relative hidden min-h-0 lg:flex flex-col bg-card/60 border border-border/60 rounded-[2rem] overflow-hidden backdrop-blur-xl transition-all duration-500 shadow-sm`}
       >
-        <div className="p-6 border-b border-border/60 space-y-4">
+        <div className="shrink-0 space-y-4 border-b border-border/60 p-6">
           <div className="flex items-center justify-between">
             <h2
               className={`font-bold text-xl tracking-tight transition-opacity ${
@@ -309,7 +382,7 @@ export default function ProviderChat() {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
+        <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-3 space-y-1">
           {loadingConvos ? (
             <div className="flex items-center justify-center py-10">
               <Loader2 className="animate-spin text-emerald-500" size={22} />
@@ -380,7 +453,11 @@ export default function ProviderChat() {
                             : "text-muted-foreground opacity-70"
                         }`}
                       >
-                        {convo.lastMessage?.content || "No messages yet"}
+                        {convo.participant?.role
+                          ? String(convo.participant.role).toLowerCase() === "client"
+                            ? "Client"
+                            : convo.participant.role
+                          : convo.lastMessage?.content || "No messages yet"}
                       </p>
                     </div>
                   )}
@@ -398,7 +475,7 @@ export default function ProviderChat() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-card/60 border border-border/60 rounded-[2rem] overflow-hidden backdrop-blur-xl shadow-sm relative">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[2rem] border border-border/60 bg-card/60 backdrop-blur-xl shadow-sm">
         <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
 
         {!activeUserId ? (
@@ -414,7 +491,7 @@ export default function ProviderChat() {
         ) : (
           <>
             {/* Header */}
-            <div className="px-8 py-6 border-b border-border/60 flex items-center justify-between relative backdrop-blur-xl">
+            <div className="relative z-10 flex shrink-0 items-center justify-between border-b border-border/60 px-8 py-6 backdrop-blur-xl">
               <div className="flex items-center gap-4">
                 <div className="relative cursor-pointer">
                   <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center font-bold text-lg text-emerald-600 shadow-sm overflow-hidden">
@@ -434,10 +511,15 @@ export default function ProviderChat() {
                     {participant?.name || "Client"}
                   </h2>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-70 italic leading-none">
-                    {participant?.role === "CLIENT"
+                    {String(participant?.role || "").toLowerCase() === "client"
                       ? "Verified Client"
                       : "User"}
                   </span>
+                  {participant?.email ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {participant.email}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <Button
@@ -450,7 +532,7 @@ export default function ProviderChat() {
             </div>
 
             {/* Messages Feed */}
-            <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
+            <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-8 space-y-6">
               {loadingMessages ? (
                 <div className="flex items-center justify-center py-10">
                   <Loader2
@@ -490,6 +572,15 @@ export default function ProviderChat() {
                             }`}
                           >
                             <span
+                              className={`text-[10px] font-semibold ${
+                                isMe
+                                  ? "text-white/75"
+                                  : "text-muted-foreground/80"
+                              }`}
+                            >
+                              {isMe ? "You" : getInitials(participant?.name)}
+                            </span>
+                            <span
                               className={`text-[8px] font-bold uppercase tracking-widest ${
                                 isMe
                                   ? "text-white/60"
@@ -518,7 +609,7 @@ export default function ProviderChat() {
             </div>
 
             {/* Message Input */}
-            <div className="p-6 border-t border-border/60 bg-muted/5 backdrop-blur-md">
+            <div className="shrink-0 border-t border-border/60 bg-muted/5 p-6 backdrop-blur-md">
               <div className="bg-card/90 border border-border/60 rounded-2xl p-2 flex items-center gap-2 shadow-sm focus-within:border-emerald-500/40 transition-all">
                 <Button
                   variant="ghost"

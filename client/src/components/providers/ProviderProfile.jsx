@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/components/contexts/AuthContext";
@@ -15,6 +15,7 @@ import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
 import Divider from "@mui/material/Divider";
+import Checkbox from "@mui/material/Checkbox";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import PhoneIcon from "@mui/icons-material/Phone";
 import EmailIcon from "@mui/icons-material/Email";
@@ -48,11 +49,35 @@ const getInitials = (value = "") =>
     .map((part) => part[0]?.toUpperCase() || "")
     .join("") || "C";
 
+const normalizeCategoryTags = (categories = [], fallback = "") => {
+  const values = Array.isArray(categories) ? categories : [];
+  const unique = Array.from(
+    new Set(
+      values
+        .map((category) => String(category || "").trim())
+        .filter(Boolean)
+    )
+  );
+  const withoutOther = unique.filter(
+    (category) => category.toLowerCase() !== "other"
+  );
+  if (withoutOther.length) return withoutOther;
+  return fallback && String(fallback).toLowerCase() !== "other"
+    ? [String(fallback)]
+    : [];
+};
+
+const formatCurrency = (amount) =>
+  `INR ${Number(amount || 0).toLocaleString("en-IN")}`;
+
 const ProviderProfile = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [provider, setProvider] = useState(null);
+  const [selectedServiceIds, setSelectedServiceIds] = useState([]);
+  const [hasBookedProvider, setHasBookedProvider] = useState(false);
+  const [bookingActionError, setBookingActionError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -74,7 +99,7 @@ const normalized = {
         profileImage: raw?.profileImage || raw?.profilePhoto || "",
         rating: Number(raw?.rating || 0),
         available: raw?.available ?? raw?.availability ?? false,
-        userAccountId: raw?.userId?._id || raw?.userId || "",
+        userAccountId: raw?.userId?._id || raw?.userId || raw?._id || raw?.id || "",
         verified: raw?.verified ?? raw?.isApproved ?? false,
         reviewCount: raw?.reviewCount ?? raw?.totalReviews ?? 0,
         yearsExperience: raw?.yearsExperience ?? raw?.experience ?? 0,
@@ -84,6 +109,10 @@ const normalized = {
         hourlyRate: raw?.hourlyRate ?? 0,
         servicePriceRange: raw?.servicePriceRange || null,
         serviceCount: raw?.serviceCount ?? 0,
+        workCategories: normalizeCategoryTags(
+          raw?.workCategories,
+          raw?.serviceType,
+        ),
         reviews: Array.isArray(raw?.reviews)
           ? raw.reviews.map((review) => ({
               id: review?.id || review?._id,
@@ -110,12 +139,72 @@ const normalized = {
         isMock: raw?.isMock || false,
       };
       setProvider(normalized);
+      setSelectedServiceIds([]);
     } catch (err) {
       setError(err.response?.data?.message || "Failed to load provider details.");
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadBookingAccess = async () => {
+      const role = String(user?.role || "").toLowerCase();
+      if (!user?.id || role !== "client" || !provider?.id) {
+        setHasBookedProvider(false);
+        return;
+      }
+
+      try {
+        const response = await api.get("/api/bookings", {
+          params: { limit: 100 },
+        });
+        const bookings = response.data?.data?.items || [];
+        const hasBooking = bookings.some((booking) => {
+          const providerId =
+            booking.providerId?._id || booking.providerId?.id || booking.providerId;
+          const status = String(booking.status || "").toLowerCase();
+          return (
+            String(providerId) === String(provider.id) &&
+            status !== "pending_payment"
+          );
+        });
+
+        if (mounted) {
+          setHasBookedProvider(hasBooking);
+        }
+      } catch {
+        if (mounted) {
+          setHasBookedProvider(false);
+        }
+      }
+    };
+
+    loadBookingAccess();
+
+    return () => {
+      mounted = false;
+    };
+  }, [provider?.id, user?.id, user?.role]);
+
+  const selectedServices = useMemo(
+    () =>
+      provider?.services?.filter((service) =>
+        selectedServiceIds.includes(String(service._id)),
+      ) || [],
+    [provider?.services, selectedServiceIds],
+  );
+
+  const subtotal = useMemo(
+    () =>
+      selectedServices.reduce(
+        (sum, service) => sum + Number(service.price || 0),
+        0,
+      ),
+    [selectedServices],
+  );
 
   if (loading) {
     return (
@@ -162,6 +251,11 @@ const normalized = {
   const displayedServices = provider.services?.length
     ? provider.services
     : [{ _id: "default-service", title: fallbackServiceLabel }];
+  const hasRealServices = Boolean(provider.services?.length);
+  const categoryTags = normalizeCategoryTags(
+    provider.workCategories,
+    provider.serviceType,
+  );
   const statusConfig =
     STATUS_CONFIG[provider.availabilitySummary?.status] || STATUS_CONFIG.available;
   const bookingButtonLabel =
@@ -180,37 +274,79 @@ const normalized = {
     isClientViewer &&
     (!user || accountAccess.canCreateBookings) &&
     !provider.isMock &&
+    hasRealServices &&
     provider.availabilitySummary?.status !== "unavailable";
   const bookingDisabledReason =
     user && currentUserRole === "client" && !accountAccess.canCreateBookings
       ? accountAccess.title || "Account approval pending."
       : user && currentUserRole !== "client"
         ? "Only client accounts can create bookings."
+        : !hasRealServices
+          ? "This provider has not published any active services yet."
       : "";
   const canMessageProvider =
     Boolean(provider.userAccountId) &&
-    (!user || currentUserRole === "client" || isOwnProviderProfile);
+    ((currentUserRole === "client" && hasBookedProvider) || isOwnProviderProfile);
   const messageButtonLabel = !user
-    ? "Sign In to Message"
+    ? "Book to Message"
     : currentUserRole === "client"
-      ? "Send Message"
+      ? hasBookedProvider
+        ? "Send Message"
+        : "Message After Booking"
       : isOwnProviderProfile
         ? "Open Inbox"
         : "Client Messaging Only";
 
-  const handleMessageClick = () => {
-    if (!provider.userAccountId) return;
+  const toggleService = (serviceId) => {
+    const normalizedId = String(serviceId || "");
+    setBookingActionError("");
+    setSelectedServiceIds((current) =>
+      current.includes(normalizedId)
+        ? current.filter((item) => item !== normalizedId)
+        : [...current, normalizedId]
+    );
+  };
 
+  const handleBookingClick = () => {
     if (!user) {
       navigate("/signin", {
         state: {
-          message: "Sign in as a client to message this provider.",
-          redirectTo: `/client/chat?contact=${provider.userAccountId}`,
+          message: "Sign in as a client to book this provider.",
+          redirectTo: `/providers/${provider.id}`,
           preferredRole: "CLIENT",
         },
       });
       return;
     }
+
+    if (!canStartBooking) {
+      setBookingActionError(
+        bookingDisabledReason ||
+          provider.availabilitySummary?.reason ||
+          "This provider cannot be booked right now."
+      );
+      return;
+    }
+
+    if (!selectedServiceIds.length) {
+      setBookingActionError("Select at least one service before booking.");
+      return;
+    }
+
+    sessionStorage.setItem(
+      `booking-draft:${provider.id}`,
+      JSON.stringify({
+        providerId: provider.id,
+        providerName: provider.name,
+        serviceIds: selectedServices.map((service) => String(service._id)),
+        serviceTitles: selectedServices.map((service) => service.title),
+      })
+    );
+    navigate(`/booking/${provider.id}/payment`);
+  };
+
+  const handleMessageClick = () => {
+    if (!provider.userAccountId) return;
 
     if (currentUserRole === "client") {
       navigate(`/client/chat?contact=${provider.userAccountId}`);
@@ -277,14 +413,16 @@ const normalized = {
                       >
                         {provider.name}
                       </Typography>
-                      {provider.verified && (
+                      {provider.isMock ? (
+                        <Chip label="Mock Provider" color="warning" size="small" />
+                      ) : provider.verified ? (
                         <Chip
                           icon={<VerifiedIcon />}
-                          label="Verified"
+                          label="Verified Provider"
                           color="primary"
                           size="small"
                         />
-                      )}
+                      ) : null}
                       <Chip
                         label={statusConfig.label}
                         color={statusConfig.color}
@@ -292,11 +430,15 @@ const normalized = {
                       />
                     </Box>
 
-                    <Chip
-                      label={provider.serviceType}
-                      color="primary"
-                      sx={{ mb: 2 }}
-                    />
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
+                      {categoryTags.length ? (
+                        categoryTags.map((category) => (
+                          <Chip key={category} label={category} color="primary" />
+                        ))
+                      ) : (
+                        <Chip label={provider.serviceType || "Service"} color="primary" />
+                      )}
+                    </Box>
 
                     <Box
                       sx={{
@@ -370,11 +512,39 @@ const normalized = {
                   {displayedServices.map((service, index) => (
                     <Chip
                       key={service?._id || index}
-                      label={typeof service === "string" ? service : service.title}
-                      variant="outlined"
+                      label={
+                        typeof service === "string"
+                          ? service
+                          : `${service.title}${service.price ? ` - ${formatCurrency(service.price)}` : ""}`
+                      }
+                      variant={
+                        selectedServiceIds.includes(String(service?._id))
+                          ? "filled"
+                          : "outlined"
+                      }
+                      color={
+                        selectedServiceIds.includes(String(service?._id))
+                          ? "primary"
+                          : "default"
+                      }
+                      onClick={
+                        hasRealServices ? () => toggleService(service._id) : undefined
+                      }
+                      icon={
+                        hasRealServices ? (
+                          <Checkbox
+                            size="small"
+                            checked={selectedServiceIds.includes(String(service?._id))}
+                            sx={{ p: 0.25 }}
+                          />
+                        ) : undefined
+                      }
                     />
                   ))}
                 </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                  Select one or more services before clicking Book Now.
+                </Typography>
               </CardContent>
             </Card>
 
@@ -487,19 +657,16 @@ const normalized = {
                 </Typography>
 
                 <Box sx={{ mb: 3 }}>
-                  <Typography
-                    variant="h4"
-                    color="primary"
-                    sx={{ fontWeight: 700 }}
-                  >
-                    ${provider.hourlyRate}
-                    <Typography
-                      component="span"
-                      variant="body2"
-                      color="text.secondary"
-                    >
-                      /hour
-                    </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    {selectedServices.length
+                      ? `${selectedServices.length} service${selectedServices.length === 1 ? "" : "s"} selected`
+                      : "Select one or more services"}
+                  </Typography>
+                  <Typography variant="h4" color="primary" sx={{ fontWeight: 700 }}>
+                    {formatCurrency(subtotal)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    Checkout adds the platform fee before confirming the booking.
                   </Typography>
                 </Box>
 
@@ -550,7 +717,7 @@ const normalized = {
                 </Alert>
 
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                  Choose your preferred calendar date and time after continuing to the booking step.
+                  You will review your date, time, address, and payment method during checkout before the booking is confirmed.
                 </Typography>
 
                 <Box sx={{ mb: 3 }}>
@@ -570,13 +737,18 @@ const normalized = {
                   variant="contained"
                   fullWidth
                   size="large"
-                  component={canStartBooking ? Link : "button"}
-                  to={canStartBooking ? `/booking/${provider.id}` : undefined}
+                  onClick={handleBookingClick}
                   sx={{ mb: 2 }}
-                  disabled={!canStartBooking}
+                  disabled={Boolean(user) && !canStartBooking}
                 >
                   {provider.isMock ? "Booking Disabled (Demo Mode)" : bookingButtonLabel}
                 </Button>
+
+                {bookingActionError ? (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {bookingActionError}
+                  </Alert>
+                ) : null}
 
                 {bookingDisabledReason ? (
                   <Alert severity="warning" sx={{ mb: 2 }}>

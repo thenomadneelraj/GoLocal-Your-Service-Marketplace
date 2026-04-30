@@ -29,6 +29,7 @@ import { useAuth } from "@/components/contexts/AuthContext";
 import DataOriginBadge from "@/components/shared/DataOriginBadge";
 import { mergeLayeredCollections } from "@/lib/dataLayering";
 import { mockProviderNotifications } from "@/lib/mockWorkspaceData";
+import { useNavigate } from "react-router-dom";
 
 // Icon + color mapping per notification type
 const TYPE_CONFIG = {
@@ -65,6 +66,7 @@ const formatTime = (value) => {
 
 export default function ProviderNotifications() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -167,6 +169,41 @@ export default function ProviderNotifications() {
     (n) => filter === "all" || n.type === filter,
   );
 
+  const buildNotificationTarget = useCallback((notification) => {
+    const actionUrl = String(notification?.actionUrl || "").trim();
+    const bookingId = String(notification?.metadata?.bookingId || "").trim();
+
+    if (!actionUrl) {
+      return "";
+    }
+
+    if (
+      bookingId &&
+      (notification?.type === "message" || notification?.type === "booking") &&
+      actionUrl.startsWith("/provider/booking-management") &&
+      !actionUrl.includes("bookingId=")
+    ) {
+      return `${actionUrl}?bookingId=${encodeURIComponent(bookingId)}&open=details`;
+    }
+
+    return actionUrl;
+  }, []);
+
+  const handleNotificationOpen = useCallback(
+    async (notification) => {
+      const target = buildNotificationTarget(notification);
+
+      if (!notification?.read) {
+        await markRead(notification.id);
+      }
+
+      if (target) {
+        navigate(target);
+      }
+    },
+    [buildNotificationTarget, navigate],
+  );
+
   return (
     <div className="space-y-6 pb-10 font-sans">
       {/* Header */}
@@ -256,7 +293,7 @@ export default function ProviderNotifications() {
             return (
               <div
                 key={n.id}
-                onClick={() => !n.read && markRead(n.id)}
+                onClick={() => handleNotificationOpen(n)}
                 className={`group relative bg-card/40 border border-border/60 rounded-[2rem] p-6 hover:border-emerald-500/40 hover:bg-card/60 transition-all duration-300 backdrop-blur-sm shadow-xs overflow-hidden cursor-pointer ${
                   !n.read
                     ? "border-emerald-500/30 ring-1 ring-emerald-500/10 bg-emerald-500/[0.02]"

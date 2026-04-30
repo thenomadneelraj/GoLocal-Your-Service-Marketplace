@@ -24,7 +24,7 @@ import { mergeLayeredCollections } from "@/lib/dataLayering";
 import { mockClientProviders } from "@/lib/mockWorkspaceData";
 
 const formatCurrency = (amount) =>
-  `INR ${Number(amount || 0).toLocaleString("en-IN")}/hr`;
+  `INR ${Number(amount || 0).toLocaleString("en-IN")}`;
 
 const getInitials = (value = "") =>
   String(value || "")
@@ -45,6 +45,7 @@ const normalizeProviderCard = (item = {}) => ({
   image: item.profileImage || item.profilePhoto || item.image || "",
   available: item.available ?? item.availability ?? false,
   verified: item.verified ?? item.isApproved ?? false,
+  isMock: Boolean(item.isMock),
 });
 
 const normalizeProviderDetails = (item = {}) => {
@@ -73,6 +74,7 @@ const normalizeProviderDetails = (item = {}) => {
     completedJobs: Number(item.completedJobs || 0),
     experience: Number(item.yearsExperience ?? item.experience ?? 0),
     verified: item.verified ?? item.isApproved ?? false,
+    isMock: Boolean(item.isMock),
     services: services.length
       ? services.map((service) =>
           typeof service === "string" ? service : service.title || "Service"
@@ -313,11 +315,13 @@ export default function ClientProviders() {
                       {provider.serviceType}
                     </span>
                     <DataOriginBadge origin={provider.dataOrigin} liveLabel="Live" sampleLabel="Sample" className="bg-background/85" />
-                    {provider.verified ? (
-                      <span className="bg-emerald-500/85 backdrop-blur-md text-white px-2 py-1 rounded-lg shadow-sm">
-                        <ShieldCheck size={14} />
-                      </span>
-                    ) : null}
+                    <span className={`backdrop-blur-md px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider shadow-sm ${
+                      provider.isMock
+                        ? "bg-amber-500/85 text-white"
+                        : "bg-emerald-500/85 text-white"
+                    }`}>
+                      {provider.isMock ? "Mock Provider" : "Verified Provider"}
+                    </span>
                   </div>
                 </div>
 
@@ -351,7 +355,7 @@ export default function ClientProviders() {
                   <div className="mt-auto pt-4 border-t border-border/40 flex items-center justify-between gap-4">
                     <div>
                       <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-1">
-                        Price
+                        Services From
                       </p>
                       <p className="text-lg font-bold text-foreground">
                         {formatCurrency(provider.hourlyRate)}
@@ -482,7 +486,7 @@ export default function ClientProviders() {
                             {selectedProvider.verified ? (
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-600">
                                 <ShieldCheck size={13} />
-                                Verified
+                                {selectedProvider.isMock ? "Mock Provider" : "Verified Provider"}
                               </span>
                             ) : null}
                           </div>
@@ -492,7 +496,7 @@ export default function ClientProviders() {
                         </div>
                         <div className="rounded-2xl bg-primary/10 px-4 py-3 text-right text-primary">
                           <p className="text-[10px] font-black uppercase tracking-[0.18em]">
-                            Starting at
+                            Services from
                           </p>
                           <p className="mt-1 text-xl font-black">
                             {formatCurrency(selectedProvider.hourlyRate)}

@@ -119,6 +119,29 @@ const normalizeAvailabilitySchedule = (schedule = []) => {
     .filter((slot) => slot.day);
 };
 
+const normalizeWorkCategories = (categories = [], fallback = "") => {
+  const source = Array.isArray(categories) ? categories : [categories];
+  const unique = Array.from(
+    new Set(
+      source
+        .map((category) => String(category || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const withoutOther = unique.filter(
+    (category) => category.toLowerCase() !== "other",
+  );
+
+  if (withoutOther.length) {
+    return withoutOther;
+  }
+
+  const fallbackCategory = String(fallback || "").trim();
+  return fallbackCategory && fallbackCategory.toLowerCase() !== "other"
+    ? [fallbackCategory]
+    : [];
+};
+
 // Create provider profile (Admin or similar manually doing this)
 const createProvider = async (req, res) => {
   try {
@@ -176,12 +199,21 @@ const getProviders = async (req, res) => {
       query.$or = [
         { bio: { $regex: search, $options: "i" } },
         { serviceType: { $regex: search, $options: "i" } },
+        { workCategories: { $regex: search, $options: "i" } },
         { name: { $regex: search, $options: "i" } }
       ];
     }
     
     if (serviceType && serviceType !== "All") {
-      query.serviceType = { $regex: new RegExp(`^${serviceType}$`, "i") };
+      query.$and = [
+        ...(query.$and || []),
+        {
+          $or: [
+            { serviceType: { $regex: new RegExp(`^${serviceType}$`, "i") } },
+            { workCategories: { $regex: new RegExp(`^${serviceType}$`, "i") } },
+          ],
+        },
+      ];
     }
     
     if (location) {
@@ -308,9 +340,10 @@ const getProviderById = async (req, res) => {
       email: provider.email,
       bankName: provider.bankName || "",
       upiId: provider.upiId || "",
-      workCategories: Array.isArray(provider.workCategories)
-        ? provider.workCategories
-        : [],
+      workCategories: normalizeWorkCategories(
+        provider.workCategories,
+        provider.serviceType,
+      ),
       availabilitySchedule: normalizeAvailabilitySchedule(
         provider.availabilitySchedule
       ),
@@ -436,9 +469,10 @@ const getProviderMe = async (req, res) => {
         accountHolderName:
           provider.accountHolderName || provider.name || "",
         upiId: provider.upiId || "",
-        workCategories: Array.isArray(provider.workCategories)
-          ? provider.workCategories
-          : [],
+        workCategories: normalizeWorkCategories(
+          provider.workCategories,
+          provider.serviceType,
+        ),
         availabilitySchedule: normalizeAvailabilitySchedule(
           provider.availabilitySchedule
         ),
@@ -505,7 +539,10 @@ const updateProviderMe = async (req, res) => {
       provider.availabilitySchedule =
         normalizeAvailabilitySchedule(availabilitySchedule);
     }
-    if (experience !== undefined) provider.experience = experience;
+    if (experience !== undefined) {
+      const years = Number(experience);
+      provider.experience = Number.isFinite(years) && years >= 0 ? years : 0;
+    }
     if (bankName !== undefined) provider.bankName = String(bankName || "").trim();
     if (accountNumber !== undefined) {
       provider.accountNumber = String(accountNumber || "").trim();
@@ -516,7 +553,10 @@ const updateProviderMe = async (req, res) => {
       ).trim();
     }
     if (Array.isArray(workCategories)) {
-      provider.workCategories = workCategories;
+      provider.workCategories = normalizeWorkCategories(
+        workCategories,
+        serviceType !== undefined ? serviceType : provider.serviceType,
+      );
     }
     if (Array.isArray(serviceAreas)) {
       provider.serviceAreas = serviceAreas
@@ -551,9 +591,10 @@ const updateProviderMe = async (req, res) => {
         accountHolderName:
           provider.accountHolderName || provider.name || "",
         upiId: provider.upiId || "",
-        workCategories: Array.isArray(provider.workCategories)
-          ? provider.workCategories
-          : [],
+        workCategories: normalizeWorkCategories(
+          provider.workCategories,
+          provider.serviceType,
+        ),
         availabilitySchedule: normalizeAvailabilitySchedule(
           provider.availabilitySchedule
         ),

@@ -147,19 +147,22 @@ export default function ProviderEarnings() {
       }),
     [payouts]
   );
-  const fallbackTotalEarnings = layeredPayouts
-    .filter((payout) => payout.status === "paid")
+  const displayPayouts = payouts.length ? payouts : layeredPayouts;
+  const fallbackTotalEarnings = displayPayouts
+    .filter((payout) => ["paid", "pending"].includes(payout.status))
     .reduce((sum, payout) => sum + Number(payout.netAmount || 0), 0);
-  const fallbackPendingAmount = layeredPayouts
+  const fallbackPendingAmount = displayPayouts
     .filter((payout) => payout.status === "pending")
     .reduce((sum, payout) => sum + Number(payout.netAmount || 0), 0);
-  const resolvedTotalEarnings = totalEarnings || fallbackTotalEarnings;
-  const resolvedPendingAmount = pendingAmount || fallbackPendingAmount;
+  const resolvedTotalEarnings =
+    payouts.length || totalEarnings > 0 ? totalEarnings : fallbackTotalEarnings;
+  const resolvedPendingAmount =
+    payouts.length || pendingAmount > 0 ? pendingAmount : fallbackPendingAmount;
   const resolvedLastPaidAmount =
-    lastPaidAmount ||
-    layeredPayouts.find((payout) => payout.status === "paid")?.netAmount ||
-    0;
-  const filteredPayouts = layeredPayouts.filter((p) => {
+    payouts.length || lastPaidAmount > 0
+      ? lastPaidAmount
+      : displayPayouts.find((payout) => payout.status === "paid")?.netAmount || 0;
+  const filteredPayouts = displayPayouts.filter((p) => {
     const matchesTab = activeTab === "all" || p.status === activeTab;
     const matchesSearch =
       !searchQuery ||
@@ -193,14 +196,14 @@ export default function ProviderEarnings() {
                         {formatCurrency(resolvedTotalEarnings)}
                       </h1>
                       <DataOriginBadge
-                        origin={totalEarnings > 0 ? "real" : "mock"}
+                        origin={payouts.length ? "real" : "mock"}
                         liveLabel="Live"
                         sampleLabel="Sample"
                       />
                     </div>
                     <p className="text-muted-foreground mt-2 text-[10px] font-bold flex items-center gap-2 uppercase tracking-widest leading-none">
                       <TrendingUp size={14} className="text-emerald-500" />
-                      {layeredPayouts.length} payout record{layeredPayouts.length !== 1 ? "s" : ""}
+                      {displayPayouts.length} payout record{displayPayouts.length !== 1 ? "s" : ""}
                     </p>
                   </>
                 )}

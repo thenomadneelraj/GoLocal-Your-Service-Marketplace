@@ -427,6 +427,15 @@ function AppRoutes() {
             }
           />
           <Route
+            path="/booking/:providerId/payment"
+            element={
+              <LazyRoute
+                component={BookingPaymentPage}
+                label="Loading payment..."
+              />
+            }
+          />
+          <Route
             path="/bookings/:bookingId/payment"
             element={
               <LazyRoute

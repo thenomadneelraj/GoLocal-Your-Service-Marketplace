@@ -74,6 +74,16 @@ const bookingSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
+    subtotal: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    platformFee: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
     date: {
       type: Date,
     },
@@ -133,6 +143,10 @@ const bookingSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
     review: {
       rating: {
         type: Number,
@@ -165,6 +179,14 @@ bookingSchema.pre("validate", function syncContractAliases() {
 
   if (!this.totalAmount) {
     this.totalAmount = this.price || 0;
+  }
+
+  if (!this.subtotal) {
+    this.subtotal = this.price || 0;
+  }
+
+  if (!this.price) {
+    this.price = this.subtotal || 0;
   }
 
   if (!this.date && this.bookingDate) {

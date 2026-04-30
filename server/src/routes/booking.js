@@ -13,6 +13,7 @@ router.use(attachAccountAccessState);
 
 // POST /api/bookings - create booking (and payment records)
 router.post("/", bookingController.createBooking);
+router.post("/draft", bookingController.createBookingDraft);
 
 // GET /api/bookings - current user's bookings
 router.get("/", bookingController.getMyBookings);
@@ -22,6 +23,7 @@ router.get("/:id", bookingController.getBookingById);
 
 // PATCH /api/bookings/:id/payment - confirm booking payment method
 router.patch("/:id/payment", bookingController.confirmBookingPayment);
+router.post("/confirm", bookingController.confirmBookingCheckout);
 
 // PATCH /api/bookings/:id/status - update status
 router.patch("/:id/status", bookingController.updateBookingStatus);

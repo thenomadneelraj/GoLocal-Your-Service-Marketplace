@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
+const Booking = require("../models/Booking");
 const {
   buildCsvBuffer,
   buildPdfBuffer,
@@ -11,7 +12,14 @@ const {
 const {
   normalizeTransactionStatus,
   isPaidTransaction,
+  TRANSACTION_STATUS,
 } = require("../utils/transactionStatus");
+const {
+  calculateTransactionBreakdown,
+  buildPaymentSnapshot,
+} = require("../utils/payment");
+
+const BOOKING_PLATFORM_FEE_PERCENT = 5;
 
 const formatCurrency = (value = 0, currency = "INR") =>
   new Intl.NumberFormat("en-IN", {
@@ -203,6 +211,136 @@ const listTransactions = async (req, res) => {
             .filter((item) => isPaidTransaction(item.status))
             .reduce((sum, item) => sum + Number(item.totalPaidByClient || 0), 0),
         },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const createTransaction = async (req, res) => {
+  try {
+    const bookingId = String(req.body?.bookingId || "").trim();
+    const paymentMethod = ["upi", "cod"].includes(
+      String(req.body?.paymentMethod || "").trim().toLowerCase(),
+    )
+      ? String(req.body?.paymentMethod || "").trim().toLowerCase()
+      : "upi";
+
+    if (!bookingId) {
+      return res.status(400).json({
+        success: false,
+        message: "bookingId is required.",
+      });
+    }
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found.",
+      });
+    }
+
+    if (String(booking.clientId) !== String(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only create transactions for your own bookings.",
+      });
+    }
+
+    const existingTransaction = await Transaction.findOne({ bookingId });
+    if (existingTransaction) {
+      return res.json({
+        success: true,
+        message: "Transaction already prepared for this booking.",
+        data: {
+          transaction: existingTransaction,
+        },
+      });
+    }
+
+    const [client, provider, settings] = await Promise.all([
+      User.findOne({ _id: req.user._id, role: "client" }),
+      User.findOne({ _id: booking.providerId, role: "provider" }),
+      getPlatformSettings(),
+    ]);
+
+    if (!client || !provider) {
+      return res.status(404).json({
+        success: false,
+        message: "Client or provider profile could not be found.",
+      });
+    }
+
+    const baseAmount = Number(booking.subtotal || booking.price || 0);
+    const clientPlatformFee = Number(
+      booking.platformFee ||
+        (baseAmount * (BOOKING_PLATFORM_FEE_PERCENT / 100)).toFixed(2),
+    );
+    const totalPaidByClient = Number(
+      booking.totalAmount || (baseAmount + clientPlatformFee).toFixed(2),
+    );
+    const breakdown = calculateTransactionBreakdown({
+      baseAmount,
+      commissionPercentage: BOOKING_PLATFORM_FEE_PERCENT,
+    });
+    const services = Array.isArray(booking.selectedServices)
+      ? booking.selectedServices
+      : [];
+
+    const transaction = await Transaction.create({
+      bookingId: booking._id,
+      clientId: client._id,
+      providerId: provider._id,
+      amount: totalPaidByClient,
+      baseAmount,
+      clientPlatformFee,
+      clientFee: clientPlatformFee,
+      providerPlatformFee: breakdown.providerPlatformFee,
+      providerFee: breakdown.providerPlatformFee,
+      totalPaidByClient,
+      totalPaid: totalPaidByClient,
+      netToProvider: breakdown.netToProvider,
+      providerEarn: breakdown.netToProvider,
+      platformRevenue: breakdown.platformRevenue,
+      commissionPercentage: BOOKING_PLATFORM_FEE_PERCENT,
+      currency: settings?.currency || "INR",
+      status:
+        paymentMethod === "cod"
+          ? TRANSACTION_STATUS.PENDING
+          : TRANSACTION_STATUS.PAID,
+      paymentMethod,
+      transactionId: `${paymentMethod.toUpperCase()}-${String(booking._id)
+        .slice(-8)
+        .toUpperCase()}`,
+      clientPaymentSnapshot: buildPaymentSnapshot(client),
+      providerPaymentSnapshot: buildPaymentSnapshot(provider),
+      serviceSnapshot: {
+        serviceId: booking.serviceId,
+        title: services[0]?.title || "",
+        category: services[0]?.category || "",
+        duration: services[0]?.duration || "",
+        locationType: services[0]?.locationType || "offline",
+        services: services.map((service) => ({
+          serviceId: service.serviceId,
+          title: service.title,
+          category: service.category,
+          price: Number(service.price || 0),
+          duration: service.duration || "",
+          locationType: service.locationType || "offline",
+        })),
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Transaction prepared successfully.",
+      data: {
+        transaction,
       },
     });
   } catch (error) {
@@ -411,6 +549,7 @@ const downloadInvoice = async (req, res) => {
 };
 
 module.exports = {
+  createTransaction,
   listTransactions,
   exportTransactions,
   downloadInvoice,

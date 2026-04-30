@@ -33,6 +33,9 @@ const {
   buildPaymentSnapshot,
 } = require("../utils/payment");
 
+const BOOKING_PLATFORM_FEE_PERCENT = 5;
+const BOOKING_DRAFT_EXPIRY_MINUTES = 30;
+
 const BOOKING_POPULATION = [
   {
     path: "providerId",
@@ -100,6 +103,22 @@ const formatDateLabel = (value) => {
     month: "short",
     year: "numeric",
   });
+};
+
+const calculateBookingTotals = (services = []) => {
+  const subtotal = (Array.isArray(services) ? services : []).reduce(
+    (sum, service) => sum + Number(service?.price || 0),
+    0,
+  );
+  const platformFee = Number(
+    (subtotal * (BOOKING_PLATFORM_FEE_PERCENT / 100)).toFixed(2),
+  );
+
+  return {
+    subtotal,
+    platformFee,
+    totalAmount: Number((subtotal + platformFee).toFixed(2)),
+  };
 };
 
 const doesAreaMatch = (provider, targetAddress) => {
@@ -248,10 +267,16 @@ const buildBookingSummaryPayload = (booking) => ({
   bookingDate: booking.bookingDate,
   timeSlot: booking.timeSlot,
   price: booking.price,
+  subtotal: Number(booking.subtotal || booking.price || 0),
+  platformFee: Number(booking.platformFee || 0),
+  totalAmount: Number(
+    booking.totalAmount || booking.subtotal || booking.price || 0,
+  ),
   status: normalizeBookingStatus(booking.status),
   paymentStatus: String(booking.paymentStatus || "pending").toLowerCase(),
   paymentMethod: booking.paymentMethod || "upi",
   selectedServices: booking.selectedServices || [],
+  services: booking.services || [],
 });
 
 const createProviderBookingNotification = async ({
@@ -319,23 +344,32 @@ const createTransactionRecord = async ({
     normalizedMethod === "cod"
       ? TRANSACTION_STATUS.PENDING
       : TRANSACTION_STATUS.PAID;
+  const baseAmount = Number(booking.subtotal || booking.price || 0);
+  const clientPlatformFee = Number(booking.platformFee || 0);
+  const totalPaidByClient = Number(
+    booking.totalAmount || baseAmount + clientPlatformFee,
+  );
   const breakdown = calculateTransactionBreakdown({
-    baseAmount: booking.price,
-    commissionPercentage: Number(settings?.commissionPercentage || 5),
+    baseAmount,
+    commissionPercentage: BOOKING_PLATFORM_FEE_PERCENT,
   });
 
   return Transaction.create({
     bookingId: booking._id,
     clientId: client._id,
     providerId: provider._id,
-    amount: breakdown.totalPaidByClient,
-    baseAmount: breakdown.baseAmount,
-    clientPlatformFee: breakdown.clientPlatformFee,
+    amount: totalPaidByClient,
+    baseAmount,
+    clientPlatformFee,
+    clientFee: clientPlatformFee,
     providerPlatformFee: breakdown.providerPlatformFee,
-    totalPaidByClient: breakdown.totalPaidByClient,
+    providerFee: breakdown.providerPlatformFee,
+    totalPaidByClient,
+    totalPaid: totalPaidByClient,
     netToProvider: breakdown.netToProvider,
+    providerEarn: breakdown.netToProvider,
     platformRevenue: breakdown.platformRevenue,
-    commissionPercentage: breakdown.commissionPercentage,
+    commissionPercentage: BOOKING_PLATFORM_FEE_PERCENT,
     currency,
     status: transactionStatus,
     paymentMethod: normalizedMethod,
@@ -564,9 +598,9 @@ const createBooking = async (req, res) => {
       });
     }
 
-    const totalAmount = services.reduce(
-      (sum, service) => sum + Number(service.price || 0),
-      0,
+    const pricingSummary = calculateBookingTotals(services);
+    const expiresAt = new Date(
+      Date.now() + BOOKING_DRAFT_EXPIRY_MINUTES * 60 * 1000,
     );
 
     const booking = await Booking.create({
@@ -586,10 +620,18 @@ const createBooking = async (req, res) => {
       address: trimmedAddress,
       notes: trimmedNotes,
       requirements: trimmedRequirements,
-      price: totalAmount,
+      services: services.map((service) => ({
+        title: service.title,
+        price: Number(service.price || 0),
+      })),
+      price: pricingSummary.subtotal,
+      subtotal: pricingSummary.subtotal,
+      platformFee: pricingSummary.platformFee,
+      totalAmount: pricingSummary.totalAmount,
       status: BOOKING_STATUS.PENDING_PAYMENT,
       paymentStatus: "pending",
       paymentMethod: "upi",
+      expiresAt,
     });
 
     const hydratedBooking = await hydrateBooking(booking._id);
@@ -760,11 +802,15 @@ const confirmBookingPayment = async (req, res) => {
     }
 
     const { id } = req.params;
+    const requestedBookingId = id || req.body?.bookingId;
     const requestedPaymentMethod = normalizePaymentMethod(
       req.body?.paymentMethod,
     );
 
-    const booking = await Booking.findById(id).populate("clientId", "name");
+    const booking = await Booking.findById(requestedBookingId).populate(
+      "clientId",
+      "name",
+    );
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -787,6 +833,17 @@ const confirmBookingPayment = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: "This booking is no longer waiting for payment.",
+      });
+    }
+
+    if (booking.expiresAt && new Date(booking.expiresAt).getTime() < Date.now()) {
+      booking.status = BOOKING_STATUS.CANCELLED;
+      booking.paymentStatus = "failed";
+      await booking.save();
+
+      return res.status(409).json({
+        success: false,
+        message: "This booking draft expired. Please start checkout again.",
       });
     }
 
@@ -854,15 +911,9 @@ const confirmBookingPayment = async (req, res) => {
       });
     }
 
-    const existingTransaction = await Transaction.findOne({
+    let existingTransaction = await Transaction.findOne({
       bookingId: booking._id,
     });
-    if (existingTransaction) {
-      return res.status(409).json({
-        success: false,
-        message: "Payment has already been recorded for this booking.",
-      });
-    }
 
     const settings = await getPlatformSettings();
     const services = booking.selectedServices?.length
@@ -883,17 +934,40 @@ const confirmBookingPayment = async (req, res) => {
     booking.paymentMethod = requestedPaymentMethod;
     booking.paymentStatus =
       requestedPaymentMethod === "cod" ? "pending" : "paid";
+    booking.expiresAt = null;
     await booking.save();
 
-    const transaction = await createTransactionRecord({
-      booking,
-      client,
-      provider,
-      paymentMethod: requestedPaymentMethod,
-      services,
-      settings,
-      currency: settings?.currency || "INR",
-    });
+    if (!existingTransaction) {
+      existingTransaction = await createTransactionRecord({
+        booking,
+        client,
+        provider,
+        paymentMethod: requestedPaymentMethod,
+        services,
+        settings,
+        currency: settings?.currency || "INR",
+      });
+    } else {
+      existingTransaction.paymentMethod = requestedPaymentMethod;
+      existingTransaction.status =
+        requestedPaymentMethod === "cod"
+          ? TRANSACTION_STATUS.PENDING
+          : TRANSACTION_STATUS.PAID;
+      existingTransaction.baseAmount = Number(
+        booking.subtotal || booking.price || 0,
+      );
+      existingTransaction.clientPlatformFee = Number(booking.platformFee || 0);
+      existingTransaction.clientFee = existingTransaction.clientPlatformFee;
+      existingTransaction.totalPaidByClient = Number(
+        booking.totalAmount ||
+          existingTransaction.totalPaidByClient ||
+          existingTransaction.amount ||
+          0,
+      );
+      existingTransaction.totalPaid = existingTransaction.totalPaidByClient;
+      existingTransaction.amount = existingTransaction.totalPaidByClient;
+      await existingTransaction.save();
+    }
 
     await createProviderBookingNotification({
       booking,
@@ -915,7 +989,7 @@ const confirmBookingPayment = async (req, res) => {
       booking: hydratedBooking,
       clientUserId: req.user._id,
       providerUserId: provider._id,
-      transaction,
+      transaction: existingTransaction,
     });
 
     return res.json({
@@ -926,7 +1000,7 @@ const confirmBookingPayment = async (req, res) => {
           : "Payment confirmed and booking request sent to the provider.",
       data: {
         booking: hydratedBooking,
-        transaction,
+        transaction: existingTransaction,
       },
     });
   } catch (error) {
@@ -937,6 +1011,8 @@ const confirmBookingPayment = async (req, res) => {
     });
   }
 };
+
+const confirmBookingCheckout = (req, res) => confirmBookingPayment(req, res);
 
 const updateBookingStatus = async (req, res) => {
   try {
@@ -1303,9 +1379,11 @@ const createBookingDispute = async (req, res) => {
 
 module.exports = {
   createBooking,
+  createBookingDraft: createBooking,
   getMyBookings,
   getBookingById,
   confirmBookingPayment,
+  confirmBookingCheckout,
   updateBookingStatus,
   createBookingReview,
   createBookingDispute,

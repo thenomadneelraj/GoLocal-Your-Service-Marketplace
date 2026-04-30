@@ -67,6 +67,12 @@ const isSameLocalDay = (left, right) =>
   left.getMonth() === right.getMonth() &&
   left.getDate() === right.getDate();
 
+const roundCurrency = (value = 0) => Number(Number(value || 0).toFixed(2));
+const isRevenueTransaction = (value = "") => {
+  const normalized = normalizeTransactionStatus(value);
+  return normalized === "paid" || normalized === "pending";
+};
+
 const toSettlementRecord = (transaction, commissionPercentage = 10) => {
   const amount = toNumber(transaction.baseAmount || transaction.amount);
   const commission =
@@ -104,6 +110,51 @@ const toSettlementRecord = (transaction, commissionPercentage = 10) => {
   };
 };
 
+const toBookingSettlementFallback = (booking, commissionPercentage = 10) => {
+  const amount = toNumber(booking.subtotal || booking.price || 0);
+  const commission = roundCurrency(
+    amount * (Number(commissionPercentage || 10) / 100),
+  );
+  const netAmount = Math.max(0, roundCurrency(amount - commission));
+  const paymentStatus = String(booking.paymentStatus || "").trim().toLowerCase();
+  const normalizedBookingStatus = normalizeBookingStatus(booking.status);
+  const status =
+    paymentStatus === "paid" ||
+    (String(booking.paymentMethod || "").toLowerCase() === "cod" &&
+      normalizedBookingStatus === BOOKING_STATUS.COMPLETED)
+      ? "paid"
+      : "pending";
+
+  return {
+    id: `booking-${booking._id}`,
+    amount,
+    commission,
+    netAmount,
+    status,
+    createdAt: booking.createdAt,
+    payoutDate: status === "paid" ? booking.createdAt : null,
+    paymentMethod: booking.paymentMethod || "upi",
+    bookingId: booking._id,
+    serviceTitle:
+      booking.selectedServices
+        ?.map((service) => service.title)
+        .filter(Boolean)
+        .join(", ") ||
+      booking.serviceId?.title ||
+      booking.serviceId?.name ||
+      "Service",
+    clientPaid: toNumber(
+      booking.totalAmount || booking.subtotal || booking.price || 0,
+    ),
+    clientPlatformFee: toNumber(booking.platformFee || 0),
+    providerPlatformFee: commission,
+    providerUpiId: "",
+    providerBankName: "",
+    clientUpiId: "",
+    clientBankName: "",
+  };
+};
+
 const build7DaySeries = (records = []) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -121,7 +172,7 @@ const build7DaySeries = (records = []) => {
   const seriesMap = new Map(buckets.map((bucket) => [bucket.key, bucket]));
 
   records.forEach((record) => {
-    if (!isPaidTransaction(record.status)) return;
+    if (!isRevenueTransaction(record.status)) return;
     const createdAt = new Date(record.createdAt);
     createdAt.setHours(0, 0, 0, 0);
     const bucket = seriesMap.get(getDayKey(createdAt));
@@ -147,7 +198,7 @@ const build6MonthSeries = (records = []) => {
   const seriesMap = new Map(buckets.map((bucket) => [bucket.key, bucket]));
 
   records.forEach((record) => {
-    if (!isPaidTransaction(record.status)) return;
+    if (!isRevenueTransaction(record.status)) return;
     const bucket = seriesMap.get(getMonthKey(new Date(record.createdAt)));
     if (bucket) {
       bucket.amount += toNumber(record.netAmount);
@@ -230,27 +281,62 @@ const loadProviderData = async (providerId, commissionPercentage, options = {}) 
 
   // Fetch bookings with limited fields for performance
   const bookings = await Booking.find(bookingQuery)
-    .select("_id providerId clientId serviceId status bookingDate timeSlot price createdAt review")
+    .select("_id providerId clientId serviceId status bookingDate timeSlot price subtotal platformFee totalAmount paymentStatus paymentMethod selectedServices createdAt review")
     .populate(populateClients ? "clientId" : "", "name profileImage")
     .populate(populateServices ? "serviceId" : "", "title category price name")
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
 
-  const bookingIds = bookings.map((booking) => booking._id);
+  const transactionQuery = { providerId };
+  if (dateRange) {
+    transactionQuery.createdAt = { $gte: dateRange.start, $lte: dateRange.end };
+  }
 
-  // Fetch transactions only if there are bookings
-  const transactions = bookingIds.length
-    ? await Transaction.find({ bookingId: { $in: bookingIds } })
-        .select("_id bookingId status amount baseAmount netToProvider providerPlatformFee clientPlatformFee totalPaidByClient paymentMethod createdAt transactionId serviceSnapshot providerPaymentSnapshot clientPaymentSnapshot")
-        .sort({ createdAt: -1 })
-        .lean()
-    : [];
+  const transactions = await Transaction.find(transactionQuery)
+    .select("_id bookingId providerId status amount baseAmount netToProvider providerPlatformFee clientPlatformFee totalPaidByClient paymentMethod createdAt transactionId serviceSnapshot providerPaymentSnapshot clientPaymentSnapshot")
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const transactionBookingIds = new Set(
+    transactions
+      .map((transaction) => String(transaction.bookingId || ""))
+      .filter(Boolean),
+  );
+
+  const fallbackTransactions = bookings
+    .filter((booking) => {
+      const bookingId = String(booking._id || "");
+      if (!bookingId || transactionBookingIds.has(bookingId)) {
+        return false;
+      }
+
+      const paymentStatus = String(booking.paymentStatus || "")
+        .trim()
+        .toLowerCase();
+      const paymentMethod = String(booking.paymentMethod || "")
+        .trim()
+        .toLowerCase();
+      const bookingStatus = normalizeBookingStatus(booking.status);
+
+      return (
+        paymentStatus === "paid" ||
+        (paymentMethod === "cod" && bookingStatus === BOOKING_STATUS.COMPLETED)
+      );
+    })
+    .map((booking) => toBookingSettlementFallback(booking, commissionPercentage));
 
   return {
     bookings,
-    transactions: transactions.map((transaction) =>
-      toSettlementRecord(transaction, commissionPercentage)
+    transactions: [
+      ...transactions.map((transaction) =>
+        toSettlementRecord(transaction, commissionPercentage)
+      ),
+      ...fallbackTransactions,
+    ].sort(
+      (left, right) =>
+        new Date(right.createdAt || 0).getTime() -
+        new Date(left.createdAt || 0).getTime(),
     ),
   };
 };
@@ -335,7 +421,7 @@ const getProviderDashboard = async (req, res) => {
             (booking) => normalizeBookingStatus(booking.status) === BOOKING_STATUS.PENDING
           ).length,
           totalIncome: transactions
-            .filter((transaction) => isPaidTransaction(transaction.status))
+            .filter((transaction) => isRevenueTransaction(transaction.status))
             .reduce((total, transaction) => total + toNumber(transaction.netAmount), 0),
           totalClients: distinctClients.size,
         },
@@ -469,7 +555,7 @@ const getProviderPayouts = async (req, res) => {
     const total = transactions.length;
     const items = transactions.slice((page - 1) * limit, (page - 1) * limit + limit);
     const totalEarnings = transactions
-      .filter((transaction) => isPaidTransaction(transaction.status))
+      .filter((transaction) => isRevenueTransaction(transaction.status))
       .reduce((sum, transaction) => sum + toNumber(transaction.netAmount), 0);
     const pendingAmount = transactions
       .filter((transaction) => isPendingTransaction(transaction.status))

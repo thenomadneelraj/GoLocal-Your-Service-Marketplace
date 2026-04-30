@@ -14,6 +14,7 @@ router.use(
 );
 
 router.get("/", transactionController.listTransactions);
+router.post("/create", transactionController.createTransaction);
 router.get("/export", transactionController.exportTransactions);
 router.get("/:id/invoice", transactionController.downloadInvoice);
 

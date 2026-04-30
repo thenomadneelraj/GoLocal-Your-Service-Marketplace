@@ -6,6 +6,7 @@ import {
   Clock,
   Mail,
   MapPin,
+  MessageSquare,
   Phone,
   RefreshCcw,
   Search,
@@ -28,6 +29,7 @@ import DataOriginBadge from "@/components/shared/DataOriginBadge";
 import { mergeLayeredCollections } from "@/lib/dataLayering";
 import { mockProviderBookings } from "@/lib/mockWorkspaceData";
 import { useBookingUpdates } from "@/components/contexts/WebSocketContext";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const STATUS_STYLES = {
   pending: "bg-amber-500/10 text-amber-600 border-amber-500/20",
@@ -60,34 +62,54 @@ const getInitials = (value = "") =>
     .map((part) => part[0]?.toUpperCase() || "")
     .join("") || "C";
 
-const getStatusLabel = (status = "") =>
-  String(normalizeBookingStatus(status) || "unknown");
-
 const normalizeBooking = (item = {}) => {
   const client = item.clientId || {};
   const clientUser = client.userId || {};
   const provider = item.providerId || {};
   const service = item.serviceId || {};
+  const selectedServices = Array.isArray(item.selectedServices)
+    ? item.selectedServices.filter((selectedService) => selectedService?.title)
+    : [];
+  const serviceTitle = selectedServices.length
+    ? selectedServices.map((selectedService) => selectedService.title).join(", ")
+    : service.title || service.name || provider.serviceType || "Service";
+  const serviceCategory = selectedServices.length
+    ? [
+        ...new Set(
+          selectedServices
+            .map((selectedService) => selectedService.category)
+            .filter(Boolean)
+        ),
+      ].join(", ")
+    : service.category || provider.serviceType || "";
 
   return {
     id: item._id || item.id,
+    clientId: client._id || client.id || client.userId?._id || client.userId?.id || "",
     clientName: client.name || "Client",
     clientEmail: clientUser.email || "",
     clientPhone: client.phone || "",
     clientAddress: item.address || client.address || "",
     clientPhoto: client.profileImage || client.profilePhoto || "",
-    serviceTitle: service.title || service.name || provider.serviceType || "Service",
-    serviceCategory: service.category || provider.serviceType || "",
+    serviceTitle,
+    serviceCategory,
+    selectedServices,
     bookingDate: item.bookingDate || "",
     timeSlot: item.timeSlot || "Flexible",
     status: normalizeBookingStatus(item.status) || BOOKING_STATUS.PENDING,
     price: Number(item.price || service.price || 0),
+    subtotal: Number(item.subtotal || item.price || service.price || 0),
+    platformFee: Number(item.platformFee || 0),
+    totalAmount: Number(item.totalAmount || item.subtotal || item.price || 0),
+    paymentMethod: String(item.paymentMethod || "upi").toUpperCase(),
     createdAt: item.createdAt || "",
   };
 };
 
 export default function ProviderBookings() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const providerAccess = getAccountAccessState(user);
   const canRespondToBookings = providerAccess.canRespondToBookings;
   const [bookings, setBookings] = useState([]);
@@ -206,6 +228,30 @@ export default function ProviderBookings() {
         );
     });
   }, [activeTab, layeredBookings, searchQuery]);
+
+  useEffect(() => {
+    const requestedBookingId = String(searchParams.get("bookingId") || "").trim();
+    const openMode = String(searchParams.get("open") || "").trim().toLowerCase();
+
+    if (!requestedBookingId || openMode !== "details" || !layeredBookings.length) {
+      return;
+    }
+
+    const matchingBooking = layeredBookings.find(
+      (booking) => String(booking.id) === requestedBookingId,
+    );
+
+    if (!matchingBooking) {
+      return;
+    }
+
+    setSelectedBooking(matchingBooking);
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("bookingId");
+    nextParams.delete("open");
+    setSearchParams(nextParams, { replace: true });
+  }, [layeredBookings, searchParams, setSearchParams]);
 
   const handleStatusUpdate = async (bookingId, nextStatus) => {
     if (!canRespondToBookings) {
@@ -419,15 +465,31 @@ export default function ProviderBookings() {
                     </div>
                     <div className="hidden md:block">
                       <p className="text-[8px] uppercase tracking-widest text-muted-foreground font-bold mb-1 opacity-60">
-                        Value
+                        Total
                       </p>
                       <p className="text-lg font-black text-emerald-600 leading-none italic">
-                        {formatCurrency(booking.price)}
+                        {formatCurrency(booking.totalAmount)}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
+                    {!isMockBooking &&
+                    booking.clientId &&
+                    !["cancelled", "rejected"].includes(booking.status) ? (
+                      <Button
+                        variant="outline"
+                        className="rounded-xl h-9 px-4 text-[10px] font-bold uppercase tracking-widest border-border/60 hover:bg-sky-500/10 hover:text-sky-600 transition-all shadow-xs"
+                        onClick={() =>
+                          navigate(
+                            `/provider/chat?client=${encodeURIComponent(booking.clientId)}`,
+                          )
+                        }
+                      >
+                        <MessageSquare size={14} className="mr-1.5" />
+                        Chat
+                      </Button>
+                    ) : null}
                     <Button
                       variant="outline"
                       className="rounded-xl h-9 px-4 text-[10px] font-bold uppercase tracking-widest border-border/60 hover:bg-muted/50 transition-all shadow-xs"
@@ -598,13 +660,16 @@ export default function ProviderBookings() {
                       </div>
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
-                          Booking value
+                          Amounts
                         </p>
                         <p className="mt-2 text-sm font-semibold text-emerald-600">
-                          {formatCurrency(selectedBooking.price)}
+                          Total {formatCurrency(selectedBooking.totalAmount)}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          {selectedBooking.serviceCategory || "General service"}
+                          Subtotal {formatCurrency(selectedBooking.subtotal)} | Fee {formatCurrency(selectedBooking.platformFee)}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {selectedBooking.serviceCategory || "General service"} | {selectedBooking.paymentMethod}
                         </p>
                       </div>
                     </div>
@@ -623,6 +688,23 @@ export default function ProviderBookings() {
                   </div>
 
                   <div className="flex flex-wrap gap-3">
+                    {selectedBooking.dataOrigin !== "mock" &&
+                    selectedBooking.clientId &&
+                    !["cancelled", "rejected"].includes(selectedBooking.status) ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl border-border/60"
+                        onClick={() =>
+                          navigate(
+                            `/provider/chat?client=${encodeURIComponent(selectedBooking.clientId)}`,
+                          )
+                        }
+                      >
+                        <MessageSquare size={16} className="mr-2" />
+                        Open Chat
+                      </Button>
+                    ) : null}
                     {selectedBooking.dataOrigin === "mock" ? (
                       <div className="flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-300">
                         <Clock size={15} />

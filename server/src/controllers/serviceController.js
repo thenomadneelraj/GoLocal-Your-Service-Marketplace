@@ -37,14 +37,18 @@ const syncProviderServices = async (providerId) => {
   const prices = activeServices
     .map((service) => Number(service.price || 0))
     .filter((price) => price > 0);
-  const primaryCategory = categories[0] || activeServices[0]?.title || "Other";
+  const visibleCategories = categories.filter(
+    (category) => category.toLowerCase() !== "other",
+  );
+  const primaryCategory =
+    visibleCategories[0] || categories[0] || activeServices[0]?.title || "Other";
 
   await User.findOneAndUpdate(
     { _id: providerId, role: "provider" },
     {
       services: services.map((service) => service._id),
       works,
-      workCategories: categories.length ? categories : ["Other"],
+      workCategories: visibleCategories.length ? visibleCategories : [],
       serviceType: primaryCategory,
       hourlyRate: prices.length ? Math.min(...prices) : 0,
     },
@@ -90,18 +94,30 @@ const createService = async (req, res) => {
         : "offline";
     const price = Number(req.body?.price || 0);
 
-    if (!title || !description || !category || !Number.isFinite(price) || price <= 0) {
+    if (!title || !category || !Number.isFinite(price) || price <= 0) {
       return res.status(400).json({
         success: false,
         message:
-          "title, description, category, and a valid price are required.",
+          "title, category, and a valid price are required.",
+      });
+    }
+
+    const existingService = await Service.findOne({
+      providerId: req.user._id,
+      category: new RegExp(`^${category.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"),
+    });
+
+    if (existingService) {
+      return res.status(409).json({
+        success: false,
+        message: `${category} already exists. Edit its rate instead of adding it again.`,
       });
     }
 
     const service = await Service.create({
       providerId: req.user._id,
       title,
-      description,
+      description: description || `${category} service offered by this provider.`,
       category,
       status,
       duration,
@@ -140,14 +156,29 @@ const updateService = async (req, res) => {
       });
     }
 
-    const fields = [
-      "title",
-      "description",
-      "category",
-      "duration",
-      "status",
-      "locationType",
-    ];
+    const requestedCategory =
+      req.body?.category !== undefined
+        ? String(req.body.category || "").trim()
+        : service.category;
+
+    const conflictingService = await Service.findOne({
+      _id: { $ne: service._id },
+      providerId: req.user._id,
+      category: new RegExp(
+        `^${String(requestedCategory || "")
+          .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+        "i",
+      ),
+    });
+
+    if (requestedCategory && conflictingService) {
+      return res.status(409).json({
+        success: false,
+        message: `${requestedCategory} already exists. Update the existing service instead.`,
+      });
+    }
+
+    const fields = ["title", "description", "category", "duration", "status", "locationType"];
 
     fields.forEach((field) => {
       if (req.body?.[field] !== undefined) {

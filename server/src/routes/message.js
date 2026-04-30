@@ -7,8 +7,10 @@ const {
   listConversations,
   getConversationThread,
   getMessageContact,
+  getConversationWithUser,
   sendMessage,
   markConversationRead,
+  markConversationWithUserRead,
 } = require("../controllers/messageController");
 
 router.use(
@@ -39,5 +41,7 @@ router.post("/", enforceApprovedMessaging, sendMessage);
 router.get("/contact/:userId", enforceApprovedMessaging, getMessageContact);
 router.get("/booking/:bookingId", enforceApprovedMessaging, getConversationThread);
 router.put("/booking/:bookingId/read", enforceApprovedMessaging, markConversationRead);
+router.get("/:userId", enforceApprovedMessaging, getConversationWithUser);
+router.put("/:userId/read", enforceApprovedMessaging, markConversationWithUserRead);
 
 module.exports = router;

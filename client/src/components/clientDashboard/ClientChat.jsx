@@ -8,6 +8,7 @@ import {
   Paperclip,
   Smile,
   CheckCheck,
+  Check,
   Circle,
   MessageSquare,
   ShieldCheck,
@@ -78,6 +79,23 @@ export default function ClientChat() {
   const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef(null);
 
+  useEffect(() => {
+    if (contactParam) {
+      setActiveUserId(contactParam);
+    }
+  }, [contactParam]);
+
+  const fetchContactProfile = useCallback(async (otherUserId) => {
+    if (!otherUserId || !canUseChat) return null;
+    try {
+      const res = await api.get(`/api/messages/contact/${otherUserId}`);
+      return res.data?.data || null;
+    } catch (err) {
+      console.error("Failed to load contact profile:", err);
+      return null;
+    }
+  }, [canUseChat]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -104,6 +122,20 @@ export default function ClientChat() {
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
+
+  useEffect(() => {
+    if (activeUserId || loadingConvos || !conversations.length) {
+      return;
+    }
+
+    const firstConversationUserId = conversations[0]?.participant?.userId;
+    if (!firstConversationUserId) {
+      return;
+    }
+
+    setActiveUserId(firstConversationUserId);
+    setParticipant(conversations[0]?.participant || null);
+  }, [activeUserId, conversations, loadingConvos]);
 
   // Load messages for active conversation
   const fetchMessages = useCallback(async (otherUserId) => {
@@ -136,6 +168,48 @@ export default function ClientChat() {
       fetchMessages(activeUserId);
     }
   }, [activeUserId, fetchMessages]);
+
+  useEffect(() => {
+    if (!activeUserId || participant?.userId === activeUserId) return;
+
+    let cancelled = false;
+    fetchContactProfile(activeUserId).then((profile) => {
+      if (cancelled || !profile) return;
+
+      setParticipant(profile);
+      setConversations((prev) => {
+        const exists = prev.some(
+          (conversation) => conversation.participant?.userId === profile.userId,
+        );
+
+        if (exists) {
+          return prev.map((conversation) =>
+            conversation.participant?.userId === profile.userId
+              ? {
+                  ...conversation,
+                  participant: { ...conversation.participant, ...profile },
+                }
+              : conversation,
+          );
+        }
+
+        return [
+          {
+            participant: profile,
+            unreadCount: 0,
+            bookingId: conversationId || null,
+            lastMessage: null,
+            lastMessageAt: null,
+          },
+          ...prev,
+        ];
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUserId, participant?.userId, fetchContactProfile, conversationId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -279,10 +353,11 @@ export default function ClientChat() {
   );
 
   return (
-    <div className="h-[calc(100vh-160px)] flex bg-card/40 border border-border/60 rounded-[3rem] overflow-hidden backdrop-blur-xl">
+    <div className="flex min-h-0 flex-1 pt-6 md:pt-8">
+      <div className="flex min-h-0 flex-1 bg-card/40 border border-border/60 rounded-[3rem] overflow-hidden backdrop-blur-xl">
       {/* Sidebar */}
-      <aside className="w-96 border-r border-border/60 flex flex-col bg-muted/10">
-        <div className="p-8 border-b border-border/60">
+      <aside className="flex min-h-0 w-96 flex-col border-r border-border/60 bg-muted/10">
+        <div className="shrink-0 border-b border-border/60 p-8">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">
@@ -310,7 +385,7 @@ export default function ClientChat() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
+        <div className="custom-scrollbar flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
           {loadingConvos ? (
             <div className="flex items-center justify-center py-10">
               <Loader2 className="animate-spin text-primary" size={24} />
@@ -377,7 +452,9 @@ export default function ClientChat() {
                         isActive ? "text-white/80" : "text-muted-foreground"
                       }`}
                     >
-                      {convo.lastMessage?.content || "No messages yet"}
+                      {convo.participant?.serviceType ||
+                        convo.lastMessage?.content ||
+                        "No messages yet"}
                     </p>
                   </div>
 
@@ -394,7 +471,7 @@ export default function ClientChat() {
       </aside>
 
       {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col bg-card/20 relative overflow-hidden">
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-card/20">
         {!activeUserId ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground">
             <MessageSquare size={64} className="mb-4 opacity-20" />
@@ -408,7 +485,7 @@ export default function ClientChat() {
         ) : (
           <>
             {/* Header */}
-            <div className="p-8 border-b border-border/60 flex items-center justify-between bg-card/60 backdrop-blur-md relative z-10">
+            <div className="relative z-10 flex shrink-0 items-center justify-between border-b border-border/60 bg-card/60 p-8 backdrop-blur-md">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 shadow-sm overflow-hidden">
                   {participant?.profilePhoto ? (
@@ -429,6 +506,14 @@ export default function ClientChat() {
                     <span className="capitalize">
                       {participant?.serviceType || participant?.role || ""}
                     </span>
+                    {participant?.location ? (
+                      <>
+                        <span className="opacity-40">•</span>
+                        <span className="normal-case tracking-normal font-semibold">
+                          {participant.location}
+                        </span>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -444,7 +529,7 @@ export default function ClientChat() {
             </div>
 
             {/* Messages Feed */}
-            <div className="flex-1 overflow-y-auto p-10 space-y-4 custom-scrollbar">
+            <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-10 space-y-4">
               {loadingMessages ? (
                 <div className="flex items-center justify-center py-10">
                   <Loader2 className="animate-spin text-primary" size={28} />
@@ -462,42 +547,52 @@ export default function ClientChat() {
                   return (
                     <div
                       key={msg.id}
-                      className={`flex items-end gap-3 ${
-                        isMe ? "flex-row-reverse" : ""
-                      }`}
+                      className={`flex ${isMe ? "justify-end" : "justify-start"}`}
                     >
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold border shrink-0 ${
-                          isMe
-                            ? "bg-primary/20 border-primary/30 text-primary"
-                            : "bg-muted/60 border-border/40 text-muted-foreground"
-                        }`}
-                      >
-                        {isMe
-                          ? getInitials(user?.name)
-                          : getInitials(participant?.name)}
-                      </div>
-                      <div
-                        className={`max-w-md group relative ${
-                          isMe ? "items-end text-right" : "items-start"
-                        }`}
-                      >
+                      <div className="group/msg relative max-w-[75%]">
                         <div
-                          className={`p-5 rounded-[1.8rem] text-sm leading-relaxed shadow-sm transition-all hover:shadow-md ${
+                          className={`rounded-2xl p-4 shadow-sm ${
                             isMe
-                              ? "bg-primary text-white rounded-br-none"
-                              : "bg-muted/80 backdrop-blur-md text-foreground rounded-bl-none border border-border/40"
+                              ? "bg-primary text-white rounded-tr-sm"
+                              : "border border-border/60 bg-muted/50 text-foreground rounded-tl-sm backdrop-blur-sm"
                           }`}
                         >
-                          {msg.content}
-                        </div>
-                        <div className="flex items-center gap-2 mt-2 px-1">
-                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                            {formatMessageTime(msg.createdAt)}
-                          </span>
-                          {isMe && msg.read && (
-                            <CheckCheck size={14} className="text-primary/70" />
-                          )}
+                          <p className="text-sm font-medium leading-relaxed">
+                            {msg.content}
+                          </p>
+                          <div
+                            className={`mt-2 flex items-center gap-1.5 ${
+                              isMe ? "justify-end" : "justify-start"
+                            }`}
+                          >
+                            <span
+                              className={`text-[10px] font-semibold ${
+                                isMe
+                                  ? "text-white/75"
+                                  : "text-muted-foreground/80"
+                              }`}
+                            >
+                              {isMe ? "You" : getInitials(participant?.name)}
+                            </span>
+                            <span
+                              className={`text-[8px] font-bold uppercase tracking-widest ${
+                                isMe
+                                  ? "text-white/60"
+                                  : "text-muted-foreground opacity-60"
+                              }`}
+                            >
+                              {formatMessageTime(msg.createdAt)}
+                            </span>
+                            {isMe &&
+                              (msg.read ? (
+                                <CheckCheck
+                                  size={10}
+                                  className="text-white/80"
+                                />
+                              ) : (
+                                <Check size={10} className="text-white/40" />
+                              ))}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -508,7 +603,7 @@ export default function ClientChat() {
             </div>
 
             {/* Input Area */}
-            <div className="p-8 bg-card/80 backdrop-blur-lg border-t border-border/60 relative z-10">
+            <div className="relative z-10 shrink-0 border-t border-border/60 bg-card/80 p-8 backdrop-blur-lg">
               <div className="flex items-center gap-3 bg-muted/40 border border-border/60 p-2 pl-6 rounded-[2rem] focus-within:ring-4 focus-within:ring-primary/10 focus-within:bg-background/80 transition-all overflow-hidden">
                 <button className="text-muted-foreground hover:text-primary transition-all">
                   <Smile size={20} />
@@ -543,6 +638,7 @@ export default function ClientChat() {
           </>
         )}
       </main>
+      </div>
     </div>
   );
 }

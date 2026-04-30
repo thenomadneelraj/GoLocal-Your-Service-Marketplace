@@ -324,7 +324,11 @@ export default function ClientBookings() {
             const providerName = booking.providerId?.name || "Provider";
             const serviceTitle =
               booking.serviceId?.title || booking.serviceTitle || "Service";
-            const price = Number(booking.price || 0);
+            const subtotal = Number(booking.subtotal || booking.price || 0);
+            const platformFee = Number(booking.platformFee || 0);
+            const totalAmount = Number(
+              booking.totalAmount || booking.subtotal || booking.price || 0,
+            );
             const isCancelling = cancellingId === id;
             const isMockBooking = booking.dataOrigin === "mock";
 
@@ -389,10 +393,13 @@ export default function ClientBookings() {
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">
-                        Cost
+                        Total
                       </p>
                       <p className="text-lg font-bold text-primary">
-                        ₹{price.toLocaleString("en-IN")}
+                        ₹{totalAmount.toLocaleString("en-IN")}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Subtotal ₹{subtotal.toLocaleString("en-IN")} | Fee ₹{platformFee.toLocaleString("en-IN")}
                       </p>
                     </div>
                     <div className="hidden md:block">
@@ -435,7 +442,7 @@ export default function ClientBookings() {
                       </>
                     )}
                     {!isMockBooking &&
-                      (status === "accepted" || status === "completed") && (
+                      !["cancelled", "rejected"].includes(status) && (
                         <Button
                           variant="outline"
                           size="sm"
